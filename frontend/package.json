@@ -1,0 +1,30 @@
+{
+  "name": "insulin-and-coffee-frontend",
+  "version": "0.1.0",
+  "scripts": {
+    "ng": "node ./node_modules/@angular/cli/bin/ng.js",
+    "start": "node ./node_modules/@angular/cli/bin/ng.js serve",
+    "build": "node ./node_modules/@angular/cli/bin/ng.js build",
+    "test": "node ./node_modules/@angular/cli/bin/ng.js test"
+  },
+  "private": true,
+  "dependencies": {
+    "@angular/animations": "^18.2.13",
+    "@angular/common": "^18.2.13",
+    "@angular/compiler": "^18.2.13",
+    "@angular/core": "^18.2.13",
+    "@angular/forms": "^18.2.13",
+    "@angular/platform-browser": "^18.2.13",
+    "@angular/platform-browser-dynamic": "^18.2.13",
+    "@angular/router": "^18.2.13",
+    "rxjs": "~7.8.1",
+    "tslib": "^2.8.1",
+    "zone.js": "~0.14.10"
+  },
+  "devDependencies": {
+    "@angular-devkit/build-angular": "^18.2.7",
+    "@angular/cli": "^18.2.7",
+    "@angular/compiler-cli": "^18.2.13",
+    "typescript": "~5.5.4"
+  }
+}

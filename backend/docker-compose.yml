@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: insulin-coffee-postgres
+    environment:
+      POSTGRES_DB: insulin_coffee
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "55432:5432"
+    volumes:
+      - insulin_coffee_pgdata:/var/lib/postgresql/data
+
+volumes:
+  insulin_coffee_pgdata:
