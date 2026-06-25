@@ -1,18 +1,16 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-COPY InsulinAndCoffee.sln ./
-COPY backend/src/InsulinAndCoffee.Api/InsulinAndCoffee.Api.csproj backend/src/InsulinAndCoffee.Api/
-COPY backend/src/InsulinAndCoffee.Application/InsulinAndCoffee.Application.csproj backend/src/InsulinAndCoffee.Application/
-COPY backend/src/InsulinAndCoffee.Domain/InsulinAndCoffee.Domain.csproj backend/src/InsulinAndCoffee.Domain/
-COPY backend/src/InsulinAndCoffee.Infrastructure/InsulinAndCoffee.Infrastructure.csproj backend/src/InsulinAndCoffee.Infrastructure/
-COPY backend/tests/InsulinAndCoffee.Application.Tests/InsulinAndCoffee.Application.Tests.csproj backend/tests/InsulinAndCoffee.Application.Tests/
+COPY src/InsulinAndCoffee.Api/InsulinAndCoffee.Api.csproj src/InsulinAndCoffee.Api/
+COPY src/InsulinAndCoffee.Application/InsulinAndCoffee.Application.csproj src/InsulinAndCoffee.Application/
+COPY src/InsulinAndCoffee.Domain/InsulinAndCoffee.Domain.csproj src/InsulinAndCoffee.Domain/
+COPY src/InsulinAndCoffee.Infrastructure/InsulinAndCoffee.Infrastructure.csproj src/InsulinAndCoffee.Infrastructure/
 
-RUN dotnet restore backend/src/InsulinAndCoffee.Api/InsulinAndCoffee.Api.csproj
+RUN dotnet restore src/InsulinAndCoffee.Api/InsulinAndCoffee.Api.csproj
 
-COPY backend/src backend/src
+COPY src/ src/
 
-RUN dotnet publish backend/src/InsulinAndCoffee.Api/InsulinAndCoffee.Api.csproj \
+RUN dotnet publish src/InsulinAndCoffee.Api/InsulinAndCoffee.Api.csproj \
     --configuration Release \
     --no-restore \
     --output /app/publish
@@ -20,8 +18,10 @@ RUN dotnet publish backend/src/InsulinAndCoffee.Api/InsulinAndCoffee.Api.csproj 
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 
-ENV ASPNETCORE_ENVIRONMENT=Production
+ENV ASPNETCORE_URLS=http://+:8080
 
 COPY --from=build /app/publish .
 
-ENTRYPOINT ["sh", "-c", "dotnet InsulinAndCoffee.Api.dll --urls http://0.0.0.0:${PORT:-8080}"]
+EXPOSE 8080
+
+ENTRYPOINT ["dotnet", "InsulinAndCoffee.Api.dll"]
