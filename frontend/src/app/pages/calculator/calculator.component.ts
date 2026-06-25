@@ -39,10 +39,10 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
 
         @if (directMode) {
           <div class="card">
-            <p class="pill">Ask Past Me</p>
+            <p class="pill">Delivery meal</p>
             <h2>{{ directFoodName }}</h2>
             <div class="grid two">
-              <div class="stat"><span>Known carbs</span><strong>{{ directCarbs | number:'1.0-1' }} g</strong></div>
+              <div class="stat"><span>Recorded carbs</span><strong>{{ directCarbs | number:'1.0-1' }} g</strong></div>
               <div class="stat"><span>Usual insulin</span><strong>{{ form.controls.confirmedBolus.value | number:'1.0-2' }} u</strong></div>
             </div>
           </div>
@@ -178,16 +178,16 @@ export class CalculatorComponent implements OnInit {
     this.api.getFoods().subscribe((foods) => this.foods = foods);
     this.form.valueChanges.subscribe(() => this.calculate());
     const previousMeal = history.state?.meal;
-    const knownMeal = history.state?.knownMeal;
-    if (knownMeal) {
+    const deliveryMeal = history.state?.deliveryMeal;
+    if (deliveryMeal) {
       this.directMode = true;
-      this.directCarbs = knownMeal.carbs;
-      this.directFoodName = `${knownMeal.placeName} - ${knownMeal.dishName}`;
+      this.directCarbs = deliveryMeal.carbs;
+      this.directFoodName = `${deliveryMeal.placeName} - ${deliveryMeal.dishName}`;
       this.items.clear();
       this.form.patchValue({
-        preMealGlucose: knownMeal.lastPreMealGlucose ?? this.form.controls.preMealGlucose.value,
-        confirmedBolus: knownMeal.usualInsulinUnits,
-        notes: knownMeal.notes ?? ''
+        preMealGlucose: deliveryMeal.lastPreMealGlucose ?? this.form.controls.preMealGlucose.value,
+        confirmedBolus: deliveryMeal.usualInsulinUnits,
+        notes: deliveryMeal.notes ?? ''
       }, { emitEvent: false });
       this.form.controls.confirmedBolus.markAsDirty();
     }

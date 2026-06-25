@@ -14,7 +14,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Meal> Meals => Set<Meal>();
     public DbSet<MealItem> MealItems => Set<MealItem>();
     public DbSet<GlucoseReading> GlucoseReadings => Set<GlucoseReading>();
-    public DbSet<KnownMeal> KnownMeals => Set<KnownMeal>();
+    public DbSet<DeliveryMeal> DeliveryMeals => Set<DeliveryMeal>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -83,7 +83,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasOne(r => r.Meal).WithMany(m => m.GlucoseReadings).HasForeignKey(r => r.MealId).OnDelete(DeleteBehavior.SetNull);
         });
 
-        modelBuilder.Entity<KnownMeal>(entity =>
+        modelBuilder.Entity<DeliveryMeal>(entity =>
         {
             entity.HasKey(k => k.Id);
             entity.HasIndex(k => new { k.UserId, k.PlaceName, k.DishName });
@@ -137,10 +137,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             Food("33333333-3333-3333-3333-333333333308", "Latte", 5m, true, createdAt),
             Food("33333333-3333-3333-3333-333333333309", "Chocolate", 55m, true, createdAt));
 
-        modelBuilder.Entity<KnownMeal>().HasData(
-            KnownMeal("44444444-4444-4444-4444-444444444401", "Sushi Master", "Philadelphia Set", "standard set", 95m, 7m, ResultRating.Good, "sushi, delivery, dinner", "Reliable repeat order.", true, createdAt),
-            KnownMeal("44444444-4444-4444-4444-444444444402", "Local Cafe", "Cottage Cheese Casserole", "one slice", 67m, 6m, ResultRating.Good, "cafe, dessert, breakfast", "Good with coffee.", true, createdAt),
-            KnownMeal("44444444-4444-4444-4444-444444444403", "Delivery", "Shawarma", "standard", 80m, 8m, ResultRating.Unknown, "delivery, lunch", "Check glucose response next time.", false, createdAt));
+        modelBuilder.Entity<DeliveryMeal>().HasData(
+            DeliveryMeal("44444444-4444-4444-4444-444444444401", "Sushi Master", "Philadelphia Set", "standard set", 95m, 7m, ResultRating.Good, "sushi, delivery, dinner", "Reliable repeat order.", true, createdAt),
+            DeliveryMeal("44444444-4444-4444-4444-444444444402", "Local Cafe", "Cottage Cheese Casserole", "one slice", 67m, 6m, ResultRating.Good, "cafe, dessert, breakfast", "Good with coffee.", true, createdAt),
+            DeliveryMeal("44444444-4444-4444-4444-444444444403", "Delivery", "Shawarma", "standard", 80m, 8m, ResultRating.Unknown, "delivery, lunch", "Check glucose response next time.", false, createdAt));
 
     }
 
@@ -157,7 +157,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         CreatedAt = createdAt
     };
 
-    private static KnownMeal KnownMeal(string id, string placeName, string dishName, string portionDescription, decimal carbs, decimal insulin, ResultRating rating, string tags, string notes, bool favorite, DateTimeOffset createdAt) => new()
+    private static DeliveryMeal DeliveryMeal(string id, string placeName, string dishName, string portionDescription, decimal carbs, decimal insulin, ResultRating rating, string tags, string notes, bool favorite, DateTimeOffset createdAt) => new()
     {
         Id = Guid.Parse(id),
         UserId = DefaultUser.Id,

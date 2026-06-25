@@ -75,7 +75,7 @@ export interface Dashboard {
   lastMeal?: MealSummary;
 }
 
-export interface KnownMeal {
+export interface DeliveryMeal {
   id: string;
   placeName: string;
   dishName: string;
@@ -92,14 +92,14 @@ export interface KnownMeal {
   createdAt: string;
 }
 
-export interface KnownMealSections {
-  favorites: KnownMeal[];
-  mostUsed: KnownMeal[];
-  recentlyUsed: KnownMeal[];
-  searchResults: KnownMeal[];
+export interface DeliveryMealSections {
+  favorites: DeliveryMeal[];
+  mostUsed: DeliveryMeal[];
+  recentlyUsed: DeliveryMeal[];
+  searchResults: DeliveryMeal[];
 }
 
-export interface UseKnownMeal {
+export interface UseDeliveryMeal {
   id: string;
   carbs: number;
   usualInsulinUnits: number;

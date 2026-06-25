@@ -1,7 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { environment } from '../../environments/environment';
-import { Dashboard, DiabetesSettings, FoodItem, KnownMeal, KnownMealSections, MealCalculation, MealDetail, MealItemInput, MealSummary, MealType, ResultRating, UseKnownMeal } from './models';
+import { Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, MealCalculation, MealDetail, MealItemInput, MealSummary, MealType, ResultRating, UseDeliveryMeal } from './models';
 
 export interface UpsertFoodRequest {
   name: string;
@@ -26,7 +26,7 @@ export interface CreateMealRequest extends CalculateMealRequest {
   notes?: string;
 }
 
-export interface UpsertKnownMealRequest {
+export interface UpsertDeliveryMealRequest {
   placeName: string;
   dishName: string;
   portionDescription: string;
@@ -39,7 +39,7 @@ export interface UpsertKnownMealRequest {
   isFavorite: boolean;
 }
 
-export interface CreateKnownMealFromMealRequest {
+export interface CreateDeliveryMealFromMealRequest {
   placeName: string;
   dishName: string;
   portionDescription: string;
@@ -102,37 +102,37 @@ export class ApiService {
     return this.http.put<DiabetesSettings>(`${this.apiUrl}/settings`, request);
   }
 
-  getKnownMeals(search = '') {
+  getDeliveryMeals(search = '') {
     const params = search ? new HttpParams().set('search', search) : undefined;
-    return this.http.get<KnownMealSections>(`${this.apiUrl}/known-meals`, { params });
+    return this.http.get<DeliveryMealSections>(`${this.apiUrl}/delivery-meals`, { params });
   }
 
-  getKnownMeal(id: string) {
-    return this.http.get<KnownMeal>(`${this.apiUrl}/known-meals/${id}`);
+  getDeliveryMeal(id: string) {
+    return this.http.get<DeliveryMeal>(`${this.apiUrl}/delivery-meals/${id}`);
   }
 
-  createKnownMeal(request: UpsertKnownMealRequest) {
-    return this.http.post<KnownMeal>(`${this.apiUrl}/known-meals`, request);
+  createDeliveryMeal(request: UpsertDeliveryMealRequest) {
+    return this.http.post<DeliveryMeal>(`${this.apiUrl}/delivery-meals`, request);
   }
 
-  createKnownMealFromMeal(mealId: string, request: CreateKnownMealFromMealRequest) {
-    return this.http.post<KnownMeal>(`${this.apiUrl}/meals/${mealId}/save-to-known-meals`, request);
+  createDeliveryMealFromMeal(mealId: string, request: CreateDeliveryMealFromMealRequest) {
+    return this.http.post<DeliveryMeal>(`${this.apiUrl}/meals/${mealId}/save-as-delivery-meal`, request);
   }
 
-  updateKnownMeal(id: string, request: UpsertKnownMealRequest) {
-    return this.http.put<KnownMeal>(`${this.apiUrl}/known-meals/${id}`, request);
+  updateDeliveryMeal(id: string, request: UpsertDeliveryMealRequest) {
+    return this.http.put<DeliveryMeal>(`${this.apiUrl}/delivery-meals/${id}`, request);
   }
 
-  toggleKnownMealFavorite(id: string) {
-    return this.http.post<KnownMeal>(`${this.apiUrl}/known-meals/${id}/favorite`, {});
+  toggleDeliveryMealFavorite(id: string) {
+    return this.http.post<DeliveryMeal>(`${this.apiUrl}/delivery-meals/${id}/favorite`, {});
   }
 
-  useKnownMealAgain(id: string) {
-    return this.http.post<UseKnownMeal>(`${this.apiUrl}/known-meals/${id}/use-again`, {});
+  createMealDraftFromDeliveryMeal(id: string) {
+    return this.http.post<UseDeliveryMeal>(`${this.apiUrl}/delivery-meals/${id}/meal-draft`, {});
   }
 
-  deleteKnownMeal(id: string) {
-    return this.http.delete<void>(`${this.apiUrl}/known-meals/${id}`);
+  deleteDeliveryMeal(id: string) {
+    return this.http.delete<void>(`${this.apiUrl}/delivery-meals/${id}`);
   }
 
 }

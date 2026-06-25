@@ -2,18 +2,18 @@ import { DatePipe, DecimalPipe, NgTemplateOutlet } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
-import { ApiService, UpsertKnownMealRequest } from '../../core/api.service';
-import { KnownMeal, KnownMealSections, resultRatings } from '../../core/models';
+import { ApiService, UpsertDeliveryMealRequest } from '../../core/api.service';
+import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/models';
 
 @Component({
-  selector: 'app-known-meals',
+  selector: 'app-delivery-meals',
   standalone: true,
   imports: [DatePipe, DecimalPipe, NgTemplateOutlet, ReactiveFormsModule],
   template: `
     <section class="page-title">
       <div>
-        <h1>Ask Past Me</h1>
-        <p>Ask Past Me before recalculating meals you already know.</p>
+        <h1>Delivery meals</h1>
+        <p>Save repeat delivery orders with their previous carb estimates and notes.</p>
       </div>
     </section>
 
@@ -25,7 +25,7 @@ import { KnownMeal, KnownMealSections, resultRatings } from '../../core/models';
 
     <section class="grid two">
       <article class="card">
-        <h2>{{ editingId ? 'Edit counted meal' : 'Add counted meal' }}</h2>
+        <h2>{{ editingId ? 'Edit delivery meal' : 'Add delivery meal' }}</h2>
         <form [formGroup]="form" class="grid" (ngSubmit)="save()">
           <div class="grid two">
             <label>Place name <input formControlName="placeName"></label>
@@ -63,7 +63,7 @@ import { KnownMeal, KnownMealSections, resultRatings } from '../../core/models';
           @for (meal of sections.searchResults; track meal.id) {
             <ng-container [ngTemplateOutlet]="mealCard" [ngTemplateOutletContext]="{ meal: meal }" />
           } @empty {
-            <p>No counted meals yet.</p>
+            <p>No delivery meals yet.</p>
           }
         </div>
       </article>
@@ -72,7 +72,7 @@ import { KnownMeal, KnownMealSections, resultRatings } from '../../core/models';
     <section class="grid">
       <article>
         <h2>Favorites</h2>
-        <div class="known-grid">
+        <div class="delivery-grid">
           @for (meal of sections.favorites; track meal.id) {
             <ng-container [ngTemplateOutlet]="mealCard" [ngTemplateOutletContext]="{ meal: meal }" />
           } @empty {
@@ -83,18 +83,18 @@ import { KnownMeal, KnownMealSections, resultRatings } from '../../core/models';
 
       <article>
         <h2>Most Used</h2>
-        <div class="known-grid">
+        <div class="delivery-grid">
           @for (meal of sections.mostUsed; track meal.id) {
             <ng-container [ngTemplateOutlet]="mealCard" [ngTemplateOutletContext]="{ meal: meal }" />
           } @empty {
-            <p class="muted">Use a counted meal to build this list.</p>
+            <p class="muted">Create a meal draft from a delivery meal to build this list.</p>
           }
         </div>
       </article>
 
       <article>
         <h2>Recently Used</h2>
-        <div class="known-grid">
+        <div class="delivery-grid">
           @for (meal of sections.recentlyUsed; track meal.id) {
             <ng-container [ngTemplateOutlet]="mealCard" [ngTemplateOutletContext]="{ meal: meal }" />
           } @empty {
@@ -105,8 +105,8 @@ import { KnownMeal, KnownMealSections, resultRatings } from '../../core/models';
     </section>
 
     <ng-template #mealCard let-meal="meal">
-      <article class="card known-card">
-        <div class="known-card-head">
+      <article class="card delivery-card">
+        <div class="delivery-card-head">
           <div>
             <p class="muted">{{ meal.placeName }}</p>
             <h3>{{ meal.dishName }}</h3>
@@ -125,7 +125,7 @@ import { KnownMeal, KnownMealSections, resultRatings } from '../../core/models';
         <p class="muted">Last used: {{ meal.lastUsedAt ? (meal.lastUsedAt | date:'mediumDate') : 'Never' }}</p>
         @if (meal.tags) { <p><span class="pill">{{ meal.tags }}</span></p> }
         <div class="actions">
-          <button type="button" (click)="useAgain(meal)">Use Again</button>
+          <button type="button" (click)="createMealDraft(meal)">Use in calculator</button>
           <button type="button" class="subtle" (click)="edit(meal)">Edit</button>
           <button type="button" class="danger" (click)="delete(meal.id)">Delete</button>
         </div>
@@ -133,11 +133,11 @@ import { KnownMeal, KnownMealSections, resultRatings } from '../../core/models';
     </ng-template>
   `
 })
-export class KnownMealsComponent implements OnInit {
+export class DeliveryMealsComponent implements OnInit {
   resultRatings = resultRatings;
   search = '';
   editingId = '';
-  sections: KnownMealSections = { favorites: [], mostUsed: [], recentlyUsed: [], searchResults: [] };
+  sections: DeliveryMealSections = { favorites: [], mostUsed: [], recentlyUsed: [], searchResults: [] };
 
   form = this.fb.nonNullable.group({
     placeName: ['', Validators.required],
@@ -159,25 +159,25 @@ export class KnownMealsComponent implements OnInit {
   }
 
   load() {
-    this.api.getKnownMeals(this.search).subscribe((sections) => this.sections = sections);
+    this.api.getDeliveryMeals(this.search).subscribe((sections) => this.sections = sections);
   }
 
   save() {
     if (this.form.invalid) return;
     const raw = this.form.getRawValue();
-    const request: UpsertKnownMealRequest = {
+    const request: UpsertDeliveryMealRequest = {
       ...raw,
       resultRating: raw.resultRating as any,
       lastPreMealGlucose: raw.lastPreMealGlucose > 0 ? raw.lastPreMealGlucose : undefined
     };
-    const save$ = this.editingId ? this.api.updateKnownMeal(this.editingId, request) : this.api.createKnownMeal(request);
+    const save$ = this.editingId ? this.api.updateDeliveryMeal(this.editingId, request) : this.api.createDeliveryMeal(request);
     save$.subscribe(() => {
       this.reset();
       this.load();
     });
   }
 
-  edit(meal: KnownMeal) {
+  edit(meal: DeliveryMeal) {
     this.editingId = meal.id;
     this.form.patchValue({
       placeName: meal.placeName,
@@ -193,15 +193,15 @@ export class KnownMealsComponent implements OnInit {
     });
   }
 
-  toggleFavorite(meal: KnownMeal) {
-    this.api.toggleKnownMealFavorite(meal.id).subscribe(() => this.load());
+  toggleFavorite(meal: DeliveryMeal) {
+    this.api.toggleDeliveryMealFavorite(meal.id).subscribe(() => this.load());
   }
 
-  useAgain(meal: KnownMeal) {
-    this.api.useKnownMealAgain(meal.id).subscribe((prefill) => {
+  createMealDraft(meal: DeliveryMeal) {
+    this.api.createMealDraftFromDeliveryMeal(meal.id).subscribe((prefill) => {
       this.router.navigate(['/calculator'], {
         state: {
-          knownMeal: {
+          deliveryMeal: {
             ...prefill,
             placeName: meal.placeName,
             dishName: meal.dishName,
@@ -213,7 +213,7 @@ export class KnownMealsComponent implements OnInit {
   }
 
   delete(id: string) {
-    this.api.deleteKnownMeal(id).subscribe(() => this.load());
+    this.api.deleteDeliveryMeal(id).subscribe(() => this.load());
   }
 
   reset() {

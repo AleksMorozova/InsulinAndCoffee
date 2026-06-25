@@ -28,7 +28,7 @@ public record MealDetailDto(Guid Id, MealType MealType, DateTimeOffset MealTime,
 
 public record DashboardDto(decimal TodaysTotalCarbs, decimal TodaysConfirmedInsulinUnits, MealSummaryDto? LastMeal);
 
-public record KnownMealDto(
+public record DeliveryMealDto(
     Guid Id,
     string PlaceName,
     string DishName,
@@ -44,7 +44,7 @@ public record KnownMealDto(
     DateTimeOffset? LastUsedAt,
     DateTimeOffset CreatedAt);
 
-public record UpsertKnownMealRequest(
+public record UpsertDeliveryMealRequest(
     string PlaceName,
     string DishName,
     string PortionDescription,
@@ -56,7 +56,7 @@ public record UpsertKnownMealRequest(
     string? Notes,
     bool IsFavorite);
 
-public record CreateKnownMealFromMealRequest(
+public record CreateDeliveryMealFromMealRequest(
     string PlaceName,
     string DishName,
     string PortionDescription,
@@ -64,10 +64,10 @@ public record CreateKnownMealFromMealRequest(
     string Tags,
     bool IsFavorite);
 
-public record KnownMealSectionsDto(
-    IReadOnlyList<KnownMealDto> Favorites,
-    IReadOnlyList<KnownMealDto> MostUsed,
-    IReadOnlyList<KnownMealDto> RecentlyUsed,
-    IReadOnlyList<KnownMealDto> SearchResults);
+public record DeliveryMealSectionsDto(
+    IReadOnlyList<DeliveryMealDto> Favorites,
+    IReadOnlyList<DeliveryMealDto> MostUsed,
+    IReadOnlyList<DeliveryMealDto> RecentlyUsed,
+    IReadOnlyList<DeliveryMealDto> SearchResults);
 
-public record UseKnownMealDto(Guid Id, decimal Carbs, decimal UsualInsulinUnits, string Notes);
+public record UseDeliveryMealDto(Guid Id, decimal Carbs, decimal UsualInsulinUnits, string Notes);
