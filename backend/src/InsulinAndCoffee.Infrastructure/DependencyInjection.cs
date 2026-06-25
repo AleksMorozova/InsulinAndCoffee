@@ -10,10 +10,15 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         var connectionString = configuration.GetConnectionString("DefaultConnection")
-            ?? "Host=localhost;Port=55432;Database=insulin_coffee;Username=postgres;Password=postgres";
+              ?? throw new InvalidOperationException(
+                  "Connection string 'DefaultConnection' was not found.");
 
-        services.AddDbContext<AppDbContext>(options => options.UseNpgsql(connectionString));
-        services.AddScoped<IAppDbContext>(provider => provider.GetRequiredService<AppDbContext>());
+        services.AddDbContext<AppDbContext>(options =>
+            options.UseNpgsql(connectionString));
+
+        services.AddScoped<IAppDbContext>(provider =>
+            provider.GetRequiredService<AppDbContext>());
+
         return services;
     }
 }
