@@ -5,11 +5,11 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class KnownMealService(IAppDbContext db)
+public class DeliveryMealService(IAppDbContext db)
 {
-    public async Task<KnownMealSectionsDto> GetSectionsAsync(string? search, CancellationToken cancellationToken)
+    public async Task<DeliveryMealSectionsDto> GetSectionsAsync(string? search, CancellationToken cancellationToken)
     {
-        var baseQuery = db.KnownMeals
+        var baseQuery = db.DeliveryMeals
             .AsNoTracking()
             .Where(k => k.UserId == DefaultUser.Id);
 
@@ -54,24 +54,24 @@ public class KnownMealService(IAppDbContext db)
             .Select(k => ToDto(k))
             .ToListAsync(cancellationToken);
 
-        return new KnownMealSectionsDto(favorites, mostUsed, recentlyUsed, searchResults);
+        return new DeliveryMealSectionsDto(favorites, mostUsed, recentlyUsed, searchResults);
     }
 
-    public async Task<KnownMealDto> GetByIdAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<DeliveryMealDto> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
-        var knownMeal = await db.KnownMeals
+        var deliveryMeal = await db.DeliveryMeals
             .AsNoTracking()
             .FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Known meal was not found.");
+            ?? throw new KeyNotFoundException("Delivery meal was not found.");
 
-        return ToDto(knownMeal);
+        return ToDto(deliveryMeal);
     }
 
-    public async Task<KnownMealDto> CreateAsync(UpsertKnownMealRequest request, CancellationToken cancellationToken)
+    public async Task<DeliveryMealDto> CreateAsync(UpsertDeliveryMealRequest request, CancellationToken cancellationToken)
     {
         Validate(request);
 
-        var knownMeal = new KnownMeal
+        var deliveryMeal = new DeliveryMeal
         {
             Id = Guid.NewGuid(),
             UserId = DefaultUser.Id,
@@ -89,12 +89,12 @@ public class KnownMealService(IAppDbContext db)
             CreatedAt = DateTimeOffset.UtcNow
         };
 
-        db.KnownMeals.Add(knownMeal);
+        db.DeliveryMeals.Add(deliveryMeal);
         await db.SaveChangesAsync(cancellationToken);
-        return ToDto(knownMeal);
+        return ToDto(deliveryMeal);
     }
 
-    public async Task<KnownMealDto> CreateFromMealAsync(Guid mealId, CreateKnownMealFromMealRequest request, CancellationToken cancellationToken)
+    public async Task<DeliveryMealDto> CreateFromMealAsync(Guid mealId, CreateDeliveryMealFromMealRequest request, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.PlaceName) || string.IsNullOrWhiteSpace(request.DishName))
         {
@@ -113,7 +113,7 @@ public class KnownMealService(IAppDbContext db)
             notes = $"Saved from {meal.MealType} on {meal.MealTime:yyyy-MM-dd}.";
         }
 
-        var knownMeal = new KnownMeal
+        var deliveryMeal = new DeliveryMeal
         {
             Id = Guid.NewGuid(),
             UserId = DefaultUser.Id,
@@ -131,71 +131,71 @@ public class KnownMealService(IAppDbContext db)
             CreatedAt = DateTimeOffset.UtcNow
         };
 
-        db.KnownMeals.Add(knownMeal);
+        db.DeliveryMeals.Add(deliveryMeal);
         await db.SaveChangesAsync(cancellationToken);
-        return ToDto(knownMeal);
+        return ToDto(deliveryMeal);
     }
 
-    public async Task<KnownMealDto> UpdateAsync(Guid id, UpsertKnownMealRequest request, CancellationToken cancellationToken)
+    public async Task<DeliveryMealDto> UpdateAsync(Guid id, UpsertDeliveryMealRequest request, CancellationToken cancellationToken)
     {
         Validate(request);
 
-        var knownMeal = await db.KnownMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Known meal was not found.");
+        var deliveryMeal = await db.DeliveryMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
+            ?? throw new KeyNotFoundException("Delivery meal was not found.");
 
-        knownMeal.PlaceName = request.PlaceName.Trim();
-        knownMeal.DishName = request.DishName.Trim();
-        knownMeal.PortionDescription = request.PortionDescription.Trim();
-        knownMeal.Carbs = request.Carbs;
-        knownMeal.UsualInsulinUnits = request.UsualInsulinUnits;
-        knownMeal.LastPreMealGlucose = request.LastPreMealGlucose;
-        knownMeal.ResultRating = request.ResultRating;
-        knownMeal.Tags = NormalizeTags(request.Tags);
-        knownMeal.Notes = request.Notes;
-        knownMeal.IsFavorite = request.IsFavorite;
+        deliveryMeal.PlaceName = request.PlaceName.Trim();
+        deliveryMeal.DishName = request.DishName.Trim();
+        deliveryMeal.PortionDescription = request.PortionDescription.Trim();
+        deliveryMeal.Carbs = request.Carbs;
+        deliveryMeal.UsualInsulinUnits = request.UsualInsulinUnits;
+        deliveryMeal.LastPreMealGlucose = request.LastPreMealGlucose;
+        deliveryMeal.ResultRating = request.ResultRating;
+        deliveryMeal.Tags = NormalizeTags(request.Tags);
+        deliveryMeal.Notes = request.Notes;
+        deliveryMeal.IsFavorite = request.IsFavorite;
 
         await db.SaveChangesAsync(cancellationToken);
-        return ToDto(knownMeal);
+        return ToDto(deliveryMeal);
     }
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
-        var knownMeal = await db.KnownMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Known meal was not found.");
+        var deliveryMeal = await db.DeliveryMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
+            ?? throw new KeyNotFoundException("Delivery meal was not found.");
 
-        db.KnownMeals.Remove(knownMeal);
+        db.DeliveryMeals.Remove(deliveryMeal);
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task<KnownMealDto> ToggleFavoriteAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<DeliveryMealDto> ToggleFavoriteAsync(Guid id, CancellationToken cancellationToken)
     {
-        var knownMeal = await db.KnownMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Known meal was not found.");
+        var deliveryMeal = await db.DeliveryMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
+            ?? throw new KeyNotFoundException("Delivery meal was not found.");
 
-        knownMeal.IsFavorite = !knownMeal.IsFavorite;
+        deliveryMeal.IsFavorite = !deliveryMeal.IsFavorite;
         await db.SaveChangesAsync(cancellationToken);
-        return ToDto(knownMeal);
+        return ToDto(deliveryMeal);
     }
 
-    public async Task<UseKnownMealDto> UseAgainAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<UseDeliveryMealDto> CreateMealDraftFromDeliveryMealAsync(Guid id, CancellationToken cancellationToken)
     {
-        var knownMeal = await db.KnownMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Known meal was not found.");
+        var deliveryMeal = await db.DeliveryMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
+            ?? throw new KeyNotFoundException("Delivery meal was not found.");
 
-        knownMeal.UsageCount += 1;
-        knownMeal.LastUsedAt = DateTimeOffset.UtcNow;
+        deliveryMeal.UsageCount += 1;
+        deliveryMeal.LastUsedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
 
-        var notes = $"Ask Past Me: {knownMeal.PlaceName} - {knownMeal.DishName}. {knownMeal.PortionDescription}";
-        if (!string.IsNullOrWhiteSpace(knownMeal.Notes))
+        var notes = $"Delivery meal: {deliveryMeal.PlaceName} - {deliveryMeal.DishName}. {deliveryMeal.PortionDescription}";
+        if (!string.IsNullOrWhiteSpace(deliveryMeal.Notes))
         {
-            notes += $"{Environment.NewLine}{knownMeal.Notes}";
+            notes += $"{Environment.NewLine}{deliveryMeal.Notes}";
         }
 
-        return new UseKnownMealDto(knownMeal.Id, knownMeal.Carbs, knownMeal.UsualInsulinUnits, notes);
+        return new UseDeliveryMealDto(deliveryMeal.Id, deliveryMeal.Carbs, deliveryMeal.UsualInsulinUnits, notes);
     }
 
-    private static void Validate(UpsertKnownMealRequest request)
+    private static void Validate(UpsertDeliveryMealRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.PlaceName) || string.IsNullOrWhiteSpace(request.DishName))
         {
@@ -226,20 +226,20 @@ public class KnownMealService(IAppDbContext db)
     private static string NormalizeTags(string tags) =>
         string.Join(", ", tags.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.OrdinalIgnoreCase));
 
-    private static KnownMealDto ToDto(KnownMeal knownMeal) =>
+    private static DeliveryMealDto ToDto(DeliveryMeal deliveryMeal) =>
         new(
-            knownMeal.Id,
-            knownMeal.PlaceName,
-            knownMeal.DishName,
-            knownMeal.PortionDescription,
-            knownMeal.Carbs,
-            knownMeal.UsualInsulinUnits,
-            knownMeal.LastPreMealGlucose,
-            knownMeal.ResultRating,
-            knownMeal.Tags,
-            knownMeal.Notes,
-            knownMeal.IsFavorite,
-            knownMeal.UsageCount,
-            knownMeal.LastUsedAt,
-            knownMeal.CreatedAt);
+            deliveryMeal.Id,
+            deliveryMeal.PlaceName,
+            deliveryMeal.DishName,
+            deliveryMeal.PortionDescription,
+            deliveryMeal.Carbs,
+            deliveryMeal.UsualInsulinUnits,
+            deliveryMeal.LastPreMealGlucose,
+            deliveryMeal.ResultRating,
+            deliveryMeal.Tags,
+            deliveryMeal.Notes,
+            deliveryMeal.IsFavorite,
+            deliveryMeal.UsageCount,
+            deliveryMeal.LastUsedAt,
+            deliveryMeal.CreatedAt);
 }

@@ -31,6 +31,17 @@ builder.Services.AddCors(options =>
             .GetSection("AllowedOrigins")
             .Get<string[]>() ?? [];
 
+        if (allowedOrigins.Length == 0 && builder.Environment.IsDevelopment())
+        {
+            allowedOrigins =
+            [
+                "http://localhost:4200",
+                "https://localhost:4200",
+                "http://127.0.0.1:4200",
+                "https://127.0.0.1:4200"
+            ];
+        }
+
         policy.WithOrigins(allowedOrigins)
             .AllowAnyHeader()
             .AllowAnyMethod();

@@ -2,7 +2,7 @@ using InsulinAndCoffee.Domain.Enums;
 
 namespace InsulinAndCoffee.Domain.Entities;
 
-public class KnownMeal
+public class DeliveryMeal
 {
     public Guid Id { get; set; }
     public Guid UserId { get; set; }

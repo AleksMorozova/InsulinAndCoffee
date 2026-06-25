@@ -138,7 +138,7 @@ public class MealService(IAppDbContext db)
             [
                 new CalculatedMealItemDto(
                     Guid.Empty,
-                    string.IsNullOrWhiteSpace(directFoodName) ? "Ask Past Me meal" : directFoodName.Trim(),
+                    string.IsNullOrWhiteSpace(directFoodName) ? "Delivery meal" : directFoodName.Trim(),
                     100,
                     directCarbs.Value,
                     Math.Round(directCarbs.Value, 2))
