@@ -54,8 +54,8 @@ import { resultRatings } from '../../core/models';
       </section>
 
       <section class="card">
-        <h2>Save to Ask Past Me</h2>
-        <form [formGroup]="knownMealForm" class="grid" (ngSubmit)="saveKnownMeal(meal.id)">
+        <h2>Save to Delivery meals</h2>
+        <form [formGroup]="deliveryMealForm" class="grid" (ngSubmit)="saveDeliveryMeal(meal.id)">
           <div class="grid two">
             <label>Place name <input formControlName="placeName" placeholder="Sushi Master"></label>
             <label>Dish name <input formControlName="dishName" placeholder="Philadelphia Set"></label>
@@ -74,7 +74,7 @@ import { resultRatings } from '../../core/models';
             Favorite
           </label>
           <div class="actions">
-            <button type="submit" [disabled]="knownMealForm.invalid">Save counted meal</button>
+            <button type="submit" [disabled]="deliveryMealForm.invalid">Save counted meal</button>
             @if (saveMessage) { <span class="pill">{{ saveMessage }}</span> }
           </div>
         </form>
@@ -87,7 +87,7 @@ export class MealDetailsComponent {
   resultRatings = resultRatings;
   saveMessage = '';
   meal$ = this.route.paramMap.pipe(switchMap((params) => this.api.getMeal(params.get('id') ?? this.id)));
-  knownMealForm = this.fb.nonNullable.group({
+  deliveryMealForm = this.fb.nonNullable.group({
     placeName: ['', Validators.required],
     dishName: ['', Validators.required],
     portionDescription: ['Same as logged meal', Validators.required],
@@ -102,14 +102,14 @@ export class MealDetailsComponent {
     this.router.navigate(['/calculator'], { state: { meal } });
   }
 
-  saveKnownMeal(mealId: string) {
-    if (this.knownMealForm.invalid) return;
-    this.api.createKnownMealFromMeal(mealId, {
-      ...this.knownMealForm.getRawValue(),
-      resultRating: this.knownMealForm.controls.resultRating.value as any
+  saveDeliveryMeal(mealId: string) {
+    if (this.deliveryMealForm.invalid) return;
+    this.api.createDeliveryMealFromMeal(mealId, {
+      ...this.deliveryMealForm.getRawValue(),
+      resultRating: this.deliveryMealForm.controls.resultRating.value as any
     }).subscribe(() => {
       this.saveMessage = 'Saved';
-      this.knownMealForm.reset({
+      this.deliveryMealForm.reset({
         placeName: '',
         dishName: '',
         portionDescription: 'Same as logged meal',

@@ -22,11 +22,11 @@ This application is not a medical device. All insulin calculations are informati
 ## Features
 
 - Dashboard with today's carbs, confirmed insulin, last meal, and quick actions
-- Current calculator for food-item based meals and already-counted direct carb entries
+- Current calculator for food-item based meals and delivery-meal direct carb entries
 - Meal history and meal details
 - Food library
 - Settings
-- Already Counted: a personal "Ask Past Me" knowledge base for repeated restaurant, cafe, and delivery meals
+- Delivery Meals: a personal delivery-food library for repeated restaurant, cafe, and delivery orders
 
 ## Seed Data
 
@@ -104,15 +104,15 @@ You can also run the frontend with:
 
 Saved meals store food name and carb snapshots so history remains stable after food edits.
 
-## Already Counted
+## Delivery Meals
 
-Use the `Already Counted` navigation item to manage known restaurant/cafe/delivery meals. You can:
+Use the `Delivery meals` navigation item to manage restaurant/cafe/delivery meals. You can:
 
 - Search by place, dish, or tags
 - Mark meals as favorites
 - See favorites, most used, and recently used
-- Save a meal from Meal Details into Already Counted
-- Use Again to prefill the calculator with known carbs, usual insulin units, and notes
+- Save a meal from Meal Details as a delivery meal
+- Use a delivery meal in the calculator with recorded carbs, previous insulin units, and notes
 
 If you already created the database before this feature was added, start Docker Desktop and run:
 
@@ -120,4 +120,4 @@ If you already created the database before this feature was added, start Docker 
 dotnet ef database update --project backend/src/InsulinAndCoffee.Infrastructure --startup-project backend/src/InsulinAndCoffee.Api
 ```
 
-The latest migration includes the `KnownMeals` updates.
+The latest migration includes the `DeliveryMeals` updates.
