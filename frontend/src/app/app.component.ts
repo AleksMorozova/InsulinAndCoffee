@@ -27,7 +27,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
       <router-outlet />
     </main>
     <footer class="app-footer">
-      Powered by coffee. Powered by insulin. Inspired by Taisha's legendary spreadsheet.
+      ☕ Powered by coffee • 💉 Powered by insulin • ❤️ Inspired by Taisha's legendary spreadsheet.
     </footer>
   `
 })
