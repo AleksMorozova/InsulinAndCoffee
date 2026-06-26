@@ -10,124 +10,180 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
   standalone: true,
   imports: [DatePipe, DecimalPipe, NgTemplateOutlet, ReactiveFormsModule],
   template: `
-    <section class="page-title">
-      <div>
-        <h1>Delivery meals</h1>
-        <p>Save repeat delivery orders with their previous carb estimates and notes.</p>
+    <section class="memory-hero">
+      <div class="memory-hero-copy">
+        <h2>Ask Past Me</h2>
+        <p>Built from your own experience. So you never count the same meal twice.</p>
       </div>
-    </section>
 
-    <section class="card">
-      <label>Search restaurant, dish, or tags
-        <input [value]="search" (input)="search = $any($event.target).value; load()" placeholder="Sushi Master, latte, delivery">
+      <button type="button" class="hero-add-button" (click)="openCreate()">+ Add counted meal</button>
+
+      <label class="hero-search">
+        <span>Search your memories</span>
+        <input
+          [value]="search"
+          (input)="search = $any($event.target).value; load()"
+          placeholder="Search restaurant, dish, tags, or notes..."
+          autocomplete="off">
       </label>
     </section>
 
-    <section class="grid two">
-      <article class="card">
-        <h2>{{ editingId ? 'Edit delivery meal' : 'Add delivery meal' }}</h2>
-        <form [formGroup]="form" class="grid" (ngSubmit)="save()">
-          <div class="grid two">
-            <label>Place name <input formControlName="placeName"></label>
-            <label>Dish name <input formControlName="dishName"></label>
+    <section class="memory-section">
+      <div class="section-head">
+        <div>
+          <h2>⭐ Favorites ({{ sections.favorites.length }})</h2>
+          <p>Meals you reuse often.</p>
+        </div>
+      </div>
+      <div class="quick-meal-strip">
+        @for (meal of sections.favorites; track meal.id) {
+          <ng-container [ngTemplateOutlet]="quickMealCard" [ngTemplateOutletContext]="{ meal: meal }" />
+        } @empty {
+          <div class="empty-state wide">
+            <strong>No favorites yet.</strong>
+            <p>Favorite the meals you trust most and they will stay close.</p>
           </div>
-          <label>Portion description <input formControlName="portionDescription" placeholder="Large set, 350g bowl, 1 medium cup"></label>
-          <div class="grid three">
-            <label>Carbs <input type="number" min="0.1" step="0.1" formControlName="carbs"></label>
-            <label>Usual insulin units <input type="number" min="0" step="0.1" formControlName="usualInsulinUnits"></label>
-            <label>Last pre-meal glucose <input type="number" min="0" step="0.1" formControlName="lastPreMealGlucose"></label>
+        }
+      </div>
+    </section>
+
+    <section class="memory-section">
+      <div class="section-head">
+        <div>
+          <h2>🔍 Search results ({{ sections.searchResults.length }})</h2>
+          <p>{{ search ? 'Meals matching your memory.' : 'All counted meals.' }}</p>
+        </div>
+      </div>
+
+      <div class="memory-card-grid">
+        @for (meal of sections.searchResults; track meal.id) {
+          <ng-container [ngTemplateOutlet]="mealCard" [ngTemplateOutletContext]="{ meal: meal }" />
+        } @empty {
+          <div class="empty-state wide">
+            <strong>{{ search ? 'Nothing matched that search.' : 'No counted meals yet.' }}</strong>
+            <p>{{ search ? 'Try a restaurant, dish, tag, or note from the meal.' : 'Add your first counted meal so this page can help you remember it later.' }}</p>
+            @if (!search) {
+              <button type="button" (click)="openCreate()">Add counted meal</button>
+            }
           </div>
-          <div class="grid two">
-            <label>Result
-              <select formControlName="resultRating">
-                @for (rating of resultRatings; track rating) { <option [value]="rating">{{ labelRating(rating) }}</option> }
-              </select>
+        }
+      </div>
+    </section>
+
+    @if (isEditorOpen) {
+      <div class="modal-backdrop" (click)="closeEditor()">
+        <article class="delivery-modal" (click)="$event.stopPropagation()">
+          <div class="modal-head">
+            <div>
+              <p>{{ editingId ? 'Update memory' : 'New memory' }}</p>
+              <h2>{{ editingId ? 'Edit counted meal' : 'Add counted meal' }}</h2>
+            </div>
+            <button type="button" class="subtle icon-button" (click)="closeEditor()" title="Close">x</button>
+          </div>
+
+          <form [formGroup]="form" class="grid" (ngSubmit)="save()">
+            <div class="grid two">
+              <label>Restaurant or place <input formControlName="placeName"></label>
+              <label>Dish name <input formControlName="dishName"></label>
+            </div>
+            <label>Portion or short note <input formControlName="portionDescription" placeholder="Large set, 350g bowl, 1 medium cup"></label>
+            <div class="grid three">
+              <label>Carbs <input type="number" min="0.1" step="0.1" formControlName="carbs"></label>
+              <label>Recorded insulin <input type="number" min="0" step="0.1" formControlName="usualInsulinUnits"></label>
+              <label>Pre-meal glucose <input type="number" min="0" step="0.1" formControlName="lastPreMealGlucose"></label>
+            </div>
+            <div class="grid two">
+              <label>Result
+                <select formControlName="resultRating">
+                  @for (rating of resultRatings; track rating) { <option [value]="rating">{{ labelRating(rating) }}</option> }
+                </select>
+              </label>
+              <label>Tags <input formControlName="tags" placeholder="sushi, delivery, dinner"></label>
+            </div>
+            <label>Notes <textarea rows="3" formControlName="notes" placeholder="What mattered last time?"></textarea></label>
+            <label class="toolbar favorite-check">
+              <input type="checkbox" formControlName="isFavorite">
+              Favorite
             </label>
-            <label>Tags <input formControlName="tags" placeholder="sushi, delivery, dinner"></label>
-          </div>
-          <label>Notes <textarea rows="3" formControlName="notes"></textarea></label>
-          <label class="toolbar">
-            <input style="width:auto" type="checkbox" formControlName="isFavorite">
-            Favorite
-          </label>
-          <div class="actions">
-            <button type="submit" [disabled]="form.invalid">{{ editingId ? 'Update' : 'Save' }}</button>
-            <button type="button" class="subtle" (click)="reset()">Clear</button>
-          </div>
-        </form>
-      </article>
+            <div class="actions modal-actions">
+              <button type="submit" [disabled]="form.invalid">{{ editingId ? 'Update meal' : 'Save meal' }}</button>
+              <button type="button" class="subtle" (click)="closeEditor()">Cancel</button>
+            </div>
+          </form>
+        </article>
+      </div>
+    }
 
-      <article class="card">
-        <h2>Search results</h2>
-        <div class="meal-card-list">
-          @for (meal of sections.searchResults; track meal.id) {
-            <ng-container [ngTemplateOutlet]="mealCard" [ngTemplateOutletContext]="{ meal: meal }" />
-          } @empty {
-            <p>No delivery meals yet.</p>
-          }
+    <ng-template #quickMealCard let-meal="meal">
+      <article class="quick-meal-card">
+        <div class="quick-meal-copy">
+          <h3>{{ meal.dishName }}</h3>
+          <p>{{ meal.placeName }}</p>
         </div>
-      </article>
-    </section>
 
-    <section class="grid">
-      <article>
-        <h2>Favorites</h2>
-        <div class="delivery-grid">
-          @for (meal of sections.favorites; track meal.id) {
-            <ng-container [ngTemplateOutlet]="mealCard" [ngTemplateOutletContext]="{ meal: meal }" />
-          } @empty {
-            <p class="muted">Favorite meals will appear here.</p>
-          }
-        </div>
-      </article>
+        <p class="quick-meal-metrics">
+          <strong>{{ meal.carbs | number:'1.0-1' }}g</strong> carbs
+          <span>{{ meal.usualInsulinUnits | number:'1.0-2' }}U recorded</span>
+        </p>
 
-      <article>
-        <h2>Most Used</h2>
-        <div class="delivery-grid">
-          @for (meal of sections.mostUsed; track meal.id) {
-            <ng-container [ngTemplateOutlet]="mealCard" [ngTemplateOutletContext]="{ meal: meal }" />
-          } @empty {
-            <p class="muted">Create a meal draft from a delivery meal to build this list.</p>
-          }
+        <div class="quick-meal-context">
+          <span class="result-badge {{ resultBadgeClass(meal.resultRating) }}">{{ resultLabel(meal.resultRating) }}</span>
+          <span>Last used {{ meal.lastUsedAt ? (meal.lastUsedAt | date:'mediumDate') : 'never' }}</span>
         </div>
-      </article>
 
-      <article>
-        <h2>Recently Used</h2>
-        <div class="delivery-grid">
-          @for (meal of sections.recentlyUsed; track meal.id) {
-            <ng-container [ngTemplateOutlet]="mealCard" [ngTemplateOutletContext]="{ meal: meal }" />
-          } @empty {
-            <p class="muted">Recent repeats will appear here.</p>
-          }
-        </div>
+        <button type="button" (click)="createMealDraft(meal)">Use Again</button>
       </article>
-    </section>
+    </ng-template>
 
     <ng-template #mealCard let-meal="meal">
-      <article class="card delivery-card">
-        <div class="delivery-card-head">
+      <article class="memory-card">
+        <div class="memory-card-top">
           <div>
-            <p class="muted">{{ meal.placeName }}</p>
+            <p>{{ meal.placeName }}</p>
             <h3>{{ meal.dishName }}</h3>
           </div>
-          <button type="button" class="subtle icon-button" (click)="toggleFavorite(meal)" [title]="meal.isFavorite ? 'Unfavorite' : 'Favorite'">
-            {{ meal.isFavorite ? '★' : '☆' }}
-          </button>
+          <details class="overflow-menu">
+            <summary title="More actions">⋮</summary>
+            <div class="overflow-panel">
+              <button type="button" class="subtle" (click)="openEdit(meal)">Edit</button>
+              <button type="button" class="subtle" (click)="toggleFavorite(meal)">{{ meal.isFavorite ? 'Remove Favorite' : 'Add Favorite' }}</button>
+              <button type="button" class="ghost-danger" (click)="delete(meal.id)">Delete</button>
+            </div>
+          </details>
         </div>
-        <p>{{ meal.portionDescription }}</p>
-        <div class="grid two compact-stats">
-          <span>Carbs: <strong>{{ meal.carbs | number:'1.0-1' }} g</strong></span>
-          <span>Usually: <strong>{{ meal.usualInsulinUnits | number:'1.0-2' }} U</strong></span>
-          <span>Result: <strong>{{ labelRating(meal.resultRating) }}</strong></span>
-          <span>Used: <strong>{{ meal.usageCount }} times</strong></span>
+
+        <p class="meal-note">{{ meal.portionDescription }}</p>
+
+        <div class="metric-row">
+          <div class="metric">
+            <strong>{{ meal.carbs | number:'1.0-1' }}g</strong>
+            <span>Carbs</span>
+          </div>
+          <div class="metric">
+            <strong>{{ meal.usualInsulinUnits | number:'1.0-2' }}U</strong>
+            <span>Recorded</span>
+          </div>
+          <div class="metric">
+            <strong>{{ meal.usageCount }}x</strong>
+            <span>Used</span>
+          </div>
         </div>
-        <p class="muted">Last used: {{ meal.lastUsedAt ? (meal.lastUsedAt | date:'mediumDate') : 'Never' }}</p>
-        @if (meal.tags) { <p><span class="pill">{{ meal.tags }}</span></p> }
-        <div class="actions">
-          <button type="button" (click)="createMealDraft(meal)">Use in calculator</button>
-          <button type="button" class="subtle" (click)="edit(meal)">Edit</button>
-          <button type="button" class="danger" (click)="delete(meal.id)">Delete</button>
+
+        <div class="meal-meta">
+          <span class="result-badge {{ resultBadgeClass(meal.resultRating) }}">{{ resultLabel(meal.resultRating) }}</span>
+          <span>Last used {{ meal.lastUsedAt ? (meal.lastUsedAt | date:'mediumDate') : 'never' }}</span>
+        </div>
+
+        @if (meal.tags) {
+          <div class="tag-row">
+            @for (tag of tagList(meal.tags); track tag) {
+              <span class="tag-chip">{{ tag }}</span>
+            }
+          </div>
+        }
+
+        <div class="card-actions">
+          <button type="button" (click)="createMealDraft(meal)">Use Again</button>
         </div>
       </article>
     </ng-template>
@@ -137,6 +193,7 @@ export class DeliveryMealsComponent implements OnInit {
   resultRatings = resultRatings;
   search = '';
   editingId = '';
+  isEditorOpen = false;
   sections: DeliveryMealSections = { favorites: [], mostUsed: [], recentlyUsed: [], searchResults: [] };
 
   form = this.fb.nonNullable.group({
@@ -162,22 +219,12 @@ export class DeliveryMealsComponent implements OnInit {
     this.api.getDeliveryMeals(this.search).subscribe((sections) => this.sections = sections);
   }
 
-  save() {
-    if (this.form.invalid) return;
-    const raw = this.form.getRawValue();
-    const request: UpsertDeliveryMealRequest = {
-      ...raw,
-      resultRating: raw.resultRating as any,
-      lastPreMealGlucose: raw.lastPreMealGlucose > 0 ? raw.lastPreMealGlucose : undefined
-    };
-    const save$ = this.editingId ? this.api.updateDeliveryMeal(this.editingId, request) : this.api.createDeliveryMeal(request);
-    save$.subscribe(() => {
-      this.reset();
-      this.load();
-    });
+  openCreate() {
+    this.reset();
+    this.isEditorOpen = true;
   }
 
-  edit(meal: DeliveryMeal) {
+  openEdit(meal: DeliveryMeal) {
     this.editingId = meal.id;
     this.form.patchValue({
       placeName: meal.placeName,
@@ -190,6 +237,27 @@ export class DeliveryMealsComponent implements OnInit {
       tags: meal.tags,
       notes: meal.notes ?? '',
       isFavorite: meal.isFavorite
+    });
+    this.isEditorOpen = true;
+  }
+
+  closeEditor() {
+    this.isEditorOpen = false;
+    this.reset();
+  }
+
+  save() {
+    if (this.form.invalid) return;
+    const raw = this.form.getRawValue();
+    const request: UpsertDeliveryMealRequest = {
+      ...raw,
+      resultRating: raw.resultRating as any,
+      lastPreMealGlucose: raw.lastPreMealGlucose > 0 ? raw.lastPreMealGlucose : undefined
+    };
+    const save$ = this.editingId ? this.api.updateDeliveryMeal(this.editingId, request) : this.api.createDeliveryMeal(request);
+    save$.subscribe(() => {
+      this.closeEditor();
+      this.load();
     });
   }
 
@@ -213,6 +281,7 @@ export class DeliveryMealsComponent implements OnInit {
   }
 
   delete(id: string) {
+    if (!confirm('Delete this counted meal?')) return;
     this.api.deleteDeliveryMeal(id).subscribe(() => this.load());
   }
 
@@ -233,6 +302,25 @@ export class DeliveryMealsComponent implements OnInit {
   }
 
   labelRating(rating: string) {
-    return rating.replace(/([a-z])([A-Z])/g, '$1 $2');
+    return this.resultLabel(rating);
+  }
+
+  resultLabel(rating: string) {
+    const labels: Record<string, string> = {
+      Perfect: 'Good',
+      Good: 'Good',
+      HighGlucose: 'High',
+      LowGlucose: 'Low',
+      Unknown: 'Unknown'
+    };
+    return labels[rating] ?? rating.replace(/([a-z])([A-Z])/g, '$1 $2');
+  }
+
+  resultBadgeClass(rating: string) {
+    return `result-${rating.replace('Glucose', '').toLowerCase()}`;
+  }
+
+  tagList(tags: string) {
+    return tags.split(',').map((tag) => tag.trim()).filter(Boolean).slice(0, 5);
   }
 }
