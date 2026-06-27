@@ -1,3 +1,4 @@
 export const environment = {
-  apiUrl: 'https://insulinandcoffee.onrender.com/api'
+  production: false,
+  apiUrl: 'http://localhost:5246/api'
 };
