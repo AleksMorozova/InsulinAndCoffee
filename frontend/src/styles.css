@@ -963,46 +963,28 @@ p { color: var(--muted); }
   line-height: 1;
 }
 
-.calculator-search {
-  position: relative;
+.create-food-panel {
+  display: grid;
+  gap: 1rem;
+  border-top: 1px solid rgba(231, 216, 200, 0.72);
+  border-bottom: 1px solid rgba(231, 216, 200, 0.72);
+  background: rgba(255, 255, 255, 0.38);
+  padding: 1rem 0;
 }
 
-.calculator-search::before {
-  content: "⌕";
-  position: absolute;
-  left: 1rem;
-  bottom: 0.86rem;
-  color: var(--muted);
-  font-size: 1.25rem;
-  line-height: 1;
-  pointer-events: none;
+button.create-food-button {
+  border: 0;
+  background: transparent;
+  color: var(--coffee);
+  padding: 0.32rem 0.4rem;
+  white-space: nowrap;
 }
 
-.calculator-search input {
-  min-height: 3.45rem;
-  padding-left: 2.55rem;
-}
-
-.food-helper {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.85rem;
-  border-top: 1px solid rgba(231, 216, 200, 0.62);
-  padding-top: 0.85rem;
-}
-
-.food-helper strong {
+button.create-food-button:hover {
+  background: rgba(240, 223, 200, 0.34);
   color: var(--coffee-dark);
-}
-
-.food-helper p {
-  margin: 0.18rem 0 0;
-  font-size: 0.9rem;
-}
-
-.create-food-card {
-  background: rgba(255, 255, 255, 0.66);
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
 }
 
 .current-meal-list {
@@ -1012,8 +994,9 @@ p { color: var(--muted); }
 
 .meal-item-card {
   display: grid;
-  grid-template-columns: auto minmax(180px, 1fr) minmax(120px, 0.5fr) auto auto;
-  gap: 0.75rem;
+  grid-template-columns: minmax(0, 3fr) minmax(110px, 0.9fr) minmax(70px, 0.55fr) 24px;
+  column-gap: 1rem;
+  row-gap: 0.75rem;
   align-items: center;
   min-width: 0;
   border: 1px solid rgba(231, 216, 200, 0.66);
@@ -1023,27 +1006,22 @@ p { color: var(--muted); }
   padding: 0.78rem;
 }
 
-.meal-item-icon {
-  display: grid;
-  width: 2.75rem;
-  height: 2.75rem;
-  place-items: center;
-  border-radius: 8px;
-  background: rgba(240, 223, 200, 0.72);
-  font-size: 1.35rem;
-}
-
 .meal-item-main {
   display: grid;
   gap: 0.35rem;
   min-width: 0;
 }
 
-.meal-item-main p {
+.meal-item-main > label {
+  display: block;
+}
+
+.food-selector-hint {
   margin: 0;
   overflow-wrap: anywhere;
-  color: var(--coffee-dark);
-  font-weight: 800;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 650;
 }
 
 .meal-weight {
@@ -1064,22 +1042,48 @@ p { color: var(--muted); }
 
 .meal-item-carbs {
   display: grid;
-  gap: 0.1rem;
+  grid-template-rows: auto 2.7rem;
+  gap: 0.35rem;
+  align-self: stretch;
   color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 900;
-  text-transform: uppercase;
+}
+
+.meal-item-carbs span {
+  font-size: 0.9rem;
+  font-weight: 700;
 }
 
 .meal-item-carbs strong {
+  display: flex;
+  align-items: center;
   color: var(--coffee-dark);
-  font-size: 1.28rem;
-  line-height: 1;
-  text-transform: none;
+  font-size: 1rem;
+  line-height: 1.2;
 }
 
 .meal-remove {
   align-self: end;
+  justify-self: end;
+  width: 24px;
+  height: 24px;
+  margin-bottom: 0.58rem;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+  font-size: 1.3rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.meal-remove:hover {
+  background: rgba(181, 75, 61, 0.08);
+  color: #8f3f35;
+}
+
+.meal-remove:focus-visible {
+  outline: 2px solid rgba(143, 63, 53, 0.4);
+  outline-offset: 2px;
 }
 
 .add-another-food {
@@ -1088,32 +1092,56 @@ p { color: var(--muted); }
   background: rgba(240, 223, 200, 0.48);
 }
 
-.direct-meal-metrics,
-.calculation-hero-values {
+.direct-meal-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.85rem;
 }
 
-.direct-meal-metrics div,
-.calculation-hero-values div {
+.calculation-hero-values {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.direct-meal-metrics div {
   display: grid;
   gap: 0.25rem;
 }
 
-.direct-meal-metrics strong,
-.calculation-hero-values strong {
+.calculation-hero-values div {
+  display: grid;
+  min-height: 7.25rem;
+  align-content: center;
+  gap: 0.45rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.42);
+  padding: 1rem;
+}
+
+.direct-meal-metrics strong {
   color: var(--coffee-dark);
   font-size: clamp(2rem, 4vw, 3rem);
   line-height: 1;
 }
 
-.direct-meal-metrics span,
-.calculation-hero-values span {
+.calculation-hero-values strong {
+  color: var(--coffee-dark);
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  line-height: 1;
+}
+
+.direct-meal-metrics span {
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 900;
   text-transform: uppercase;
+}
+
+.calculation-hero-values span {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
 }
 
 .calculation-card {
@@ -1122,20 +1150,33 @@ p { color: var(--muted); }
   background: rgba(255, 250, 244, 0.92);
 }
 
+.calculation-state {
+  display: grid;
+  min-height: 17.25rem;
+  animation: summary-reveal 180ms ease-out;
+}
+
+.calculation-results {
+  align-content: start;
+  gap: 1rem;
+}
+
 .calculation-breakdown {
   display: grid;
-  gap: 0.45rem;
-  border-top: 1px solid rgba(231, 216, 200, 0.72);
-  border-bottom: 1px solid rgba(231, 216, 200, 0.72);
-  padding: 0.85rem 0;
+  padding: 0.15rem 0;
   color: var(--muted);
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .calculation-breakdown span {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
+  padding: 0.62rem 0;
+}
+
+.calculation-breakdown span + span {
+  border-top: 1px solid rgba(231, 216, 200, 0.56);
 }
 
 .calculation-breakdown strong {
@@ -1143,32 +1184,74 @@ p { color: var(--muted); }
 }
 
 .calculation-note {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
   margin: 0;
   border-radius: 8px;
-  background: rgba(217, 239, 235, 0.52);
+  background: rgba(217, 239, 235, 0.62);
   color: #276763;
-  padding: 0.78rem 0.85rem;
+  padding: 0.82rem 0.9rem;
   font-size: 0.92rem;
-  font-weight: 800;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.calculation-note-icon {
+  display: inline-grid;
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: 0 0 1.35rem;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(52, 127, 122, 0.12);
+  font-size: 0.78rem;
+  font-weight: 900;
 }
 
 .calculation-empty {
-  display: grid;
-  gap: 0.35rem;
-  min-height: 9rem;
-  place-content: center;
-  border: 1px dashed rgba(123, 75, 53, 0.24);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.44);
-  padding: 1rem;
+  align-content: center;
+  gap: 0.7rem;
+  padding: 0.5rem 0.35rem 1rem;
 }
 
 .calculation-empty strong {
   color: var(--coffee-dark);
+  font-size: 1.2rem;
 }
 
 .calculation-empty p {
   margin: 0;
+}
+
+.calculation-empty ul {
+  display: grid;
+  gap: 0.45rem;
+  margin: 0.1rem 0 0.35rem;
+  padding: 0;
+  color: var(--muted);
+  list-style: none;
+}
+
+.calculation-empty li::before {
+  content: "•";
+  margin-right: 0.55rem;
+  color: var(--accent);
+}
+
+.calculation-empty-direction {
+  color: var(--coffee);
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+@keyframes summary-reveal {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calculation-state { animation: none; }
 }
 
 .confirmation-fields {
@@ -1266,13 +1349,12 @@ p { color: var(--muted); }
   .calculation-card {
     position: static;
   }
-  .builder-section-head,
-  .food-helper {
+  .builder-section-head {
     align-items: stretch;
     flex-direction: column;
   }
   .meal-item-card {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: 1fr;
     align-items: start;
   }
   .meal-weight,
@@ -1281,6 +1363,8 @@ p { color: var(--muted); }
     grid-column: 1 / -1;
   }
   .meal-remove {
-    width: 100%;
+    width: 24px;
+    margin-bottom: 0;
+    justify-self: start;
   }
 }
