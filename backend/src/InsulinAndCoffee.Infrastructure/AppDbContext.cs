@@ -15,6 +15,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<MealItem> MealItems => Set<MealItem>();
     public DbSet<GlucoseReading> GlucoseReadings => Set<GlucoseReading>();
     public DbSet<DeliveryMeal> DeliveryMeals => Set<DeliveryMeal>();
+    public DbSet<SupplyItem> SupplyItems => Set<SupplyItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -97,6 +98,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.Property(k => k.LastPreMealGlucose).HasPrecision(6, 2);
             entity.Property(k => k.Tags).HasMaxLength(400);
             entity.Property(k => k.Notes).HasMaxLength(1000);
+        });
+
+        modelBuilder.Entity<SupplyItem>(entity =>
+        {
+            entity.HasKey(item => item.Id);
+            entity.HasIndex(item => new { item.UserId, item.Name });
+            entity.Property(item => item.Name).HasMaxLength(160).IsRequired();
+            entity.Property(item => item.Unit).HasMaxLength(40).IsRequired();
+            entity.Property(item => item.CurrentQuantity).HasPrecision(12, 4);
+            entity.Property(item => item.DailyUsage).HasPrecision(12, 4);
+            entity.HasOne(item => item.User)
+                .WithMany(user => user.SupplyItems)
+                .HasForeignKey(item => item.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         Seed(modelBuilder);

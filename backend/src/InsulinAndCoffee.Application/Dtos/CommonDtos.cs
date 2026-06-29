@@ -71,3 +71,39 @@ public record DeliveryMealSectionsDto(
     IReadOnlyList<DeliveryMealDto> SearchResults);
 
 public record UseDeliveryMealDto(Guid Id, decimal Carbs, decimal UsualInsulinUnits, string Notes);
+
+public record SupplyItemDto(
+    Guid Id,
+    string Name,
+    decimal CurrentQuantity,
+    string Unit,
+    decimal DailyUsage,
+    int LowStockThresholdDays,
+    DateTimeOffset LastUpdatedAt,
+    DateTimeOffset CreatedAt,
+    DateTimeOffset? UpdatedAt);
+
+public record CreateSupplyItemRequest(
+    string Name,
+    decimal CurrentQuantity,
+    string Unit,
+    decimal DailyUsage,
+    int LowStockThresholdDays);
+
+public record UpdateSupplyItemRequest(
+    string Name,
+    decimal CurrentQuantity,
+    string Unit,
+    decimal DailyUsage,
+    int LowStockThresholdDays);
+
+public record SupplyCheckResultDto(
+    Guid Id,
+    string Name,
+    decimal CurrentQuantity,
+    string Unit,
+    decimal DailyUsage,
+    int LowStockThresholdDays,
+    decimal? DaysLeft,
+    DateOnly? EstimatedRunOutDate,
+    string Status);

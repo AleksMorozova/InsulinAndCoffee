@@ -12,6 +12,7 @@ public interface IAppDbContext
     DbSet<MealItem> MealItems { get; }
     DbSet<GlucoseReading> GlucoseReadings { get; }
     DbSet<DeliveryMeal> DeliveryMeals { get; }
+    DbSet<SupplyItem> SupplyItems { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

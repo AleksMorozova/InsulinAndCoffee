@@ -105,3 +105,29 @@ export interface UseDeliveryMeal {
   usualInsulinUnits: number;
   notes: string;
 }
+
+export type SupplyStatus = 'Ok' | 'Low' | 'Critical' | 'Unknown';
+
+export interface SupplyItem {
+  id: string;
+  name: string;
+  currentQuantity: number;
+  unit: string;
+  dailyUsage: number;
+  lowStockThresholdDays: number;
+  lastUpdatedAt: string;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface SupplyCheckResult {
+  id: string;
+  name: string;
+  currentQuantity: number;
+  unit: string;
+  dailyUsage: number;
+  lowStockThresholdDays: number;
+  daysLeft: number | null;
+  estimatedRunOutDate: string | null;
+  status: SupplyStatus;
+}

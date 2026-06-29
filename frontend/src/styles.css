@@ -1278,6 +1278,207 @@ button.create-food-button:hover {
   color: var(--coffee-dark);
 }
 
+.supplies-header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.25rem 0 1.25rem;
+}
+
+.supplies-header p {
+  max-width: 42rem;
+  margin: 0.4rem 0 0;
+}
+
+.supplies-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.supply-card {
+  display: grid;
+  gap: 1.15rem;
+  min-width: 0;
+  border: 1px solid rgba(231, 216, 200, 0.72);
+  border-radius: 8px;
+  background: rgba(255, 250, 244, 0.86);
+  box-shadow: 0 8px 22px rgba(76, 47, 36, 0.06);
+  padding: 1rem;
+}
+
+.supply-card-head,
+.supply-title,
+.supply-actions {
+  display: flex;
+  align-items: center;
+}
+
+.supply-card-head {
+  align-items: start;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.supply-title {
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.supply-title h2 {
+  overflow-wrap: anywhere;
+  font-size: 1.08rem;
+}
+
+.supply-title span:not(.supply-icon) {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.supply-icon {
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 2.5rem;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--cream);
+  color: var(--coffee-dark);
+  font-size: 1.25rem;
+}
+
+.supply-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.status-ok { background: rgba(217, 239, 235, 0.8); color: #276763; }
+.status-low { background: rgba(255, 235, 186, 0.72); color: #745714; }
+.status-critical { background: rgba(181, 75, 61, 0.1); color: #8f3f35; }
+.status-unknown { background: rgba(125, 110, 99, 0.1); color: var(--muted); }
+
+.supply-days {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.supply-days strong {
+  color: var(--coffee-dark);
+  font-size: 2.35rem;
+  line-height: 1;
+}
+
+.supply-days span {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.supply-details {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.supply-details div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.62rem 0;
+}
+
+.supply-details div + div {
+  border-top: 1px solid rgba(231, 216, 200, 0.58);
+}
+
+.supply-details dt {
+  color: var(--muted);
+}
+
+.supply-details dd {
+  margin: 0;
+  color: var(--coffee-dark);
+  font-weight: 700;
+  text-align: right;
+}
+
+.supply-actions {
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: auto;
+}
+
+.supplies-loading,
+.supplies-empty,
+.supplies-message {
+  display: grid;
+  min-height: 18rem;
+  place-items: center;
+  place-content: center;
+  gap: 0.6rem;
+  border-radius: 8px;
+  background: rgba(255, 250, 244, 0.62);
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.supplies-empty {
+  grid-column: 1 / -1;
+}
+
+.supplies-empty p {
+  margin: 0;
+}
+
+.supplies-empty-icon {
+  display: grid;
+  width: 3.5rem;
+  height: 3.5rem;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--cream);
+  color: var(--coffee-dark);
+  font-size: 1.7rem;
+}
+
+.supplies-message.error {
+  color: var(--danger);
+}
+
+.supply-editor-modal {
+  width: min(680px, 100%);
+  max-height: min(92vh, 820px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-strong);
+  box-shadow: 0 30px 80px rgba(46, 38, 33, 0.28);
+  padding: 1rem;
+}
+
+.supply-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.supply-help {
+  display: grid;
+  gap: 0.35rem;
+  border-radius: 8px;
+  background: rgba(217, 239, 235, 0.46);
+  color: #276763;
+  padding: 0.85rem;
+  font-size: 0.86rem;
+}
+
 @media (max-width: 800px) {
   .app-header {
     align-items: flex-start;
@@ -1287,6 +1488,23 @@ button.create-food-button:hover {
   nav { width: 100%; }
   .grid.two, .grid.three, .grid.four { grid-template-columns: 1fr; }
   .page-title { align-items: start; flex-direction: column; }
+  .supplies-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .supplies-header button {
+    width: 100%;
+  }
+  .supplies-grid {
+    grid-template-columns: 1fr;
+  }
+  .supply-card-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .supply-status {
+    align-self: start;
+  }
   .table { display: block; overflow-x: auto; }
   .memory-hero,
   .memory-section-grid {

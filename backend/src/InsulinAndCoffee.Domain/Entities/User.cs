@@ -12,4 +12,5 @@ public class User
     public ICollection<Meal> Meals { get; set; } = [];
     public ICollection<GlucoseReading> GlucoseReadings { get; set; } = [];
     public ICollection<DeliveryMeal> DeliveryMeals { get; set; } = [];
+    public ICollection<SupplyItem> SupplyItems { get; set; } = [];
 }

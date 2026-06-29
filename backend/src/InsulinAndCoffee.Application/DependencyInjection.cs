@@ -11,6 +11,8 @@ public static class DependencyInjection
         services.AddScoped<DeliveryMealService>();
         services.AddScoped<MealService>();
         services.AddScoped<SettingsService>();
+        services.AddScoped<SupplyService>();
+        services.AddSingleton(TimeProvider.System);
         return services;
     }
 }
