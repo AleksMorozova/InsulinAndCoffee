@@ -1,7 +1,7 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { environment } from '../../environments/environment';
-import { Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, MealCalculation, MealDetail, MealItemInput, MealSummary, MealType, ResultRating, UseDeliveryMeal } from './models';
+import { Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, MealCalculation, MealDetail, MealItemInput, MealSummary, MealType, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
 
 export interface UpsertFoodRequest {
   name: string;
@@ -46,6 +46,14 @@ export interface CreateDeliveryMealFromMealRequest {
   resultRating: ResultRating;
   tags: string;
   isFavorite: boolean;
+}
+
+export interface UpsertSupplyRequest {
+  name: string;
+  currentQuantity: number;
+  unit: string;
+  dailyUsage: number;
+  lowStockThresholdDays: number;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -133,6 +141,30 @@ export class ApiService {
 
   deleteDeliveryMeal(id: string) {
     return this.http.delete<void>(`${this.apiUrl}/delivery-meals/${id}`);
+  }
+
+  getSupplies() {
+    return this.http.get<SupplyItem[]>(`${this.apiUrl}/supplies`);
+  }
+
+  getSupply(id: string) {
+    return this.http.get<SupplyItem>(`${this.apiUrl}/supplies/${id}`);
+  }
+
+  createSupply(request: UpsertSupplyRequest) {
+    return this.http.post<SupplyItem>(`${this.apiUrl}/supplies`, request);
+  }
+
+  updateSupply(id: string, request: UpsertSupplyRequest) {
+    return this.http.put<SupplyItem>(`${this.apiUrl}/supplies/${id}`, request);
+  }
+
+  deleteSupply(id: string) {
+    return this.http.delete<void>(`${this.apiUrl}/supplies/${id}`);
+  }
+
+  getSupplyCheck() {
+    return this.http.get<SupplyCheckResult[]>(`${this.apiUrl}/supplies/check`);
   }
 
 }
