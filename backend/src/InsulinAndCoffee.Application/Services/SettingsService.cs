@@ -4,7 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class SettingsService(IAppDbContext db)
+public class SettingsService(IAppDbContext db, TimeProvider timeProvider)
 {
     public async Task<DiabetesSettingsDto> GetSettingsAsync(CancellationToken cancellationToken)
     {
@@ -20,11 +20,12 @@ public class SettingsService(IAppDbContext db)
         }
 
         var settings = await db.DiabetesSettings.FirstAsync(s => s.UserId == DefaultUser.Id, cancellationToken);
+        var now = timeProvider.GetUtcNow();
         settings.TargetGlucose = request.TargetGlucose;
         settings.CarbRatio = request.CarbRatio;
         settings.CorrectionFactor = request.CorrectionFactor;
         settings.InsulinDurationHours = request.InsulinDurationHours;
-        settings.UpdatedAt = DateTimeOffset.UtcNow;
+        settings.UpdatedAt = now;
 
         await db.SaveChangesAsync(cancellationToken);
         return new(settings.Id, settings.TargetGlucose, settings.CarbRatio, settings.CorrectionFactor, settings.InsulinDurationHours, settings.UpdatedAt);
