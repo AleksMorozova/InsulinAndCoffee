@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class FoodService(IAppDbContext db)
+public class FoodService(IAppDbContext db, TimeProvider timeProvider)
 {
     public async Task<IReadOnlyList<FoodItemDto>> GetFoodsAsync(string? search, CancellationToken cancellationToken)
     {
@@ -29,6 +29,7 @@ public class FoodService(IAppDbContext db)
     public async Task<FoodItemDto> CreateFoodAsync(UpsertFoodItemRequest request, CancellationToken cancellationToken)
     {
         ValidateFood(request);
+        var now = timeProvider.GetUtcNow();
 
         var food = new FoodItem
         {
@@ -40,7 +41,7 @@ public class FoodService(IAppDbContext db)
             FatPer100g = request.FatPer100g,
             CaloriesPer100g = request.CaloriesPer100g,
             IsFavorite = request.IsFavorite,
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = now
         };
 
         db.FoodItems.Add(food);

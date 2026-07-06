@@ -6,11 +6,12 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class MealService(IAppDbContext db)
+public class MealService(IAppDbContext db, TimeProvider timeProvider)
 {
     public async Task<DashboardDto> GetDashboardAsync(CancellationToken cancellationToken)
     {
-        var today = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
+        var now = timeProvider.GetUtcNow();
+        var today = new DateTimeOffset(now.UtcDateTime.Date, TimeSpan.Zero);
         var tomorrow = today.AddDays(1);
 
         var todaysMeals = await db.Meals
@@ -55,18 +56,20 @@ public class MealService(IAppDbContext db)
         }
 
         var calculation = await CalculateMealAsync(new CalculateMealRequest(request.MealType, request.PreMealGlucose, request.Items, request.DirectCarbs, request.DirectFoodName), cancellationToken);
+        var now = timeProvider.GetUtcNow();
+        var mealTime = request.MealTime ?? now;
         var meal = new Meal
         {
             Id = Guid.NewGuid(),
             UserId = DefaultUser.Id,
             MealType = request.MealType,
-            MealTime = request.MealTime ?? DateTimeOffset.UtcNow,
+            MealTime = mealTime,
             PreMealGlucose = request.PreMealGlucose,
             TotalCarbs = calculation.TotalCarbs,
             SuggestedBolus = calculation.SuggestedBolus,
             ConfirmedBolus = request.ConfirmedBolus,
             Notes = request.Notes,
-            CreatedAt = DateTimeOffset.UtcNow,
+            CreatedAt = now,
             Items = calculation.Items.Select(item => new MealItem
             {
                 Id = Guid.NewGuid(),
@@ -83,7 +86,7 @@ public class MealService(IAppDbContext db)
                     Id = Guid.NewGuid(),
                     UserId = DefaultUser.Id,
                     Value = request.PreMealGlucose,
-                    ReadingTime = request.MealTime ?? DateTimeOffset.UtcNow,
+                    ReadingTime = mealTime,
                     ReadingType = ReadingType.BeforeMeal,
                     Notes = "Captured with meal"
                 }

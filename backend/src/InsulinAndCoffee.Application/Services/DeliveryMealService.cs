@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class DeliveryMealService(IAppDbContext db)
+public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider)
 {
     public async Task<DeliveryMealSectionsDto> GetSectionsAsync(string? search, CancellationToken cancellationToken)
     {
@@ -70,6 +70,7 @@ public class DeliveryMealService(IAppDbContext db)
     public async Task<DeliveryMealDto> CreateAsync(UpsertDeliveryMealRequest request, CancellationToken cancellationToken)
     {
         Validate(request);
+        var now = timeProvider.GetUtcNow();
 
         var deliveryMeal = new DeliveryMeal
         {
@@ -86,7 +87,7 @@ public class DeliveryMealService(IAppDbContext db)
             Notes = request.Notes,
             IsFavorite = request.IsFavorite,
             UsageCount = 0,
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = now
         };
 
         db.DeliveryMeals.Add(deliveryMeal);
@@ -113,6 +114,7 @@ public class DeliveryMealService(IAppDbContext db)
             notes = $"Saved from {meal.MealType} on {meal.MealTime:yyyy-MM-dd}.";
         }
 
+        var now = timeProvider.GetUtcNow();
         var deliveryMeal = new DeliveryMeal
         {
             Id = Guid.NewGuid(),
@@ -128,7 +130,7 @@ public class DeliveryMealService(IAppDbContext db)
             Notes = notes,
             IsFavorite = request.IsFavorite,
             UsageCount = 0,
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = now
         };
 
         db.DeliveryMeals.Add(deliveryMeal);
@@ -182,8 +184,9 @@ public class DeliveryMealService(IAppDbContext db)
         var deliveryMeal = await db.DeliveryMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
             ?? throw new KeyNotFoundException("Delivery meal was not found.");
 
+        var now = timeProvider.GetUtcNow();
         deliveryMeal.UsageCount += 1;
-        deliveryMeal.LastUsedAt = DateTimeOffset.UtcNow;
+        deliveryMeal.LastUsedAt = now;
         await db.SaveChangesAsync(cancellationToken);
 
         var notes = $"Delivery meal: {deliveryMeal.PlaceName} - {deliveryMeal.DishName}. {deliveryMeal.PortionDescription}";
