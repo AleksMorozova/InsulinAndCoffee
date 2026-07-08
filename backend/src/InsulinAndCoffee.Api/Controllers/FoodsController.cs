@@ -9,8 +9,12 @@ namespace InsulinAndCoffee.Api.Controllers;
 public class FoodsController(FoodService foodService) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<FoodItemDto>>> Get([FromQuery] string? search, CancellationToken cancellationToken) =>
-        Ok(await foodService.GetFoodsAsync(search, cancellationToken));
+    public async Task<ActionResult<PaginatedResult<FoodItemDto>>> Get(
+        [FromQuery] string? search,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken cancellationToken = default) =>
+        Ok(await foodService.GetFoodsAsync(search, page, pageSize, cancellationToken));
 
     [HttpPost]
     public async Task<ActionResult<FoodItemDto>> Create(UpsertFoodItemRequest request, CancellationToken cancellationToken)
