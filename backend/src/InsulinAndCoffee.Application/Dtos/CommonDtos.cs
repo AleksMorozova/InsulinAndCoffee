@@ -2,6 +2,13 @@ using InsulinAndCoffee.Domain.Enums;
 
 namespace InsulinAndCoffee.Application.Dtos;
 
+public record PaginatedResult<T>(
+    IReadOnlyList<T> Items,
+    int Page,
+    int PageSize,
+    int TotalCount,
+    int TotalPages);
+
 public record DiabetesSettingsDto(Guid Id, decimal TargetGlucose, decimal CarbRatio, decimal CorrectionFactor, decimal InsulinDurationHours, DateTimeOffset UpdatedAt);
 
 public record UpdateDiabetesSettingsRequest(decimal TargetGlucose, decimal CarbRatio, decimal CorrectionFactor, decimal InsulinDurationHours);
