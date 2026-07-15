@@ -33,7 +33,21 @@ public record MealSummaryDto(Guid Id, MealType MealType, DateTimeOffset MealTime
 
 public record MealDetailDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal SuggestedBolus, decimal ConfirmedBolus, string? Notes, DateTimeOffset CreatedAt, IReadOnlyList<MealItemDto> Items);
 
-public record DashboardDto(decimal TodaysTotalCarbs, decimal TodaysConfirmedInsulinUnits, MealSummaryDto? LastMeal);
+public record DashboardDto(
+    DateOnly Date,
+    decimal TotalCarbs,
+    decimal ConfirmedInsulin,
+    int MealCount,
+    IReadOnlyList<DashboardMealDto> Meals);
+
+public record DashboardMealDto(
+    Guid Id,
+    MealType MealType,
+    DateTimeOffset MealTime,
+    DateTimeOffset CreatedAt,
+    decimal TotalCarbs,
+    decimal? ConfirmedInsulin,
+    bool RequiresInsulinConfirmation);
 
 public record DeliveryMealDto(
     Guid Id,

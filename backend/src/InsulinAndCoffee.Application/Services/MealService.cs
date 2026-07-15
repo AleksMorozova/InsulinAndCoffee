@@ -10,26 +10,30 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
 {
     public async Task<DashboardDto> GetDashboardAsync(CancellationToken cancellationToken)
     {
-        var now = timeProvider.GetUtcNow();
-        var today = new DateTimeOffset(now.UtcDateTime.Date, TimeSpan.Zero);
-        var tomorrow = today.AddDays(1);
+        var today = DateOnly.FromDateTime(timeProvider.GetLocalNow().Date);
+        var todayStartUtc = GetLocalDayStartUtc(today);
+        var tomorrowStartUtc = GetLocalDayStartUtc(today.AddDays(1));
 
-        var todaysMeals = await db.Meals
+        var meals = await db.Meals
             .AsNoTracking()
-            .Where(m => m.UserId == DefaultUser.Id && m.MealTime >= today && m.MealTime < tomorrow)
+            .Where(m => m.UserId == DefaultUser.Id && m.CreatedAt >= todayStartUtc && m.CreatedAt < tomorrowStartUtc)
+            .OrderByDescending(m => m.MealTime)
+            .Select(m => new DashboardMealDto(
+                m.Id,
+                m.MealType,
+                m.MealTime,
+                m.CreatedAt,
+                m.TotalCarbs,
+                m.ConfirmedBolus > 0 ? (decimal?)m.ConfirmedBolus : null,
+                m.ConfirmedBolus <= 0))
             .ToListAsync(cancellationToken);
 
-        var lastMeal = await db.Meals
-            .AsNoTracking()
-            .Include(m => m.Items)
-            .Where(m => m.UserId == DefaultUser.Id)
-            .OrderByDescending(m => m.MealTime)
-            .FirstOrDefaultAsync(cancellationToken);
-
         return new DashboardDto(
-            todaysMeals.Sum(m => m.TotalCarbs),
-            todaysMeals.Sum(m => m.ConfirmedBolus),
-            lastMeal is null ? null : ToSummary(lastMeal));
+            today,
+            meals.Sum(m => m.TotalCarbs),
+            meals.Sum(m => m.ConfirmedInsulin ?? 0),
+            meals.Count,
+            meals);
     }
 
     public async Task<MealCalculationDto> CalculateMealAsync(CalculateMealRequest request, CancellationToken cancellationToken)
@@ -201,4 +205,10 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
     private static MealDetailDto ToDetail(Meal meal) =>
         new(meal.Id, meal.MealType, meal.MealTime, meal.PreMealGlucose, meal.TotalCarbs, meal.SuggestedBolus, meal.ConfirmedBolus, meal.Notes, meal.CreatedAt,
             meal.Items.OrderBy(i => i.FoodNameSnapshot).Select(i => new MealItemDto(i.Id, i.FoodItemId, i.FoodNameSnapshot, i.WeightGrams, i.CarbsPer100gSnapshot, i.CalculatedCarbs)).ToList());
+
+    private DateTimeOffset GetLocalDayStartUtc(DateOnly date)
+    {
+        var localStart = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+        return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localStart, timeProvider.LocalTimeZone), TimeSpan.Zero);
+    }
 }

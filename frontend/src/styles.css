@@ -170,6 +170,256 @@ p { color: var(--muted); }
 .stat span { color: var(--muted); font-weight: 700; }
 .stat strong { font-size: clamp(1.6rem, 3vw, 2.4rem); color: var(--coffee-dark); }
 
+.dashboard-action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0.25rem 0 1.35rem;
+}
+
+.dashboard-action-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto auto 1fr auto;
+  min-height: 12.5rem;
+  align-content: stretch;
+  gap: 0.45rem;
+  overflow: hidden;
+  border: 1px solid rgba(231, 216, 200, 0.82);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(76, 47, 36, 0.08);
+  padding: 1.25rem;
+  cursor: pointer;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.dashboard-action-card:hover,
+.dashboard-action-card:focus-visible {
+  border-color: rgba(123, 75, 53, 0.36);
+  box-shadow: 0 18px 36px rgba(76, 47, 36, 0.12);
+  transform: translateY(-1px);
+}
+
+.dashboard-action-card:focus-visible {
+  outline: 3px solid rgba(52, 127, 122, 0.34);
+  outline-offset: 3px;
+}
+
+.dashboard-action-card.primary {
+  background:
+    radial-gradient(circle at top right, rgba(240, 223, 200, 0.86), transparent 38%),
+    linear-gradient(135deg, rgba(255, 250, 244, 0.98), rgba(234, 213, 190, 0.86));
+  color: var(--coffee-dark);
+}
+
+.dashboard-action-card.memory {
+  background:
+    radial-gradient(circle at top right, rgba(217, 239, 235, 0.86), transparent 38%),
+    linear-gradient(135deg, rgba(255, 250, 244, 0.96), rgba(240, 223, 200, 0.64));
+  color: var(--coffee-dark);
+}
+
+.dashboard-action-card.primary span:not(.dashboard-action-illustration),
+.dashboard-action-card.primary strong {
+  color: inherit;
+}
+
+.dashboard-action-card.primary > span:not(.dashboard-action-illustration) {
+  color: rgba(76, 47, 36, 0.72);
+}
+
+.dashboard-action-card.memory > span:not(.dashboard-action-illustration) {
+  color: var(--muted);
+}
+
+.dashboard-action-card strong {
+  color: var(--coffee-dark);
+  font-size: clamp(1.75rem, 3.5vw, 2.35rem);
+  line-height: 1;
+}
+
+.dashboard-action-illustration {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  display: block;
+  width: 5.1rem;
+  height: 4.3rem;
+  color: var(--coffee-dark);
+  opacity: 0.18;
+  pointer-events: none;
+}
+
+.dashboard-action-illustration svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.dashboard-action-card.memory .dashboard-action-illustration {
+  color: var(--coffee-dark);
+}
+
+.dashboard-action-kicker {
+  font-size: 0.82rem;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.dashboard-action-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.75rem;
+  margin-top: 0.35rem;
+  color: var(--coffee) !important;
+  font-size: 0.92rem;
+  font-weight: 800;
+}
+
+.dashboard-action-card:hover .dashboard-action-cta,
+.dashboard-action-card:focus-visible .dashboard-action-cta {
+  color: var(--coffee-dark) !important;
+}
+
+.dashboard-summary-line {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  flex-wrap: wrap;
+  margin: 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.dashboard-summary-line strong {
+  color: var(--coffee-dark);
+  font-weight: 700;
+}
+
+.dashboard-total-icon {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.dashboard-summary-separator {
+  color: rgba(125, 110, 99, 0.62);
+  padding: 0 0.25rem;
+}
+
+.dashboard-section {
+  display: grid;
+  gap: 0.8rem;
+  margin-top: 1.25rem;
+}
+
+.dashboard-link {
+  color: var(--coffee);
+  font-weight: 800;
+}
+
+.dashboard-link:hover,
+.dashboard-link:focus-visible {
+  color: var(--coffee-dark);
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
+.dashboard-daily-totals {
+  margin-top: 1rem;
+}
+
+.dashboard-message {
+  display: grid;
+  gap: 0.6rem;
+  min-height: 12rem;
+  place-content: center;
+  justify-items: center;
+  text-align: center;
+}
+
+.dashboard-message p {
+  margin: 0;
+}
+
+.attention-list,
+.today-meal-list {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.dashboard-meals-heading {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.dashboard-meals-heading p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.attention-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.attention-card h3 {
+  margin-top: 0.5rem;
+  color: var(--coffee-dark);
+  font-size: 1.1rem;
+}
+
+.attention-card p {
+  margin: 0.25rem 0 0;
+}
+
+.today-meal-row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr) minmax(4.5rem, auto) minmax(7rem, auto);
+  gap: 0.85rem;
+  align-items: center;
+  border: 1px solid rgba(231, 216, 200, 0.72);
+  border-radius: 8px;
+  background: rgba(255, 250, 244, 0.74);
+  box-shadow: 0 7px 16px rgba(76, 47, 36, 0.045);
+  padding: 0.78rem 0.9rem;
+}
+
+.today-meal-row:hover {
+  border-color: rgba(123, 75, 53, 0.36);
+  background: rgba(255, 250, 244, 0.94);
+}
+
+.today-meal-row time,
+.today-meal-row span {
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.today-meal-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--coffee-dark);
+}
+
+.pending-status {
+  color: var(--danger) !important;
+}
+
+.dashboard-empty {
+  min-height: 13rem;
+}
+
 .toolbar, .actions {
   display: flex;
   align-items: center;
@@ -1487,6 +1737,23 @@ button.create-food-button:hover {
 
   nav { width: 100%; }
   .grid.two, .grid.three, .grid.four { grid-template-columns: 1fr; }
+  .dashboard-action-grid {
+    grid-template-columns: 1fr;
+  }
+  .dashboard-action-card {
+    min-height: 11rem;
+  }
+  .attention-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .attention-card button {
+    width: 100%;
+  }
+  .today-meal-row {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
+  }
   .page-title { align-items: start; flex-direction: column; }
   .supplies-header {
     align-items: stretch;

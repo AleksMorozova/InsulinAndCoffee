@@ -1,7 +1,8 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
+import { map } from 'rxjs';
 import { environment } from '../../environments/environment';
-import { Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, MealCalculation, MealDetail, MealItemInput, MealSummary, MealType, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
+import { Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, MealCalculation, MealDetail, MealItemInput, MealSummary, MealType, PaginatedResult, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
 
 export interface UpsertFoodRequest {
   name: string;
@@ -63,12 +64,15 @@ export class ApiService {
   constructor(private readonly http: HttpClient) {}
 
   getDashboard() {
-    return this.http.get<Dashboard>(`${this.apiUrl}/dashboard`);
+    return this.http.get<Dashboard>(`${this.apiUrl}/dashboard/today`);
   }
 
   getFoods(search = '') {
-    const params = search ? new HttpParams().set('search', search) : undefined;
-    return this.http.get<FoodItem[]>(`${this.apiUrl}/foods`, { params });
+    let params = new HttpParams().set('pageSize', 100);
+    if (search) params = params.set('search', search);
+    return this.http.get<PaginatedResult<FoodItem>>(`${this.apiUrl}/foods`, { params }).pipe(
+      map((result) => result.items)
+    );
   }
 
   createFood(request: UpsertFoodRequest) {

@@ -24,6 +24,14 @@ export interface FoodItem {
   createdAt: string;
 }
 
+export interface PaginatedResult<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
 export interface MealItemInput {
   foodItemId: string;
   weightGrams: number;
@@ -69,10 +77,22 @@ export interface MealDetail extends MealSummary {
   }[];
 }
 
+export interface DashboardMeal {
+  id: string;
+  mealType: MealType;
+  mealTime: string;
+  createdAt: string;
+  totalCarbs: number;
+  confirmedInsulin: number | null;
+  requiresInsulinConfirmation: boolean;
+}
+
 export interface Dashboard {
-  todaysTotalCarbs: number;
-  todaysConfirmedInsulinUnits: number;
-  lastMeal?: MealSummary;
+  date: string;
+  totalCarbs: number;
+  confirmedInsulin: number;
+  mealCount: number;
+  meals: DashboardMeal[];
 }
 
 export interface DeliveryMeal {
