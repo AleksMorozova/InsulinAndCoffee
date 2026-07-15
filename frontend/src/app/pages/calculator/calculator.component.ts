@@ -55,7 +55,13 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
                 <span>Recorded carbs</span>
               </div>
               <div>
-                <strong>{{ form.controls.confirmedBolus.value | number:'1.0-2' }}U</strong>
+                <strong>
+                  @if (form.controls.confirmedBolus.value !== null) {
+                    {{ form.controls.confirmedBolus.value | number:'1.0-2' }}U
+                  } @else {
+                    Not confirmed
+                  }
+                </strong>
                 <span>Recorded dose</span>
               </div>
             </div>
@@ -191,7 +197,7 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
               <h2>Confirm the actual dose</h2>
             </div>
           </div>
-          <label>Confirmed dose
+          <label>Confirmed dose <span class="muted">(optional)</span>
             <input type="number" min="0" step="0.1" formControlName="confirmedBolus">
           </label>
           <label>Notes
@@ -233,7 +239,7 @@ export class CalculatorComponent implements OnInit {
   form = this.fb.group({
     mealType: this.fb.nonNullable.control('Breakfast', Validators.required),
     preMealGlucose: this.fb.nonNullable.control(6.5, [Validators.required, Validators.min(0.1)]),
-    confirmedBolus: this.fb.nonNullable.control(0, [Validators.required, Validators.min(0)]),
+    confirmedBolus: this.fb.control<number | null>(null, [Validators.min(0)]),
     notes: this.fb.control(''),
     items: this.fb.array([
       this.fb.group({
@@ -411,12 +417,8 @@ export class CalculatorComponent implements OnInit {
 
     this.api.calculateMeal(request).subscribe({
       next: (result) => {
-        const suggestionChanged = this.calculation?.suggestedBolus !== result.suggestedBolus;
         this.calculation = result;
         this.lastCalculationKey = calculationKey;
-        if (suggestionChanged && !this.form.controls.confirmedBolus.dirty) {
-          this.form.controls.confirmedBolus.setValue(result.suggestedBolus, { emitEvent: false });
-        }
         this.error = '';
       },
       error: () => {
@@ -447,7 +449,7 @@ export class CalculatorComponent implements OnInit {
     return {
       mealType: value.mealType as any,
       preMealGlucose: value.preMealGlucose,
-      confirmedBolus: value.confirmedBolus,
+      confirmedBolus: value.confirmedBolus ?? null,
       notes: value.notes ?? '',
       items: this.directMode ? [] : value.items,
       directCarbs: this.directMode ? this.directCarbs : undefined,
@@ -470,7 +472,7 @@ export class CalculatorComponent implements OnInit {
     this.form.reset({
       mealType: this.form.controls.mealType.value,
       preMealGlucose: this.form.controls.preMealGlucose.value,
-      confirmedBolus: 0,
+      confirmedBolus: null,
       notes: '',
       items: [{ foodItemId: '', weightGrams: 100 }]
     });

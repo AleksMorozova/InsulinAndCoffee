@@ -24,8 +24,8 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
                 m.MealTime,
                 m.CreatedAt,
                 m.TotalCarbs,
-                m.ConfirmedBolus > 0 ? (decimal?)m.ConfirmedBolus : null,
-                m.ConfirmedBolus <= 0))
+                m.ConfirmedBolus,
+                m.ConfirmedBolus == null))
             .ToListAsync(cancellationToken);
 
         return new DashboardDto(
@@ -134,6 +134,23 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
             .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
             ?? throw new KeyNotFoundException("Meal was not found.");
 
+        return ToDetail(meal);
+    }
+
+    public async Task<MealDetailDto> ConfirmMealBolusAsync(Guid id, ConfirmMealBolusRequest request, CancellationToken cancellationToken)
+    {
+        if (request.ConfirmedBolus < 0)
+        {
+            throw new ValidationException("Confirmed bolus cannot be negative.");
+        }
+
+        var meal = await db.Meals
+            .Include(m => m.Items)
+            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
+            ?? throw new KeyNotFoundException("Meal was not found.");
+
+        meal.ConfirmedBolus = request.ConfirmedBolus;
+        await db.SaveChangesAsync(cancellationToken);
         return ToDetail(meal);
     }
 

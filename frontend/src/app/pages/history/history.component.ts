@@ -53,7 +53,13 @@ import { mealTypes } from '../../core/models';
               <td><span class="pill">{{ meal.mealType }}</span></td>
               <td>{{ meal.foodNames.join(', ') }}</td>
               <td>{{ meal.totalCarbs | number:'1.0-1' }} g</td>
-              <td>{{ meal.confirmedBolus | number:'1.0-2' }} u</td>
+              <td>
+                @if (meal.confirmedBolus !== null) {
+                  {{ meal.confirmedBolus | number:'1.0-2' }} u
+                } @else {
+                  <span class="pending-status">Not confirmed</span>
+                }
+              </td>
               <td>{{ meal.preMealGlucose | number:'1.0-1' }}</td>
               <td><a [routerLink]="['/meals', meal.id]"><button class="subtle">Open</button></a></td>
             </tr>

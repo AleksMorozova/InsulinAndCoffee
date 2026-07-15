@@ -388,7 +388,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<decimal>("ConfirmedBolus")
+                    b.Property<decimal?>("ConfirmedBolus")
                         .HasPrecision(6, 2)
                         .HasColumnType("numeric(6,2)");
 
