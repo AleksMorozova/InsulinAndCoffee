@@ -27,11 +27,13 @@ public record CalculatedMealItemDto(Guid FoodItemId, string FoodName, decimal We
 
 public record CalculateMealRequest(MealType MealType, decimal PreMealGlucose, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null);
 
-public record CreateMealRequest(MealType MealType, DateTimeOffset? MealTime, decimal PreMealGlucose, decimal ConfirmedBolus, string? Notes, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null);
+public record CreateMealRequest(MealType MealType, DateTimeOffset? MealTime, decimal PreMealGlucose, decimal? ConfirmedBolus, string? Notes, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null);
 
-public record MealSummaryDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal SuggestedBolus, decimal ConfirmedBolus, string? Notes, IReadOnlyList<string> FoodNames);
+public record ConfirmMealBolusRequest(decimal ConfirmedBolus);
 
-public record MealDetailDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal SuggestedBolus, decimal ConfirmedBolus, string? Notes, DateTimeOffset CreatedAt, IReadOnlyList<MealItemDto> Items);
+public record MealSummaryDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal SuggestedBolus, decimal? ConfirmedBolus, string? Notes, IReadOnlyList<string> FoodNames);
+
+public record MealDetailDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal SuggestedBolus, decimal? ConfirmedBolus, string? Notes, DateTimeOffset CreatedAt, IReadOnlyList<MealItemDto> Items);
 
 public record DashboardDto(
     DateOnly Date,

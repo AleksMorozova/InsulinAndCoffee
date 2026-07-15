@@ -108,6 +108,11 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider)
             .FirstOrDefaultAsync(m => m.Id == mealId && m.UserId == DefaultUser.Id, cancellationToken)
             ?? throw new KeyNotFoundException("Meal was not found.");
 
+        if (meal.ConfirmedBolus is null)
+        {
+            throw new ValidationException("Confirm the insulin dose before saving this meal as a delivery meal.");
+        }
+
         var notes = meal.Notes;
         if (string.IsNullOrWhiteSpace(notes))
         {
@@ -123,7 +128,7 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider)
             DishName = request.DishName.Trim(),
             PortionDescription = request.PortionDescription.Trim(),
             Carbs = meal.TotalCarbs,
-            UsualInsulinUnits = meal.ConfirmedBolus,
+            UsualInsulinUnits = meal.ConfirmedBolus.Value,
             LastPreMealGlucose = meal.PreMealGlucose,
             ResultRating = request.ResultRating,
             Tags = NormalizeTags(request.Tags),

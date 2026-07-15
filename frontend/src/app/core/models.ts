@@ -60,7 +60,7 @@ export interface MealSummary {
   preMealGlucose: number;
   totalCarbs: number;
   suggestedBolus: number;
-  confirmedBolus: number;
+  confirmedBolus: number | null;
   notes?: string;
   foodNames: string[];
 }

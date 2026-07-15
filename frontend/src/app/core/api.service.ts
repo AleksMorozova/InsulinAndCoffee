@@ -23,8 +23,12 @@ export interface CalculateMealRequest {
 
 export interface CreateMealRequest extends CalculateMealRequest {
   mealTime?: string;
-  confirmedBolus: number;
+  confirmedBolus: number | null;
   notes?: string;
+}
+
+export interface ConfirmMealBolusRequest {
+  confirmedBolus: number;
 }
 
 export interface UpsertDeliveryMealRequest {
@@ -93,6 +97,10 @@ export class ApiService {
 
   createMeal(request: CreateMealRequest) {
     return this.http.post<MealDetail>(`${this.apiUrl}/meals`, request);
+  }
+
+  confirmMealBolus(id: string, request: ConfirmMealBolusRequest) {
+    return this.http.patch<MealDetail>(`${this.apiUrl}/meals/${id}/confirmed-bolus`, request);
   }
 
   getMeals(search = '', mealType = '') {

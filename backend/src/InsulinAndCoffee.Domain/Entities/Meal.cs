@@ -11,7 +11,7 @@ public class Meal
     public decimal PreMealGlucose { get; set; }
     public decimal TotalCarbs { get; set; }
     public decimal SuggestedBolus { get; set; }
-    public decimal ConfirmedBolus { get; set; }
+    public decimal? ConfirmedBolus { get; set; }
     public string? Notes { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
 

@@ -80,7 +80,7 @@ interface DashboardViewState {
                       <h3>{{ meal.totalCarbs | number:'1.0-1' }} g carbs</h3>
                       <p>Insulin has not been confirmed</p>
                     </div>
-                    <a [routerLink]="['/meals', meal.id]"><button class="secondary">Confirm insulin</button></a>
+                    <a [routerLink]="['/meals', meal.id]" [queryParams]="{ confirm: 'insulin' }"><button class="secondary">Confirm insulin</button></a>
                   </article>
                 }
               </div>
