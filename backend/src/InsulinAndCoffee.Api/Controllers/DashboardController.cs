@@ -11,4 +11,8 @@ public class DashboardController(MealService mealService) : ControllerBase
     [HttpGet]
     public async Task<ActionResult<DashboardDto>> Get(CancellationToken cancellationToken) =>
         Ok(await mealService.GetDashboardAsync(cancellationToken));
+
+    [HttpGet("today")]
+    public async Task<ActionResult<DashboardDto>> GetToday(CancellationToken cancellationToken) =>
+        Ok(await mealService.GetDashboardAsync(cancellationToken));
 }

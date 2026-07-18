@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class DeliveryMealService(IAppDbContext db)
+public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider)
 {
     public async Task<DeliveryMealSectionsDto> GetSectionsAsync(string? search, CancellationToken cancellationToken)
     {
@@ -70,6 +70,7 @@ public class DeliveryMealService(IAppDbContext db)
     public async Task<DeliveryMealDto> CreateAsync(UpsertDeliveryMealRequest request, CancellationToken cancellationToken)
     {
         Validate(request);
+        var now = timeProvider.GetUtcNow();
 
         var deliveryMeal = new DeliveryMeal
         {
@@ -86,7 +87,7 @@ public class DeliveryMealService(IAppDbContext db)
             Notes = request.Notes,
             IsFavorite = request.IsFavorite,
             UsageCount = 0,
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = now
         };
 
         db.DeliveryMeals.Add(deliveryMeal);
@@ -107,12 +108,18 @@ public class DeliveryMealService(IAppDbContext db)
             .FirstOrDefaultAsync(m => m.Id == mealId && m.UserId == DefaultUser.Id, cancellationToken)
             ?? throw new KeyNotFoundException("Meal was not found.");
 
+        if (meal.ConfirmedBolus is null)
+        {
+            throw new ValidationException("Confirm the insulin dose before saving this meal as a delivery meal.");
+        }
+
         var notes = meal.Notes;
         if (string.IsNullOrWhiteSpace(notes))
         {
             notes = $"Saved from {meal.MealType} on {meal.MealTime:yyyy-MM-dd}.";
         }
 
+        var now = timeProvider.GetUtcNow();
         var deliveryMeal = new DeliveryMeal
         {
             Id = Guid.NewGuid(),
@@ -121,14 +128,14 @@ public class DeliveryMealService(IAppDbContext db)
             DishName = request.DishName.Trim(),
             PortionDescription = request.PortionDescription.Trim(),
             Carbs = meal.TotalCarbs,
-            UsualInsulinUnits = meal.ConfirmedBolus,
+            UsualInsulinUnits = meal.ConfirmedBolus.Value,
             LastPreMealGlucose = meal.PreMealGlucose,
             ResultRating = request.ResultRating,
             Tags = NormalizeTags(request.Tags),
             Notes = notes,
             IsFavorite = request.IsFavorite,
             UsageCount = 0,
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = now
         };
 
         db.DeliveryMeals.Add(deliveryMeal);
@@ -182,8 +189,9 @@ public class DeliveryMealService(IAppDbContext db)
         var deliveryMeal = await db.DeliveryMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
             ?? throw new KeyNotFoundException("Delivery meal was not found.");
 
+        var now = timeProvider.GetUtcNow();
         deliveryMeal.UsageCount += 1;
-        deliveryMeal.LastUsedAt = DateTimeOffset.UtcNow;
+        deliveryMeal.LastUsedAt = now;
         await db.SaveChangesAsync(cancellationToken);
 
         var notes = $"Delivery meal: {deliveryMeal.PlaceName} - {deliveryMeal.DishName}. {deliveryMeal.PortionDescription}";

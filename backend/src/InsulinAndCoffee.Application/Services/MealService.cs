@@ -6,29 +6,34 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class MealService(IAppDbContext db)
+public class MealService(IAppDbContext db, TimeProvider timeProvider)
 {
     public async Task<DashboardDto> GetDashboardAsync(CancellationToken cancellationToken)
     {
-        var today = new DateTimeOffset(DateTime.UtcNow.Date, TimeSpan.Zero);
-        var tomorrow = today.AddDays(1);
+        var today = DateOnly.FromDateTime(timeProvider.GetLocalNow().Date);
+        var todayStartUtc = GetLocalDayStartUtc(today);
+        var tomorrowStartUtc = GetLocalDayStartUtc(today.AddDays(1));
 
-        var todaysMeals = await db.Meals
+        var meals = await db.Meals
             .AsNoTracking()
-            .Where(m => m.UserId == DefaultUser.Id && m.MealTime >= today && m.MealTime < tomorrow)
+            .Where(m => m.UserId == DefaultUser.Id && m.CreatedAt >= todayStartUtc && m.CreatedAt < tomorrowStartUtc)
+            .OrderByDescending(m => m.MealTime)
+            .Select(m => new DashboardMealDto(
+                m.Id,
+                m.MealType,
+                m.MealTime,
+                m.CreatedAt,
+                m.TotalCarbs,
+                m.ConfirmedBolus,
+                m.ConfirmedBolus == null))
             .ToListAsync(cancellationToken);
 
-        var lastMeal = await db.Meals
-            .AsNoTracking()
-            .Include(m => m.Items)
-            .Where(m => m.UserId == DefaultUser.Id)
-            .OrderByDescending(m => m.MealTime)
-            .FirstOrDefaultAsync(cancellationToken);
-
         return new DashboardDto(
-            todaysMeals.Sum(m => m.TotalCarbs),
-            todaysMeals.Sum(m => m.ConfirmedBolus),
-            lastMeal is null ? null : ToSummary(lastMeal));
+            today,
+            meals.Sum(m => m.TotalCarbs),
+            meals.Sum(m => m.ConfirmedInsulin ?? 0),
+            meals.Count,
+            meals);
     }
 
     public async Task<MealCalculationDto> CalculateMealAsync(CalculateMealRequest request, CancellationToken cancellationToken)
@@ -55,18 +60,20 @@ public class MealService(IAppDbContext db)
         }
 
         var calculation = await CalculateMealAsync(new CalculateMealRequest(request.MealType, request.PreMealGlucose, request.Items, request.DirectCarbs, request.DirectFoodName), cancellationToken);
+        var now = timeProvider.GetUtcNow();
+        var mealTime = request.MealTime ?? now;
         var meal = new Meal
         {
             Id = Guid.NewGuid(),
             UserId = DefaultUser.Id,
             MealType = request.MealType,
-            MealTime = request.MealTime ?? DateTimeOffset.UtcNow,
+            MealTime = mealTime,
             PreMealGlucose = request.PreMealGlucose,
             TotalCarbs = calculation.TotalCarbs,
             SuggestedBolus = calculation.SuggestedBolus,
             ConfirmedBolus = request.ConfirmedBolus,
             Notes = request.Notes,
-            CreatedAt = DateTimeOffset.UtcNow,
+            CreatedAt = now,
             Items = calculation.Items.Select(item => new MealItem
             {
                 Id = Guid.NewGuid(),
@@ -83,7 +90,7 @@ public class MealService(IAppDbContext db)
                     Id = Guid.NewGuid(),
                     UserId = DefaultUser.Id,
                     Value = request.PreMealGlucose,
-                    ReadingTime = request.MealTime ?? DateTimeOffset.UtcNow,
+                    ReadingTime = mealTime,
                     ReadingType = ReadingType.BeforeMeal,
                     Notes = "Captured with meal"
                 }
@@ -127,6 +134,23 @@ public class MealService(IAppDbContext db)
             .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
             ?? throw new KeyNotFoundException("Meal was not found.");
 
+        return ToDetail(meal);
+    }
+
+    public async Task<MealDetailDto> ConfirmMealBolusAsync(Guid id, ConfirmMealBolusRequest request, CancellationToken cancellationToken)
+    {
+        if (request.ConfirmedBolus < 0)
+        {
+            throw new ValidationException("Confirmed bolus cannot be negative.");
+        }
+
+        var meal = await db.Meals
+            .Include(m => m.Items)
+            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
+            ?? throw new KeyNotFoundException("Meal was not found.");
+
+        meal.ConfirmedBolus = request.ConfirmedBolus;
+        await db.SaveChangesAsync(cancellationToken);
         return ToDetail(meal);
     }
 
@@ -198,4 +222,10 @@ public class MealService(IAppDbContext db)
     private static MealDetailDto ToDetail(Meal meal) =>
         new(meal.Id, meal.MealType, meal.MealTime, meal.PreMealGlucose, meal.TotalCarbs, meal.SuggestedBolus, meal.ConfirmedBolus, meal.Notes, meal.CreatedAt,
             meal.Items.OrderBy(i => i.FoodNameSnapshot).Select(i => new MealItemDto(i.Id, i.FoodItemId, i.FoodNameSnapshot, i.WeightGrams, i.CarbsPer100gSnapshot, i.CalculatedCarbs)).ToList());
+
+    private DateTimeOffset GetLocalDayStartUtc(DateOnly date)
+    {
+        var localStart = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+        return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localStart, timeProvider.LocalTimeZone), TimeSpan.Zero);
+    }
 }

@@ -20,6 +20,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
         <a routerLink="/history" routerLinkActive="active">History</a>
         <a routerLink="/delivery-meals" routerLinkActive="active">Ask Past Me</a>
         <a routerLink="/foods" routerLinkActive="active">Foods</a>
+        <a routerLink="/supplies" routerLinkActive="active">Supplies</a>
         <a routerLink="/settings" routerLinkActive="active">Settings</a>
       </nav>
     </header>
@@ -27,7 +28,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
       <router-outlet />
     </main>
     <footer class="app-footer">
-      Powered by coffee. Powered by insulin. Inspired by Taisha's legendary spreadsheet.
+      ☕ Powered by coffee • 💉 Powered by insulin • ❤️ Inspired by Taisha's legendary spreadsheet.
     </footer>
   `
 })

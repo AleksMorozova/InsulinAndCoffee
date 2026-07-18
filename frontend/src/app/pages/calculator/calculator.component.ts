@@ -13,123 +13,202 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
   template: `
     <section class="page-title">
       <div>
-        <h1>Current Calculator</h1>
-        <p>Build the meal, review the suggestion, then confirm the actual dose.</p>
+        <h1>Current Meal</h1>
+        <p>Build your meal, review the suggestion, then confirm the actual dose.</p>
       </div>
-      @if (!directMode) {
-        <button type="button" class="subtle" (click)="addItem()">Add food</button>
-      } @else {
-        <button type="button" class="subtle" (click)="clearDirectMeal()">Use food items</button>
-      }
     </section>
     <app-disclaimer />
 
-    <form [formGroup]="form" class="grid two" (ngSubmit)="save()">
-      <section class="card grid">
-        <div class="grid two">
-          <label>Meal type
-            <select formControlName="mealType">
-              @for (type of mealTypes; track type) { <option [value]="type">{{ type }}</option> }
-            </select>
-          </label>
-          <label>Pre-meal glucose
-            <input type="number" min="0.1" step="0.1" formControlName="preMealGlucose">
-          </label>
+    <form [formGroup]="form" class="calculator-layout" (ngSubmit)="save()">
+      <section class="meal-builder">
+        <div class="builder-card">
+          <div class="builder-section-head">
+            <div>
+              <p><span class="step-badge">①</span> Meal Information</p>
+              <h2>Start with the basics</h2>
+            </div>
+          </div>
+          <div class="grid two">
+            <label>Meal type
+              <select formControlName="mealType">
+                @for (type of mealTypes; track type) { <option [value]="type">{{ type }}</option> }
+              </select>
+            </label>
+            <label>Current glucose
+              <input type="number" min="0.1" step="0.1" formControlName="preMealGlucose">
+            </label>
+          </div>
         </div>
 
         @if (directMode) {
-          <div class="card">
-            <p class="pill">Delivery meal</p>
-            <h2>{{ directFoodName }}</h2>
-            <div class="grid two">
-              <div class="stat"><span>Recorded carbs</span><strong>{{ directCarbs | number:'1.0-1' }} g</strong></div>
-              <div class="stat"><span>Usual insulin</span><strong>{{ form.controls.confirmedBolus.value | number:'1.0-2' }} u</strong></div>
+          <div class="builder-card direct-meal-card">
+            <div class="builder-section-head">
+              <div>
+                <p><span class="step-badge">②</span> Build your meal</p>
+                <h2>{{ directFoodName }}</h2>
+              </div>
+              <button type="button" class="subtle" (click)="clearDirectMeal()">Use food items</button>
+            </div>
+            <div class="direct-meal-metrics">
+              <div>
+                <strong>{{ directCarbs | number:'1.0-1' }}g</strong>
+                <span>Recorded carbs</span>
+              </div>
+              <div>
+                <strong>
+                  @if (form.controls.confirmedBolus.value !== null) {
+                    {{ form.controls.confirmedBolus.value | number:'1.0-2' }}U
+                  } @else {
+                    Not confirmed
+                  }
+                </strong>
+                <span>Recorded dose</span>
+              </div>
             </div>
           </div>
         } @else {
-          <label>Search foods
-            <input [value]="foodSearch" (input)="foodSearch = $any($event.target).value" placeholder="Search existing foods">
-          </label>
-          <div class="notice">
-            <strong>Food not found?</strong>
-            <button type="button" class="subtle" (click)="showCreateFood = true">Create New Food</button>
-          </div>
-
-          @if (showCreateFood) {
-            <div class="card">
-              <h2>Create New Food</h2>
-              <form [formGroup]="newFoodForm" class="grid" (ngSubmit)="saveNewFood(false)">
-                <label>Name <input formControlName="name"></label>
-                <div class="grid two">
-                  <label>Carbs per 100g <input type="number" min="0" step="0.1" formControlName="carbsPer100g"></label>
-                  <label>Protein per 100g <input type="number" min="0" step="0.1" formControlName="proteinPer100g"></label>
-                  <label>Fat per 100g <input type="number" min="0" step="0.1" formControlName="fatPer100g"></label>
-                  <label>Calories per 100g <input type="number" min="0" step="1" formControlName="caloriesPer100g"></label>
-                </div>
-                <div class="grid two">
-                  <label>Weight for Save and Add
-                    <input type="number" min="1" step="1" formControlName="weightGrams">
-                  </label>
-                  <label class="toolbar">
-                    <input style="width:auto" type="checkbox" formControlName="isFavorite">
-                    Favorite
-                  </label>
-                </div>
-                <div class="actions">
-                  <button type="submit" [disabled]="newFoodForm.invalid">Save</button>
-                  <button type="button" class="secondary" [disabled]="newFoodForm.invalid" (click)="saveNewFood(true)">Save and Add</button>
-                  <button type="button" class="subtle" (click)="showCreateFood = false">Cancel</button>
-                </div>
-              </form>
+          <div class="builder-card">
+            <div class="builder-section-head build-meal-header">
+              <div>
+                <p><span class="step-badge">②</span> Build your meal</p>
+              </div>
+              <button type="button" class="create-food-button" (click)="openNewFood()">+ Create food</button>
             </div>
-          }
-
-          <div formArrayName="items" class="grid">
-            @for (item of items.controls; track $index; let i = $index) {
-              <div class="card" [formGroupName]="i">
-                <div class="grid two">
-                  <label>Food
-                  <select formControlName="foodItemId">
-                    <option value="">Choose food</option>
-                      @for (food of filteredFoods(); track food.id) {
-                        <option [value]="food.id">{{ food.name }} ({{ food.carbsPer100g }}g/100g)</option>
-                      }
-                    </select>
-                  </label>
-                  <label>Weight grams
-                    <input type="number" min="1" step="1" formControlName="weightGrams">
-                  </label>
+            @if (showCreateFood) {
+              <div class="create-food-panel" [formGroup]="newFoodForm">
+                <div class="builder-section-head">
+                  <div>
+                    <p>New Food</p>
+                    <h2>Add it to your library</h2>
+                  </div>
                 </div>
-                <div class="actions">
-                  <span class="pill">{{ itemCarbs(i) | number:'1.0-1' }} g carbs</span>
-                  <button type="button" class="danger" (click)="removeItem(i)" [disabled]="items.length === 1">Remove</button>
+                <div class="grid">
+                  <label>Name <input formControlName="name"></label>
+                  <div class="grid two">
+                    <label>Carbs per 100g <input type="number" min="0" step="0.1" formControlName="carbsPer100g"></label>
+                    <label>Protein per 100g <input type="number" min="0" step="0.1" formControlName="proteinPer100g"></label>
+                    <label>Fat per 100g <input type="number" min="0" step="0.1" formControlName="fatPer100g"></label>
+                    <label>Calories per 100g <input type="number" min="0" step="1" formControlName="caloriesPer100g"></label>
+                  </div>
+                  <div class="grid two">
+                    <label>Weight for Save and Add
+                      <input type="number" min="1" step="1" formControlName="weightGrams">
+                    </label>
+                    <label class="toolbar">
+                      <input style="width:auto" type="checkbox" formControlName="isFavorite">
+                      Favorite
+                    </label>
+                  </div>
+                  <div class="actions">
+                    <button type="button" [disabled]="newFoodForm.invalid" (click)="saveNewFood(false)">Save</button>
+                    <button type="button" class="secondary" [disabled]="newFoodForm.invalid" (click)="saveNewFood(true)">Save and Add</button>
+                    <button type="button" class="subtle" (click)="showCreateFood = false">Cancel</button>
+                  </div>
                 </div>
               </div>
             }
+            <div formArrayName="items" class="current-meal-list">
+              @for (item of items.controls; track $index; let i = $index) {
+                <article class="meal-item-card" [formGroupName]="i">
+                  <div class="meal-item-main">
+                    <label [for]="'meal-food-' + i">Food</label>
+                    <input
+                      [id]="'meal-food-' + i"
+                      type="text"
+                      role="combobox"
+                      aria-autocomplete="list"
+                      [attr.aria-controls]="'food-options-' + i"
+                      [attr.list]="'food-options-' + i"
+                      [value]="foodQuery(i)"
+                      (input)="onFoodQueryChange(i, $any($event.target).value)"
+                      placeholder="Search or choose a food…"
+                      autocomplete="off">
+                    <datalist [id]="'food-options-' + i">
+                      @for (food of foods; track food.id) {
+                        <option [value]="food.name">{{ food.carbsPer100g }}g carbs / 100g</option>
+                      }
+                    </datalist>
+                  </div>
+                  <label class="meal-weight">Portion
+                    <input type="number" min="1" step="1" formControlName="weightGrams">
+                    <span>g</span>
+                  </label>
+                  <div class="meal-item-carbs">
+                    <span>Carbs</span>
+                    <strong>{{ itemCarbs(i) | number:'1.0-1' }} g</strong>
+                  </div>
+                  <button
+                    type="button"
+                    class="meal-remove"
+                    aria-label="Remove food from meal"
+                    (click)="removeItem(i)"
+                    [disabled]="items.length === 1">×</button>
+                </article>
+              }
+            </div>
+            <button type="button" class="subtle add-another-food" (click)="addItem()">+ Add food to this meal</button>
           </div>
         }
       </section>
 
-      <aside class="card calc-total grid">
-        <h2>Calculation</h2>
+      <aside class="calculation-card">
+        <div class="builder-section-head">
+          <div>
+            <p><span class="step-badge">③</span> Calculation Summary</p>
+            <h2>Review the result</h2>
+          </div>
+        </div>
         @if (calculation) {
-          <div class="grid two">
-            <div class="stat"><span>Total carbs</span><strong>{{ calculation.totalCarbs | number:'1.0-1' }} g</strong></div>
-            <div class="stat"><span>Meal bolus</span><strong>{{ calculation.mealBolus | number:'1.0-2' }} u</strong></div>
-            <div class="stat"><span>Correction</span><strong>{{ calculation.correctionBolus | number:'1.0-2' }} u</strong></div>
-            <div class="stat"><span>Suggested</span><strong>{{ calculation.suggestedBolus | number:'1.0-2' }} u</strong></div>
+          <div class="calculation-state calculation-results">
+            <div class="calculation-hero-values">
+              <div>
+                <strong>{{ calculation.totalCarbs | number:'1.0-1' }} g</strong>
+                <span>Estimated carbs</span>
+              </div>
+              <div>
+                <strong>{{ calculation.suggestedBolus | number:'1.0-2' }} U</strong>
+                <span>Suggested insulin</span>
+              </div>
+            </div>
+            <div class="calculation-breakdown">
+              <span>Meal bolus <strong>{{ calculation.mealBolus | number:'1.0-2' }} U</strong></span>
+              <span>Correction <strong>{{ calculation.correctionBolus | number:'1.0-2' }} U</strong></span>
+            </div>
+            <p class="calculation-note"><span class="calculation-note-icon" aria-hidden="true">i</span>This is only a suggestion. You know your body best.</p>
           </div>
         } @else {
-          <p>Add valid meal details to calculate.</p>
+          <div class="calculation-state calculation-empty">
+            <strong>Choose your first food.</strong>
+            <p>We'll automatically calculate:</p>
+            <ul>
+              <li>Estimated carbs</li>
+              <li>Suggested insulin</li>
+              <li>Meal bolus</li>
+              <li>Correction dose</li>
+            </ul>
+            <span class="calculation-empty-direction">Start by adding a food <span aria-hidden="true">→</span></span>
+          </div>
         }
-        <label>Confirmed actual bolus
-          <input type="number" min="0" step="0.1" formControlName="confirmedBolus">
-        </label>
-        <label>Notes
-          <textarea rows="4" formControlName="notes"></textarea>
-        </label>
+
+        <div class="confirmation-fields">
+          <div class="builder-section-head compact">
+            <div>
+              <p><span class="step-badge">④</span> Confirm</p>
+              <h2>Confirm the actual dose</h2>
+            </div>
+          </div>
+          <label>Confirmed dose <span class="muted">(optional)</span>
+            <input type="number" min="0" step="0.1" formControlName="confirmedBolus">
+          </label>
+          <label>Notes
+            <textarea rows="4" formControlName="notes" placeholder="Anything worth remembering?"></textarea>
+          </label>
+        </div>
         @if (error) { <p class="error">{{ error }}</p> }
-        <button type="submit" [disabled]="form.invalid || !calculation">Save meal</button>
+        <div class="save-actions">
+          <button type="submit" class="save-meal-button" [disabled]="form.invalid || !calculation">Save Meal</button>
+          <button type="button" class="outline-button" [disabled]="form.invalid || !calculation" (click)="saveAndAddAnother()">Save & Add Another</button>
+        </div>
       </aside>
     </form>
   `
@@ -142,8 +221,10 @@ export class CalculatorComponent implements OnInit {
   directMode = false;
   directCarbs?: number;
   directFoodName = '';
-  foodSearch = '';
   showCreateFood = false;
+  newFoodTargetIndex = 0;
+  foodQueries: string[] = [''];
+  private lastCalculationKey = '';
 
   newFoodForm = this.fb.nonNullable.group({
     name: ['', Validators.required],
@@ -158,7 +239,7 @@ export class CalculatorComponent implements OnInit {
   form = this.fb.group({
     mealType: this.fb.nonNullable.control('Breakfast', Validators.required),
     preMealGlucose: this.fb.nonNullable.control(6.5, [Validators.required, Validators.min(0.1)]),
-    confirmedBolus: this.fb.nonNullable.control(0, [Validators.required, Validators.min(0)]),
+    confirmedBolus: this.fb.control<number | null>(null, [Validators.min(0)]),
     notes: this.fb.control(''),
     items: this.fb.array([
       this.fb.group({
@@ -175,7 +256,10 @@ export class CalculatorComponent implements OnInit {
   constructor(private readonly fb: FormBuilder, private readonly api: ApiService, private readonly router: Router) {}
 
   ngOnInit() {
-    this.api.getFoods().subscribe((foods) => this.foods = foods);
+    this.api.getFoods().subscribe((foods) => {
+      this.foods = foods;
+      this.syncFoodQueries();
+    });
     this.form.valueChanges.subscribe(() => this.calculate());
     const previousMeal = history.state?.meal;
     const deliveryMeal = history.state?.deliveryMeal;
@@ -204,6 +288,7 @@ export class CalculatorComponent implements OnInit {
           weightGrams: this.fb.nonNullable.control(item.weightGrams, [Validators.required, Validators.min(1)])
         }));
       }
+      this.syncFoodQueries();
     }
     this.calculate();
   }
@@ -216,6 +301,7 @@ export class CalculatorComponent implements OnInit {
       foodItemId: this.fb.nonNullable.control('', Validators.required),
       weightGrams: this.fb.nonNullable.control(100, [Validators.required, Validators.min(1)])
     }));
+    this.foodQueries.push('');
   }
 
   clearDirectMeal() {
@@ -230,6 +316,7 @@ export class CalculatorComponent implements OnInit {
 
   removeItem(index: number) {
     this.items.removeAt(index);
+    this.foodQueries.splice(index, 1);
     this.calculate();
   }
 
@@ -239,10 +326,25 @@ export class CalculatorComponent implements OnInit {
     return food ? item.weightGrams * food.carbsPer100g / 100 : 0;
   }
 
-  filteredFoods() {
-    const term = this.foodSearch.trim().toLowerCase();
-    if (!term) return this.foods;
-    return this.foods.filter((food) => food.name.toLowerCase().includes(term));
+  itemName(index: number, fallback = 'Choose a food to add it here') {
+    const item = this.items.at(index).value as { foodItemId: string };
+    return this.foods.find((food) => food.id === item.foodItemId)?.name ?? fallback;
+  }
+
+  foodQuery(index: number) {
+    return this.foodQueries[index] ?? this.itemName(index, '');
+  }
+
+  onFoodQueryChange(index: number, query: string) {
+    this.foodQueries[index] = query;
+    const food = this.foods.find((item) => item.name.localeCompare(query.trim(), undefined, { sensitivity: 'accent' }) === 0);
+    this.items.at(index).get('foodItemId')?.setValue(food?.id ?? '');
+  }
+
+  openNewFood() {
+    const emptyIndex = this.items.controls.findIndex((control) => !control.value.foodItemId);
+    this.newFoodTargetIndex = emptyIndex >= 0 ? emptyIndex : this.items.length;
+    this.showCreateFood = true;
   }
 
   saveNewFood(addToMeal: boolean) {
@@ -259,38 +361,43 @@ export class CalculatorComponent implements OnInit {
       next: (food) => {
         this.foods = [food, ...this.foods.filter((item) => item.id !== food.id)].sort((a, b) => a.name.localeCompare(b.name));
         if (addToMeal) {
-          this.addFoodToMeal(food.id, value.weightGrams);
-          this.showCreateFood = false;
+          this.addFoodToMeal(food.id, value.weightGrams, this.newFoodTargetIndex);
         }
-        this.foodSearch = food.name;
+        this.showCreateFood = false;
         this.newFoodForm.reset({ name: '', carbsPer100g: 0, proteinPer100g: 0, fatPer100g: 0, caloriesPer100g: 0, isFavorite: false, weightGrams: 100 });
       },
       error: (err) => this.error = err?.error?.title ?? 'Could not create food.'
     });
   }
 
-  private addFoodToMeal(foodItemId: string, weightGrams: number) {
+  private addFoodToMeal(foodItemId: string, weightGrams: number, targetIndex: number) {
     this.directMode = false;
     if (this.items.length === 0) {
       this.addItem();
     }
 
-    const emptyItem = this.items.controls.find((control) => !control.value.foodItemId);
-    const target = emptyItem ?? this.fb.group({
-      foodItemId: this.fb.nonNullable.control('', Validators.required),
-      weightGrams: this.fb.nonNullable.control(100, [Validators.required, Validators.min(1)])
-    });
-
-    if (!emptyItem) {
-      this.items.push(target);
+    if (targetIndex >= this.items.length) {
+      this.addItem();
     }
 
+    const effectiveIndex = Math.min(targetIndex, this.items.length - 1);
+    const target = this.items.at(effectiveIndex);
     target.patchValue({ foodItemId, weightGrams });
+    this.foodQueries[effectiveIndex] = this.foods.find((food) => food.id === foodItemId)?.name ?? '';
     this.calculate();
   }
 
   calculate() {
-    if (this.form.controls.preMealGlucose.invalid || (!this.directMode && this.items.invalid)) {
+    if (this.form.controls.preMealGlucose.invalid) {
+      this.calculation = undefined;
+      return;
+    }
+
+    const validItems = this.items.controls
+      .map((control) => control.getRawValue() as { foodItemId: string; weightGrams: number })
+      .filter((item) => item.foodItemId.trim().length > 0 && item.weightGrams > 0);
+
+    if (!this.directMode && validItems.length === 0) {
       this.calculation = undefined;
       return;
     }
@@ -298,39 +405,87 @@ export class CalculatorComponent implements OnInit {
     const request = {
       mealType: this.form.controls.mealType.value as any,
       preMealGlucose: this.form.controls.preMealGlucose.value,
-      items: this.directMode ? [] : this.items.value as { foodItemId: string; weightGrams: number }[],
+      items: this.directMode ? [] : validItems,
       directCarbs: this.directMode ? this.directCarbs : undefined,
       directFoodName: this.directMode ? this.directFoodName : undefined
     };
 
+    const calculationKey = JSON.stringify(request);
+    if (this.calculation && calculationKey === this.lastCalculationKey) {
+      return;
+    }
+
     this.api.calculateMeal(request).subscribe({
       next: (result) => {
         this.calculation = result;
-        if (!this.form.controls.confirmedBolus.dirty) {
-          this.form.controls.confirmedBolus.setValue(result.suggestedBolus, { emitEvent: false });
-        }
+        this.lastCalculationKey = calculationKey;
         this.error = '';
       },
       error: () => {
         this.calculation = undefined;
+        this.lastCalculationKey = '';
       }
     });
   }
 
   save() {
     if (this.form.invalid || !this.calculation) return;
+    this.api.createMeal(this.createMealRequest()).subscribe({
+      next: (meal) => this.router.navigate(['/meals', meal.id]),
+      error: (err) => this.error = err?.error?.title ?? 'Could not save meal.'
+    });
+  }
+
+  saveAndAddAnother() {
+    if (this.form.invalid || !this.calculation) return;
+    this.api.createMeal(this.createMealRequest()).subscribe({
+      next: () => this.resetMealBuilder(),
+      error: (err) => this.error = err?.error?.title ?? 'Could not save meal.'
+    });
+  }
+
+  private createMealRequest() {
     const value = this.form.getRawValue();
-    this.api.createMeal({
+    return {
       mealType: value.mealType as any,
       preMealGlucose: value.preMealGlucose,
-      confirmedBolus: value.confirmedBolus,
+      confirmedBolus: value.confirmedBolus ?? null,
       notes: value.notes ?? '',
       items: this.directMode ? [] : value.items,
       directCarbs: this.directMode ? this.directCarbs : undefined,
       directFoodName: this.directMode ? this.directFoodName : undefined
-    }).subscribe({
-      next: (meal) => this.router.navigate(['/meals', meal.id]),
-      error: (err) => this.error = err?.error?.title ?? 'Could not save meal.'
+    };
+  }
+
+  private resetMealBuilder() {
+    this.directMode = false;
+    this.directCarbs = undefined;
+    this.directFoodName = '';
+    this.showCreateFood = false;
+    this.newFoodTargetIndex = 0;
+    this.foodQueries = [''];
+    this.items.clear();
+    this.items.push(this.fb.group({
+      foodItemId: this.fb.nonNullable.control('', Validators.required),
+      weightGrams: this.fb.nonNullable.control(100, [Validators.required, Validators.min(1)])
+    }));
+    this.form.reset({
+      mealType: this.form.controls.mealType.value,
+      preMealGlucose: this.form.controls.preMealGlucose.value,
+      confirmedBolus: null,
+      notes: '',
+      items: [{ foodItemId: '', weightGrams: 100 }]
+    });
+    this.form.controls.confirmedBolus.markAsPristine();
+    this.calculation = undefined;
+    this.lastCalculationKey = '';
+    this.error = '';
+  }
+
+  private syncFoodQueries() {
+    this.foodQueries = this.items.controls.map((control) => {
+      const foodId = control.value.foodItemId;
+      return this.foods.find((food) => food.id === foodId)?.name ?? '';
     });
   }
 }

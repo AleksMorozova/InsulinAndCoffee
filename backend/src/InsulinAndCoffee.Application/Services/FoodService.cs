@@ -5,10 +5,18 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class FoodService(IAppDbContext db)
+public class FoodService(IAppDbContext db, TimeProvider timeProvider)
 {
-    public async Task<IReadOnlyList<FoodItemDto>> GetFoodsAsync(string? search, CancellationToken cancellationToken)
+    private const int MaxPageSize = 100;
+
+    public async Task<PaginatedResult<FoodItemDto>> GetFoodsAsync(
+        string? search,
+        int page,
+        int pageSize,
+        CancellationToken cancellationToken)
     {
+        ValidatePagination(page, pageSize);
+
         var query = db.FoodItems
             .AsNoTracking()
             .Where(f => f.UserId == DefaultUser.Id);
@@ -19,16 +27,29 @@ public class FoodService(IAppDbContext db)
             query = query.Where(f => f.Name.ToLower().Contains(term));
         }
 
-        return await query
+        var totalCount = await query.CountAsync(cancellationToken);
+        var offset = (long)(page - 1) * pageSize;
+        if (offset > int.MaxValue)
+        {
+            throw new ValidationException("Requested page is too large.");
+        }
+
+        var items = await query
             .OrderByDescending(f => f.IsFavorite)
             .ThenBy(f => f.Name)
+            .Skip((int)offset)
+            .Take(pageSize)
             .Select(f => ToDto(f))
             .ToListAsync(cancellationToken);
+
+        var totalPages = (int)Math.Ceiling(totalCount / (double)pageSize);
+        return new PaginatedResult<FoodItemDto>(items, page, pageSize, totalCount, totalPages);
     }
 
     public async Task<FoodItemDto> CreateFoodAsync(UpsertFoodItemRequest request, CancellationToken cancellationToken)
     {
         ValidateFood(request);
+        var now = timeProvider.GetUtcNow();
 
         var food = new FoodItem
         {
@@ -40,7 +61,7 @@ public class FoodService(IAppDbContext db)
             FatPer100g = request.FatPer100g,
             CaloriesPer100g = request.CaloriesPer100g,
             IsFavorite = request.IsFavorite,
-            CreatedAt = DateTimeOffset.UtcNow
+            CreatedAt = now
         };
 
         db.FoodItems.Add(food);
@@ -85,6 +106,19 @@ public class FoodService(IAppDbContext db)
         if (request.CarbsPer100g < 0 || request.ProteinPer100g < 0 || request.FatPer100g < 0 || request.CaloriesPer100g < 0)
         {
             throw new ValidationException("Nutrition values cannot be negative.");
+        }
+    }
+
+    private static void ValidatePagination(int page, int pageSize)
+    {
+        if (page <= 0)
+        {
+            throw new ValidationException("Page must be greater than zero.");
+        }
+
+        if (pageSize <= 0 || pageSize > MaxPageSize)
+        {
+            throw new ValidationException($"Page size must be between 1 and {MaxPageSize}.");
         }
     }
 

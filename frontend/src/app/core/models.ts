@@ -24,6 +24,14 @@ export interface FoodItem {
   createdAt: string;
 }
 
+export interface PaginatedResult<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  totalCount: number;
+  totalPages: number;
+}
+
 export interface MealItemInput {
   foodItemId: string;
   weightGrams: number;
@@ -52,7 +60,7 @@ export interface MealSummary {
   preMealGlucose: number;
   totalCarbs: number;
   suggestedBolus: number;
-  confirmedBolus: number;
+  confirmedBolus: number | null;
   notes?: string;
   foodNames: string[];
 }
@@ -69,10 +77,22 @@ export interface MealDetail extends MealSummary {
   }[];
 }
 
+export interface DashboardMeal {
+  id: string;
+  mealType: MealType;
+  mealTime: string;
+  createdAt: string;
+  totalCarbs: number;
+  confirmedInsulin: number | null;
+  requiresInsulinConfirmation: boolean;
+}
+
 export interface Dashboard {
-  todaysTotalCarbs: number;
-  todaysConfirmedInsulinUnits: number;
-  lastMeal?: MealSummary;
+  date: string;
+  totalCarbs: number;
+  confirmedInsulin: number;
+  mealCount: number;
+  meals: DashboardMeal[];
 }
 
 export interface DeliveryMeal {
@@ -104,4 +124,30 @@ export interface UseDeliveryMeal {
   carbs: number;
   usualInsulinUnits: number;
   notes: string;
+}
+
+export type SupplyStatus = 'Ok' | 'Low' | 'Critical' | 'Unknown';
+
+export interface SupplyItem {
+  id: string;
+  name: string;
+  currentQuantity: number;
+  unit: string;
+  dailyUsage: number;
+  lowStockThresholdDays: number;
+  lastUpdatedAt: string;
+  createdAt: string;
+  updatedAt: string | null;
+}
+
+export interface SupplyCheckResult {
+  id: string;
+  name: string;
+  currentQuantity: number;
+  unit: string;
+  dailyUsage: number;
+  lowStockThresholdDays: number;
+  daysLeft: number | null;
+  estimatedRunOutDate: string | null;
+  status: SupplyStatus;
 }

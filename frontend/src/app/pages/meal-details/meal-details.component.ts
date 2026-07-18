@@ -2,7 +2,7 @@ import { AsyncPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { Component, Input } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { switchMap } from 'rxjs';
+import { BehaviorSubject, combineLatest, switchMap } from 'rxjs';
 import { ApiService } from '../../core/api.service';
 import { resultRatings } from '../../core/models';
 
@@ -27,8 +27,31 @@ import { resultRatings } from '../../core/models';
         <article class="card stat"><span>Total carbs</span><strong>{{ meal.totalCarbs | number:'1.0-1' }} g</strong></article>
         <article class="card stat"><span>Pre-meal glucose</span><strong>{{ meal.preMealGlucose | number:'1.0-1' }}</strong></article>
         <article class="card stat"><span>Suggested bolus</span><strong>{{ meal.suggestedBolus | number:'1.0-2' }} u</strong></article>
-        <article class="card stat"><span>Confirmed bolus</span><strong>{{ meal.confirmedBolus | number:'1.0-2' }} u</strong></article>
+        <article class="card stat">
+          <span>Confirmed bolus</span>
+          <strong>
+            @if (meal.confirmedBolus !== null) {
+              {{ meal.confirmedBolus | number:'1.0-2' }} u
+            } @else {
+              Not confirmed
+            }
+          </strong>
+        </article>
       </section>
+
+      @if (meal.confirmedBolus === null || confirmMessage) {
+        <section class="card" id="confirm-insulin">
+          <h2>Confirm insulin</h2>
+          <p>Save the actual dose when you are ready. A confirmed value of 0 is allowed.</p>
+          <form [formGroup]="confirmBolusForm" class="toolbar" (ngSubmit)="confirmBolus(meal.id)">
+            <label>Actual dose
+              <input type="number" min="0" step="0.1" formControlName="confirmedBolus">
+            </label>
+            <button type="submit" [disabled]="confirmBolusForm.invalid">Confirm insulin</button>
+            @if (confirmMessage) { <span class="pill">{{ confirmMessage }}</span> }
+          </form>
+        </section>
+      }
 
       <section class="grid two">
         <article class="card">
@@ -74,7 +97,8 @@ import { resultRatings } from '../../core/models';
             Favorite
           </label>
           <div class="actions">
-            <button type="submit" [disabled]="deliveryMealForm.invalid">Save counted meal</button>
+            <button type="submit" [disabled]="deliveryMealForm.invalid || meal.confirmedBolus === null">Save counted meal</button>
+            @if (meal.confirmedBolus === null) { <span class="pending-status">Confirm insulin before saving this as a remembered meal.</span> }
             @if (saveMessage) { <span class="pill">{{ saveMessage }}</span> }
           </div>
         </form>
@@ -86,7 +110,14 @@ export class MealDetailsComponent {
   @Input() id = '';
   resultRatings = resultRatings;
   saveMessage = '';
-  meal$ = this.route.paramMap.pipe(switchMap((params) => this.api.getMeal(params.get('id') ?? this.id)));
+  confirmMessage = '';
+  private readonly refresh$ = new BehaviorSubject(0);
+  meal$ = combineLatest([this.route.paramMap, this.refresh$]).pipe(
+    switchMap(([params]) => this.api.getMeal(params.get('id') ?? this.id))
+  );
+  confirmBolusForm = this.fb.nonNullable.group({
+    confirmedBolus: [0, [Validators.required, Validators.min(0)]]
+  });
   deliveryMealForm = this.fb.nonNullable.group({
     placeName: ['', Validators.required],
     dishName: ['', Validators.required],
@@ -117,6 +148,15 @@ export class MealDetailsComponent {
         tags: '',
         isFavorite: true
       });
+    });
+  }
+
+  confirmBolus(mealId: string) {
+    if (this.confirmBolusForm.invalid) return;
+
+    this.api.confirmMealBolus(mealId, this.confirmBolusForm.getRawValue()).subscribe(() => {
+      this.confirmMessage = 'Confirmed';
+      this.refresh$.next(this.refresh$.value + 1);
     });
   }
 }

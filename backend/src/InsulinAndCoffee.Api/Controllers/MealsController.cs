@@ -27,4 +27,8 @@ public class MealsController(MealService mealService) : ControllerBase
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<MealDetailDto>> GetById(Guid id, CancellationToken cancellationToken) =>
         Ok(await mealService.GetMealAsync(id, cancellationToken));
+
+    [HttpPatch("{id:guid}/confirmed-bolus")]
+    public async Task<ActionResult<MealDetailDto>> ConfirmBolus(Guid id, ConfirmMealBolusRequest request, CancellationToken cancellationToken) =>
+        Ok(await mealService.ConfirmMealBolusAsync(id, request, cancellationToken));
 }
