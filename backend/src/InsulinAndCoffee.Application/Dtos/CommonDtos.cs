@@ -31,6 +31,10 @@ public record CreateMealRequest(MealType MealType, DateTimeOffset? MealTime, dec
 
 public record ConfirmMealBolusRequest(decimal ConfirmedBolus);
 
+public record AddMealItemsRequest(IReadOnlyList<MealItemInputDto> Items);
+
+public record UpdateMealItemRequest(decimal WeightGrams);
+
 public record MealSummaryDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal SuggestedBolus, decimal? ConfirmedBolus, string? Notes, IReadOnlyList<string> FoodNames);
 
 public record MealDetailDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal SuggestedBolus, decimal? ConfirmedBolus, string? Notes, DateTimeOffset CreatedAt, IReadOnlyList<MealItemDto> Items);

@@ -31,4 +31,16 @@ public class MealsController(MealService mealService) : ControllerBase
     [HttpPatch("{id:guid}/confirmed-bolus")]
     public async Task<ActionResult<MealDetailDto>> ConfirmBolus(Guid id, ConfirmMealBolusRequest request, CancellationToken cancellationToken) =>
         Ok(await mealService.ConfirmMealBolusAsync(id, request, cancellationToken));
+
+    [HttpPatch("{id:guid}/items")]
+    public async Task<ActionResult<MealDetailDto>> AddItems(Guid id, AddMealItemsRequest request, CancellationToken cancellationToken) =>
+        Ok(await mealService.AddMealItemsAsync(id, request, cancellationToken));
+
+    [HttpPut("{mealId:guid}/items/{itemId:guid}")]
+    public async Task<ActionResult<MealDetailDto>> UpdateItem(Guid mealId, Guid itemId, UpdateMealItemRequest request, CancellationToken cancellationToken) =>
+        Ok(await mealService.UpdateMealItemAsync(mealId, itemId, request, cancellationToken));
+
+    [HttpDelete("{mealId:guid}/items/{itemId:guid}")]
+    public async Task<ActionResult<MealDetailDto>> RemoveItem(Guid mealId, Guid itemId, CancellationToken cancellationToken) =>
+        Ok(await mealService.RemoveMealItemAsync(mealId, itemId, cancellationToken));
 }

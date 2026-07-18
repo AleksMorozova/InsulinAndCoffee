@@ -170,6 +170,144 @@ public class MealServiceTests
         Assert.Equal(0m, dashboardMeal.ConfirmedInsulin);
     }
 
+    [Fact]
+    public async Task AddMealItemsAsync_ForUnconfirmedMeal_AppendsFoodRecalculatesTotalsAndKeepsMealPending()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var food = AddFood(db, "Bread", 40m);
+        var mealTime = new DateTimeOffset(2026, 7, 12, 17, 10, 0, TimeSpan.Zero);
+        var meal = Meal(MealType.Dinner, 30, null, mealTime: mealTime, createdAt: mealTime);
+        meal.Items.Add(new MealItem
+        {
+            Id = Guid.NewGuid(),
+            MealId = meal.Id,
+            FoodItemId = Guid.Empty,
+            FoodNameSnapshot = "Existing meal",
+            WeightGrams = 100,
+            CarbsPer100gSnapshot = 30,
+            CalculatedCarbs = 30
+        });
+        db.Meals.Add(meal);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+
+        var result = await service.AddMealItemsAsync(
+            meal.Id,
+            new AddMealItemsRequest([new MealItemInputDto(food.Id, 50m)]),
+            CancellationToken.None);
+        var dashboard = await service.GetDashboardAsync(CancellationToken.None);
+
+        Assert.Equal(meal.Id, result.Id);
+        Assert.Equal(50m, result.TotalCarbs);
+        Assert.Equal(5m, result.SuggestedBolus);
+        Assert.Null(result.ConfirmedBolus);
+        Assert.Equal(2, result.Items.Count);
+        Assert.Equal(1, await db.Meals.CountAsync());
+
+        var dashboardMeal = Assert.Single(dashboard.Meals);
+        Assert.True(dashboardMeal.RequiresInsulinConfirmation);
+        Assert.Equal(50m, dashboardMeal.TotalCarbs);
+        Assert.Null(dashboardMeal.ConfirmedInsulin);
+    }
+
+    [Fact]
+    public async Task AddMealItemsAsync_ForConfirmedZeroMeal_IsRejected()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var food = AddFood(db, "Bread", 40m);
+        var mealTime = new DateTimeOffset(2026, 7, 12, 17, 10, 0, TimeSpan.Zero);
+        var meal = Meal(MealType.Dinner, 30, 0m, mealTime: mealTime, createdAt: mealTime);
+        db.Meals.Add(meal);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+
+        var exception = await Assert.ThrowsAsync<ValidationException>(() =>
+            service.AddMealItemsAsync(
+                meal.Id,
+                new AddMealItemsRequest([new MealItemInputDto(food.Id, 50m)]),
+                CancellationToken.None));
+
+        Assert.Equal("Cannot add food after the insulin dose has been confirmed.", exception.Message);
+        Assert.Equal(30m, (await db.Meals.SingleAsync()).TotalCarbs);
+    }
+
+    [Fact]
+    public async Task UpdateMealItemAsync_ForUnconfirmedMeal_RecalculatesCarbsAndSuggestedBolus()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var mealTime = new DateTimeOffset(2026, 7, 12, 17, 10, 0, TimeSpan.Zero);
+        var meal = Meal(MealType.Dinner, 20, null, mealTime: mealTime, createdAt: mealTime);
+        var item = MealItem(meal.Id, "Bread", weightGrams: 50m, carbsPer100g: 40m);
+        meal.Items.Add(item);
+        db.Meals.Add(meal);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+
+        var result = await service.UpdateMealItemAsync(meal.Id, item.Id, new UpdateMealItemRequest(100m), CancellationToken.None);
+
+        Assert.Equal(meal.Id, result.Id);
+        Assert.Equal(40m, result.TotalCarbs);
+        Assert.Equal(4m, result.SuggestedBolus);
+        Assert.Null(result.ConfirmedBolus);
+        var updatedItem = Assert.Single(result.Items);
+        Assert.Equal(100m, updatedItem.WeightGrams);
+        Assert.Equal(40m, updatedItem.CalculatedCarbs);
+    }
+
+    [Fact]
+    public async Task RemoveMealItemAsync_ForUnconfirmedMeal_RecalculatesTotalsAndKeepsMealPending()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var mealTime = new DateTimeOffset(2026, 7, 12, 17, 10, 0, TimeSpan.Zero);
+        var meal = Meal(MealType.Dinner, 50, null, mealTime: mealTime, createdAt: mealTime);
+        var bread = MealItem(meal.Id, "Bread", weightGrams: 100m, carbsPer100g: 30m);
+        var rice = MealItem(meal.Id, "Rice", weightGrams: 100m, carbsPer100g: 20m);
+        meal.Items.Add(bread);
+        meal.Items.Add(rice);
+        db.Meals.Add(meal);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+
+        var result = await service.RemoveMealItemAsync(meal.Id, rice.Id, CancellationToken.None);
+        var dashboard = await service.GetDashboardAsync(CancellationToken.None);
+
+        Assert.Equal(30m, result.TotalCarbs);
+        Assert.Equal(3m, result.SuggestedBolus);
+        Assert.Null(result.ConfirmedBolus);
+        var remainingItem = Assert.Single(result.Items);
+        Assert.Equal(bread.Id, remainingItem.Id);
+
+        var dashboardMeal = Assert.Single(dashboard.Meals);
+        Assert.True(dashboardMeal.RequiresInsulinConfirmation);
+        Assert.Equal(30m, dashboardMeal.TotalCarbs);
+    }
+
+    [Fact]
+    public async Task UpdateAndRemoveMealItemsAsync_ForConfirmedZeroMeal_AreRejected()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var mealTime = new DateTimeOffset(2026, 7, 12, 17, 10, 0, TimeSpan.Zero);
+        var meal = Meal(MealType.Dinner, 20, 0m, mealTime: mealTime, createdAt: mealTime);
+        var item = MealItem(meal.Id, "Bread", weightGrams: 50m, carbsPer100g: 40m);
+        meal.Items.Add(item);
+        db.Meals.Add(meal);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+
+        var updateException = await Assert.ThrowsAsync<ValidationException>(() =>
+            service.UpdateMealItemAsync(meal.Id, item.Id, new UpdateMealItemRequest(100m), CancellationToken.None));
+        var removeException = await Assert.ThrowsAsync<ValidationException>(() =>
+            service.RemoveMealItemAsync(meal.Id, item.Id, CancellationToken.None));
+
+        Assert.Equal("Cannot edit food after the insulin dose has been confirmed.", updateException.Message);
+        Assert.Equal("Cannot edit food after the insulin dose has been confirmed.", removeException.Message);
+    }
+
     private static Meal Meal(
         MealType mealType,
         decimal totalCarbs,
@@ -199,6 +337,36 @@ public class MealServiceTests
             InsulinDurationHours = 4m,
             UpdatedAt = LocalNoonUtc
         });
+
+    private static FoodItem AddFood(AppDbContext db, string name, decimal carbsPer100g)
+    {
+        var food = new FoodItem
+        {
+            Id = Guid.NewGuid(),
+            UserId = DefaultUser.Id,
+            Name = name,
+            CarbsPer100g = carbsPer100g,
+            ProteinPer100g = 0,
+            FatPer100g = 0,
+            CaloriesPer100g = 0,
+            IsFavorite = false,
+            CreatedAt = LocalNoonUtc
+        };
+
+        db.FoodItems.Add(food);
+        return food;
+    }
+
+    private static MealItem MealItem(Guid mealId, string foodName, decimal weightGrams, decimal carbsPer100g) => new()
+    {
+        Id = Guid.NewGuid(),
+        MealId = mealId,
+        FoodItemId = Guid.NewGuid(),
+        FoodNameSnapshot = foodName,
+        WeightGrams = weightGrams,
+        CarbsPer100gSnapshot = carbsPer100g,
+        CalculatedCarbs = Math.Round(weightGrams * carbsPer100g / 100, 2)
+    };
 
     private static AppDbContext CreateDbContext()
     {
