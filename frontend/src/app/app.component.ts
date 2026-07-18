@@ -1,5 +1,5 @@
 import { Component } from '@angular/core';
-import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
 @Component({
   selector: 'app-root',
@@ -17,7 +17,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
       <nav>
         <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Dashboard</a>
         <a routerLink="/calculator" routerLinkActive="active">Calculator</a>
-        <a routerLink="/history" routerLinkActive="active">History</a>
+        <a routerLink="/history" routerLinkActive="active" [class.active]="router.url.startsWith('/meals/')">History</a>
         <a routerLink="/delivery-meals" routerLinkActive="active">Ask Past Me</a>
         <a routerLink="/foods" routerLinkActive="active">Foods</a>
         <a routerLink="/supplies" routerLinkActive="active">Supplies</a>
@@ -32,4 +32,6 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
     </footer>
   `
 })
-export class AppComponent {}
+export class AppComponent {
+  constructor(readonly router: Router) {}
+}

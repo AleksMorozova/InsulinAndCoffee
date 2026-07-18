@@ -31,6 +31,14 @@ export interface ConfirmMealBolusRequest {
   confirmedBolus: number;
 }
 
+export interface AddMealItemsRequest {
+  items: MealItemInput[];
+}
+
+export interface UpdateMealItemRequest {
+  weightGrams: number;
+}
+
 export interface UpsertDeliveryMealRequest {
   placeName: string;
   dishName: string;
@@ -101,6 +109,18 @@ export class ApiService {
 
   confirmMealBolus(id: string, request: ConfirmMealBolusRequest) {
     return this.http.patch<MealDetail>(`${this.apiUrl}/meals/${id}/confirmed-bolus`, request);
+  }
+
+  addMealItems(id: string, request: AddMealItemsRequest) {
+    return this.http.patch<MealDetail>(`${this.apiUrl}/meals/${id}/items`, request);
+  }
+
+  updateMealItem(mealId: string, itemId: string, request: UpdateMealItemRequest) {
+    return this.http.put<MealDetail>(`${this.apiUrl}/meals/${mealId}/items/${itemId}`, request);
+  }
+
+  removeMealItem(mealId: string, itemId: string) {
+    return this.http.delete<MealDetail>(`${this.apiUrl}/meals/${mealId}/items/${itemId}`);
   }
 
   getMeals(search = '', mealType = '') {
