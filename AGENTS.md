@@ -72,6 +72,34 @@ These rules are mandatory for every change:
 - **DO NOT** duplicate backend calculation logic in Angular components or treat a valid numeric value of `0` as missing data.
 - **DO NOT** introduce new DTO or field aliases when an existing contract name already exists.
 - **DO NOT** use `DateTime.Now` or `DateTimeOffset.UtcNow` directly for current-day dashboard logic; follow the existing `TimeProvider` pattern.
+- **DO NOT** modify files outside the task scope unless the change is required for the project to compile; report every necessary out-of-scope change before applying it.
+- **DO NOT** perform unrelated refactoring, renaming, formatting, folder restructuring, or dependency upgrades while implementing a feature or fixing a bug.
+- **DO NOT** change existing API routes, DTO contracts, database column names, or frontend model fields without updating the complete backend–frontend contract and relevant tests.
+- **DO NOT** create a new service, repository, DTO, helper, or abstraction before checking whether an equivalent implementation already exists.
+- **DO NOT** add a database migration for changes that do not modify the persisted schema.
+- **DO NOT** edit existing EF Core migrations; create a new migration for every new schema change.
+- **DO NOT** silently change insulin, carbohydrate, correction, rounding, or confirmation behavior. Any such change must be explicitly requested and covered by tests.
+- **DO NOT** catch exceptions only to suppress them, return default values, or hide failed insulin and meal calculations.
+- **DO NOT** use non-null assertions, unsafe TypeScript casts, or `any` merely to bypass frontend type errors.
+- **DO NOT** leave generated code with compilation errors, failing tests, placeholder implementations, commented-out alternatives, or unresolved TODOs.
+
+## Change scope constraints
+
+- Modify only files directly required by the task.
+- Preserve unrelated user changes already present in the working tree.
+- Before changing a public contract, identify all backend, frontend, persistence, and test usages.
+- Prefer extending an existing implementation over introducing a parallel workflow.
+- Keep UI-only tasks UI-only unless a backend change is explicitly required.
+- Keep backend-only tasks backend-only unless the public API contract changes.
+- When the requested task conflicts with these rules or the current architecture, stop and explain the conflict before implementing it.
+
+## Data integrity constraints
+
+- A meal may exist without `ConfirmedBolus`; do not assume insulin confirmation is mandatory during meal creation.
+- `SuggestedBolus`, `MealBolus`, `CorrectionBolus`, and `ConfirmedBolus` represent different concepts and must not be substituted for one another.
+- Updating, adding, or removing a meal item must use the existing recalculation workflow.
+- Food carbohydrate values used by an existing meal must come from the stored snapshot where the current model requires it, not from silently refreshed food-library data.
+- A numeric value of `0` is valid for carbohydrates, glucose-related calculations, correction values, and insulin fields where the existing contract permits it.
 
 ## Correct pattern example
 
@@ -333,6 +361,7 @@ Do not introduce a large timezone subsystem unless the current architecture need
 - Avoid loading all meals into memory for totals, counts, or dashboard summaries when the database can aggregate/filter efficiently.
 - Avoid N+1 queries.
 - Add EF Core migrations when schema changes require them.
+- Never edit an existing migration to represent a new schema change; generate a new migration instead.
 - If a nullable business field such as `ConfirmedBolus` becomes nullable in the entity, make sure the generated migration updates the database column too.
 
 ## Dashboard rules
@@ -396,6 +425,16 @@ Cover regressions for:
 - zero values being valid values.
 
 For frontend UI-only changes, at minimum run the Angular build or the project’s existing frontend validation command when practical.
+
+## Agent behavior
+
+When requirements are ambiguous:
+
+- Ask before changing architecture.
+- Ask before renaming public APIs or DTO fields.
+- Ask before changing the database schema.
+- Ask before modifying insulin, carbohydrate, correction, rounding, or confirmation logic.
+- Prefer one focused clarification question over making an architectural or medical-business assumption.
 
 ## Workflow for agents
 
