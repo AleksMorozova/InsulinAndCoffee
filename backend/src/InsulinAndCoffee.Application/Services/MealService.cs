@@ -233,6 +233,18 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
         return ToDetail(meal);
     }
 
+    public async Task<MealDetailDto> ClearConfirmedBolusAsync(Guid id, CancellationToken cancellationToken)
+    {
+        var meal = await db.Meals
+            .Include(m => m.Items)
+            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
+            ?? throw new KeyNotFoundException("Meal was not found.");
+
+        meal.ConfirmedBolus = null;
+        await db.SaveChangesAsync(cancellationToken);
+        return ToDetail(meal);
+    }
+
     private async Task<Meal> GetEditableMealAsync(Guid id, CancellationToken cancellationToken)
     {
         var meal = await db.Meals
