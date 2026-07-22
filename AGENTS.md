@@ -52,6 +52,70 @@ InsulinAndCoffee.sln
 
 Always inspect current files before editing. This application has evolved quickly, and older notes may use stale names.
 
+
+## Core project rules
+
+These rules are mandatory for every change:
+
+1. Place HTTP concerns only in `backend/src/InsulinAndCoffee.Api`; controllers must delegate business workflows to the Application layer.
+2. Place reusable carbohydrate, insulin, glucose, and meal-total calculations in `backend/src/InsulinAndCoffee.Domain` when they can be expressed without HTTP, EF Core, PostgreSQL, or Angular dependencies.
+3. Keep workflow orchestration, DTO mapping, validation, and persistence coordination in `backend/src/InsulinAndCoffee.Application`.
+4. Keep EF Core configuration, migrations, and persistence implementations in `backend/src/InsulinAndCoffee.Infrastructure`.
+5. Use `frontend/src/app/core/api.service.ts` for backend communication; Angular components must not call API URLs directly.
+6. Use `decimal` for insulin, carbohydrate, glucose, ratio, correction-factor, and weight calculations, and preserve the project’s existing rounding behavior.
+7. Pass `CancellationToken` through controllers, application services, and asynchronous EF Core calls.
+8. Add or update tests whenever business rules, calculations, meal confirmation behavior, dashboard filtering, or item recalculation changes.
+
+### Explicit prohibitions
+
+- **DO NOT** put insulin formulas, carbohydrate formulas, EF Core queries, or meal workflow decisions in API controllers.
+- **DO NOT** duplicate backend calculation logic in Angular components or treat a valid numeric value of `0` as missing data.
+- **DO NOT** introduce new DTO or field aliases when an existing contract name already exists.
+- **DO NOT** use `DateTime.Now` or `DateTimeOffset.UtcNow` directly for current-day dashboard logic; follow the existing `TimeProvider` pattern.
+
+## Correct pattern example
+
+A controller receives HTTP input and delegates to an application service. The reusable calculation stays outside the controller.
+
+```csharp
+// API layer: HTTP concerns only
+[HttpPost("calculate")]
+public async Task<ActionResult<CalculatedMealDto>> Calculate(
+    CalculateMealRequest request,
+    CancellationToken cancellationToken)
+{
+    var result = await mealService.CalculateMealAsync(request, cancellationToken);
+    return Ok(result);
+}
+
+// Domain layer: reusable business calculation
+public static class MealCarbCalculator
+{
+    public static decimal Calculate(decimal weightGrams, decimal carbsPer100g)
+    {
+        if (weightGrams < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(weightGrams));
+        }
+
+        if (carbsPer100g < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(carbsPer100g));
+        }
+
+        return Math.Round(weightGrams * carbsPer100g / 100m, 2);
+    }
+}
+```
+
+Forbidden alternative:
+
+```csharp
+// DO NOT calculate carbohydrates or query EF Core directly in a controller.
+var totalCarbs = request.Items.Sum(x => x.WeightGrams * x.CarbsPer100g / 100m);
+var meals = await dbContext.Meals.ToListAsync(cancellationToken);
+```
+
 ## Verified important paths
 
 Backend:
