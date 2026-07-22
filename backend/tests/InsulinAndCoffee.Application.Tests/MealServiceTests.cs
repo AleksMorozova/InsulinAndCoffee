@@ -171,6 +171,73 @@ public class MealServiceTests
     }
 
     [Fact]
+    public async Task ClearConfirmedBolusAsync_ForConfirmedMeal_ClearsBolusAndReturnsMealToPendingState()
+    {
+        await using var db = CreateDbContext();
+        var mealTime = new DateTimeOffset(2026, 7, 12, 17, 10, 0, TimeSpan.Zero);
+        var createdAt = new DateTimeOffset(2026, 7, 12, 17, 11, 0, TimeSpan.Zero);
+        var meal = Meal(MealType.Dinner, 65m, 6.5m, mealTime: mealTime, createdAt: createdAt);
+        meal.Items.Add(MealItem(meal.Id, "Bread", weightGrams: 100m, carbsPer100g: 40m));
+        db.Meals.Add(meal);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+
+        var result = await service.ClearConfirmedBolusAsync(meal.Id, CancellationToken.None);
+        var dashboard = await service.GetDashboardAsync(CancellationToken.None);
+
+        Assert.Null(result.ConfirmedBolus);
+        Assert.Equal(65m, result.TotalCarbs);
+        Assert.Equal(6.5m, result.SuggestedBolus);
+        Assert.Equal(mealTime, result.MealTime);
+        Assert.Equal(createdAt, result.CreatedAt);
+        var item = Assert.Single(result.Items);
+        Assert.Equal(100m, item.WeightGrams);
+        Assert.Equal(40m, item.CalculatedCarbs);
+
+        var savedMeal = await db.Meals.Include(m => m.Items).SingleAsync();
+        Assert.Null(savedMeal.ConfirmedBolus);
+        Assert.Equal(65m, savedMeal.TotalCarbs);
+        Assert.Equal(6.5m, savedMeal.SuggestedBolus);
+        Assert.Equal(mealTime, savedMeal.MealTime);
+        Assert.Equal(createdAt, savedMeal.CreatedAt);
+        Assert.Single(savedMeal.Items);
+
+        var dashboardMeal = Assert.Single(dashboard.Meals);
+        Assert.True(dashboardMeal.RequiresInsulinConfirmation);
+        Assert.Null(dashboardMeal.ConfirmedInsulin);
+    }
+
+    [Fact]
+    public async Task ClearConfirmedBolusAsync_WhenAlreadyEmpty_IsIdempotent()
+    {
+        await using var db = CreateDbContext();
+        var mealTime = new DateTimeOffset(2026, 7, 12, 17, 10, 0, TimeSpan.Zero);
+        var meal = Meal(MealType.Lunch, 42m, null, mealTime: mealTime, createdAt: mealTime);
+        db.Meals.Add(meal);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+
+        var result = await service.ClearConfirmedBolusAsync(meal.Id, CancellationToken.None);
+
+        Assert.Null(result.ConfirmedBolus);
+        Assert.Equal(42m, result.TotalCarbs);
+        Assert.Equal(4.2m, result.SuggestedBolus);
+        Assert.Null((await db.Meals.SingleAsync()).ConfirmedBolus);
+    }
+
+    [Fact]
+    public async Task ClearConfirmedBolusAsync_WhenMealDoesNotExist_ThrowsKeyNotFound()
+    {
+        await using var db = CreateDbContext();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+
+        var exception = await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+            service.ClearConfirmedBolusAsync(Guid.NewGuid(), CancellationToken.None));
+
+        Assert.Equal("Meal was not found.", exception.Message);
+    }
+
+    [Fact]
     public async Task AddMealItemsAsync_ForUnconfirmedMeal_AppendsFoodRecalculatesTotalsAndKeepsMealPending()
     {
         await using var db = CreateDbContext();
