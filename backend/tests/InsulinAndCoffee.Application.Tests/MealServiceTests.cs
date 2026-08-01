@@ -2,6 +2,7 @@ using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Application.Services;
 using InsulinAndCoffee.Domain.Entities;
 using InsulinAndCoffee.Domain.Enums;
+using InsulinAndCoffee.Domain.Exceptions;
 using InsulinAndCoffee.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 
@@ -226,15 +227,15 @@ public class MealServiceTests
     }
 
     [Fact]
-    public async Task ClearConfirmedBolusAsync_WhenMealDoesNotExist_ThrowsKeyNotFound()
+    public async Task ClearConfirmedBolusAsync_WhenMealDoesNotExist_ThrowsNotFound()
     {
         await using var db = CreateDbContext();
         var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
 
-        var exception = await Assert.ThrowsAsync<KeyNotFoundException>(() =>
+        var exception = await Assert.ThrowsAsync<NotFoundException>(() =>
             service.ClearConfirmedBolusAsync(Guid.NewGuid(), CancellationToken.None));
 
-        Assert.Equal("Meal was not found.", exception.Message);
+        Assert.Contains("Meal with id", exception.Message);
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Domain.Entities;
+using InsulinAndCoffee.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
@@ -74,7 +75,7 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider)
         ValidateFood(request);
 
         var food = await db.FoodItems.FirstOrDefaultAsync(f => f.Id == id && f.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Food item was not found.");
+            ?? throw new NotFoundException("Food item", id);
 
         food.Name = request.Name.Trim();
         food.CarbsPer100g = request.CarbsPer100g;
@@ -90,7 +91,7 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider)
     public async Task DeleteFoodAsync(Guid id, CancellationToken cancellationToken)
     {
         var food = await db.FoodItems.FirstOrDefaultAsync(f => f.Id == id && f.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Food item was not found.");
+            ?? throw new NotFoundException("Food item", id);
 
         db.FoodItems.Remove(food);
         await db.SaveChangesAsync(cancellationToken);

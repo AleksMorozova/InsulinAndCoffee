@@ -1,5 +1,5 @@
+using InsulinAndCoffee.Api.ExceptionHandling;
 using InsulinAndCoffee.Application;
-using InsulinAndCoffee.Application.Services;
 using InsulinAndCoffee.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -22,6 +22,9 @@ builder.Services.AddHealthChecks();
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 builder.Services.AddCors(options =>
 {
@@ -50,31 +53,7 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-app.UseExceptionHandler(errorApp =>
-{
-    errorApp.Run(async context =>
-    {
-        var exception = context.Features
-            .Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerFeature>()?.Error;
-
-        var status = exception switch
-        {
-            ValidationException => StatusCodes.Status400BadRequest,
-            KeyNotFoundException => StatusCodes.Status404NotFound,
-            _ => StatusCodes.Status500InternalServerError
-        };
-
-        context.Response.StatusCode = status;
-
-        await context.Response.WriteAsJsonAsync(new ProblemDetails
-        {
-            Status = status,
-            Title = status == 500
-                ? "An unexpected error occurred."
-                : exception?.Message
-        });
-    });
-});
+app.UseExceptionHandler();
 
 app.UseSwagger();
 app.UseSwaggerUI();
@@ -86,10 +65,13 @@ app.UseAuthorization();
 app.MapHealthChecks("/health");
 app.MapControllers();
 
-using (var scope = app.Services.CreateScope())
+if (!app.Environment.IsEnvironment("Testing"))
 {
+    using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.Migrate();
 }
 
 app.Run();
+
+public partial class Program;

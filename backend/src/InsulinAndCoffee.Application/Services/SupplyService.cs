@@ -1,6 +1,7 @@
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Domain.Entities;
+using InsulinAndCoffee.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
@@ -20,7 +21,7 @@ public class SupplyService(IAppDbContext db, TimeProvider timeProvider)
         var item = await db.SupplyItems
             .AsNoTracking()
             .FirstOrDefaultAsync(item => item.Id == id && item.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Supply item was not found.");
+            ?? throw new NotFoundException("Supply item", id);
 
         return ToDto(item);
     }
@@ -52,7 +53,7 @@ public class SupplyService(IAppDbContext db, TimeProvider timeProvider)
         Validate(request.Name, request.Unit, request.CurrentQuantity, request.DailyUsage, request.LowStockThresholdDays);
         var item = await db.SupplyItems
             .FirstOrDefaultAsync(item => item.Id == id && item.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Supply item was not found.");
+            ?? throw new NotFoundException("Supply item", id);
 
         var now = timeProvider.GetUtcNow();
         item.Name = request.Name.Trim();
@@ -71,7 +72,7 @@ public class SupplyService(IAppDbContext db, TimeProvider timeProvider)
     {
         var item = await db.SupplyItems
             .FirstOrDefaultAsync(item => item.Id == id && item.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Supply item was not found.");
+            ?? throw new NotFoundException("Supply item", id);
 
         db.SupplyItems.Remove(item);
         await db.SaveChangesAsync(cancellationToken);

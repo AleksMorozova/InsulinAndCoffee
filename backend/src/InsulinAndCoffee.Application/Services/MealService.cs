@@ -2,6 +2,7 @@ using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Domain.Entities;
 using InsulinAndCoffee.Domain.Enums;
+using InsulinAndCoffee.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
@@ -113,7 +114,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
         var meal = await db.Meals
             .Include(m => m.Items)
             .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Meal was not found.");
+            ?? throw new NotFoundException("Meal", id);
 
         if (meal.ConfirmedBolus is not null)
         {
@@ -152,7 +153,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
 
         var meal = await GetEditableMealAsync(mealId, cancellationToken);
         var item = meal.Items.FirstOrDefault(i => i.Id == itemId)
-            ?? throw new KeyNotFoundException("Meal item was not found.");
+            ?? throw new NotFoundException("Meal item", itemId);
 
         item.WeightGrams = request.WeightGrams;
         item.CalculatedCarbs = Math.Round(item.WeightGrams * item.CarbsPer100gSnapshot / 100, 2);
@@ -167,7 +168,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
     {
         var meal = await GetEditableMealAsync(mealId, cancellationToken);
         var item = meal.Items.FirstOrDefault(i => i.Id == itemId)
-            ?? throw new KeyNotFoundException("Meal item was not found.");
+            ?? throw new NotFoundException("Meal item", itemId);
 
         if (meal.Items.Count <= 1)
         {
@@ -211,7 +212,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
             .AsNoTracking()
             .Include(m => m.Items)
             .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Meal was not found.");
+            ?? throw new NotFoundException("Meal", id);
 
         return ToDetail(meal);
     }
@@ -226,7 +227,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
         var meal = await db.Meals
             .Include(m => m.Items)
             .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Meal was not found.");
+            ?? throw new NotFoundException("Meal", id);
 
         meal.ConfirmedBolus = request.ConfirmedBolus;
         await db.SaveChangesAsync(cancellationToken);
@@ -238,7 +239,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
         var meal = await db.Meals
             .Include(m => m.Items)
             .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Meal was not found.");
+            ?? throw new NotFoundException("Meal", id);
 
         meal.ConfirmedBolus = null;
         await db.SaveChangesAsync(cancellationToken);
@@ -250,7 +251,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
         var meal = await db.Meals
             .Include(m => m.Items)
             .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Meal was not found.");
+            ?? throw new NotFoundException("Meal", id);
 
         if (meal.ConfirmedBolus is not null)
         {

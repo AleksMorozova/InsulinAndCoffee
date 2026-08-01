@@ -1,7 +1,8 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpContext, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { map } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { SKIP_GLOBAL_ERROR_NOTIFICATION } from './http-error-context';
 import { Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, MealCalculation, MealDetail, MealItemInput, MealSummary, MealType, PaginatedResult, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
 
 export interface UpsertFoodRequest {
@@ -72,17 +73,18 @@ export interface UpsertSupplyRequest {
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   private readonly apiUrl = environment.apiUrl;
+  private readonly localErrorContext = new HttpContext().set(SKIP_GLOBAL_ERROR_NOTIFICATION, true);
 
   constructor(private readonly http: HttpClient) {}
 
   getDashboard() {
-    return this.http.get<Dashboard>(`${this.apiUrl}/dashboard/today`);
+    return this.http.get<Dashboard>(`${this.apiUrl}/dashboard/today`, { context: this.localErrorContext });
   }
 
   getFoods(search = '') {
     let params = new HttpParams().set('pageSize', 100);
     if (search) params = params.set('search', search);
-    return this.http.get<PaginatedResult<FoodItem>>(`${this.apiUrl}/foods`, { params }).pipe(
+    return this.http.get<PaginatedResult<FoodItem>>(`${this.apiUrl}/foods`, { params, context: this.localErrorContext }).pipe(
       map((result) => result.items)
     );
   }
@@ -127,15 +129,15 @@ export class ApiService {
     let params = new HttpParams();
     if (search) params = params.set('search', search);
     if (mealType) params = params.set('mealType', mealType);
-    return this.http.get<MealSummary[]>(`${this.apiUrl}/meals`, { params });
+    return this.http.get<MealSummary[]>(`${this.apiUrl}/meals`, { params, context: this.localErrorContext });
   }
 
   getMeal(id: string) {
-    return this.http.get<MealDetail>(`${this.apiUrl}/meals/${id}`);
+    return this.http.get<MealDetail>(`${this.apiUrl}/meals/${id}`, { context: this.localErrorContext });
   }
 
   getSettings() {
-    return this.http.get<DiabetesSettings>(`${this.apiUrl}/settings`);
+    return this.http.get<DiabetesSettings>(`${this.apiUrl}/settings`, { context: this.localErrorContext });
   }
 
   updateSettings(request: Omit<DiabetesSettings, 'id' | 'updatedAt'>) {
@@ -144,11 +146,11 @@ export class ApiService {
 
   getDeliveryMeals(search = '') {
     const params = search ? new HttpParams().set('search', search) : undefined;
-    return this.http.get<DeliveryMealSections>(`${this.apiUrl}/delivery-meals`, { params });
+    return this.http.get<DeliveryMealSections>(`${this.apiUrl}/delivery-meals`, { params, context: this.localErrorContext });
   }
 
   getDeliveryMeal(id: string) {
-    return this.http.get<DeliveryMeal>(`${this.apiUrl}/delivery-meals/${id}`);
+    return this.http.get<DeliveryMeal>(`${this.apiUrl}/delivery-meals/${id}`, { context: this.localErrorContext });
   }
 
   createDeliveryMeal(request: UpsertDeliveryMealRequest) {
@@ -176,11 +178,11 @@ export class ApiService {
   }
 
   getSupplies() {
-    return this.http.get<SupplyItem[]>(`${this.apiUrl}/supplies`);
+    return this.http.get<SupplyItem[]>(`${this.apiUrl}/supplies`, { context: this.localErrorContext });
   }
 
   getSupply(id: string) {
-    return this.http.get<SupplyItem>(`${this.apiUrl}/supplies/${id}`);
+    return this.http.get<SupplyItem>(`${this.apiUrl}/supplies/${id}`, { context: this.localErrorContext });
   }
 
   createSupply(request: UpsertSupplyRequest) {
@@ -196,7 +198,7 @@ export class ApiService {
   }
 
   getSupplyCheck() {
-    return this.http.get<SupplyCheckResult[]>(`${this.apiUrl}/supplies/check`);
+    return this.http.get<SupplyCheckResult[]>(`${this.apiUrl}/supplies/check`, { context: this.localErrorContext });
   }
 
 }
