@@ -1,13 +1,17 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { ApiError, getApiErrorMessage } from '../../core/api-error';
+import { toApiError } from '../../core/api-error.mapper';
 import { ApiService, UpsertSupplyRequest } from '../../core/api.service';
 import { SupplyCheckResult, SupplyStatus } from '../../core/models';
+import { LoadingStateComponent } from '../../shared/loading-state/loading-state.component';
+import { PageErrorComponent } from '../../shared/page-error/page-error.component';
 
 @Component({
   selector: 'app-supplies',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, ReactiveFormsModule],
+  imports: [DatePipe, DecimalPipe, ReactiveFormsModule, LoadingStateComponent, PageErrorComponent],
   template: `
     <section class="supplies-header">
       <div>
@@ -18,13 +22,12 @@ import { SupplyCheckResult, SupplyStatus } from '../../core/models';
     </section>
 
     @if (loadError) {
-      <div class="supplies-message error" role="alert">
-        <strong>Could not load supplies.</strong>
-        <span>{{ loadError }}</span>
-        <button type="button" class="subtle" (click)="loadSupplies()">Try again</button>
-      </div>
+      <app-page-error
+        title="Could not load supplies"
+        [message]="loadError"
+        (retry)="loadSupplies()" />
     } @else if (isLoading) {
-      <div class="supplies-loading" aria-live="polite">Checking your supplies...</div>
+      <app-loading-state message="Checking your supplies..." />
     } @else {
       <section class="supplies-grid" aria-label="Supply status">
         @for (supply of supplies; track supply.id) {
@@ -97,19 +100,24 @@ import { SupplyCheckResult, SupplyStatus } from '../../core/models';
           <form [formGroup]="form" class="supply-form" (ngSubmit)="save()">
             <label>Name
               <input formControlName="name" placeholder="Libre 3 Sensor, Pen Needles...">
+              @if (fieldError('name')) { <span class="field-error">{{ fieldError('name') }}</span> }
             </label>
             <div class="grid two">
               <label>Current quantity
                 <input type="number" min="0" step="0.0001" formControlName="currentQuantity">
+                @if (fieldError('currentQuantity')) { <span class="field-error">{{ fieldError('currentQuantity') }}</span> }
               </label>
               <label>Unit
                 <input formControlName="unit" placeholder="pcs, boxes, sensors...">
+                @if (fieldError('unit')) { <span class="field-error">{{ fieldError('unit') }}</span> }
               </label>
               <label>Daily usage
                 <input type="number" min="0" step="0.0001" formControlName="dailyUsage">
+                @if (fieldError('dailyUsage')) { <span class="field-error">{{ fieldError('dailyUsage') }}</span> }
               </label>
               <label>Low stock threshold days
                 <input type="number" min="0" step="1" formControlName="lowStockThresholdDays">
+                @if (fieldError('lowStockThresholdDays')) { <span class="field-error">{{ fieldError('lowStockThresholdDays') }}</span> }
               </label>
             </div>
 
@@ -209,7 +217,9 @@ export class SuppliesComponent implements OnInit {
         this.loadSupplies();
       },
       error: (error) => {
-        this.saveError = error?.error?.title ?? 'Could not save this supply.';
+        const apiError = toApiError(error, 'Could not save this supply.');
+        this.applyServerValidationErrors(apiError);
+        this.saveError = apiError.message;
         this.isSaving = false;
       }
     });
@@ -219,7 +229,7 @@ export class SuppliesComponent implements OnInit {
     if (!confirm(`Delete ${supply.name}?`)) return;
     this.api.deleteSupply(supply.id).subscribe({
       next: () => this.loadSupplies(),
-      error: () => this.loadError = `Could not delete ${supply.name}.`
+      error: (error) => this.loadError = getApiErrorMessage(error, `Could not delete ${supply.name}.`)
     });
   }
 
@@ -240,6 +250,25 @@ export class SuppliesComponent implements OnInit {
     return '□';
   }
 
+
+  fieldError(controlName: string): string {
+    const control = this.form.get(controlName);
+    if (!control) return '';
+
+    const serverError = control.errors?.['server'];
+    return typeof serverError === 'string' && (control.dirty || control.touched) ? serverError : '';
+  }
+
+  private applyServerValidationErrors(error: ApiError) {
+    if (error.status !== 400) return;
+
+    for (const [field, messages] of Object.entries(error.validationErrors ?? {})) {
+      const controlName = field.charAt(0).toLowerCase() + field.slice(1);
+      const control = this.form.get(controlName);
+      control?.setErrors({ ...control.errors, server: messages.join(' ') });
+      control?.markAsTouched();
+    }
+  }
   private resetForm() {
     this.editingId = '';
     this.saveError = '';

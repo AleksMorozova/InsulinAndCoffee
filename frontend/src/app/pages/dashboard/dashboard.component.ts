@@ -4,6 +4,7 @@ import { RouterLink } from '@angular/router';
 import { catchError, map, of, startWith } from 'rxjs';
 import { ApiService } from '../../core/api.service';
 import { Dashboard, DashboardMeal } from '../../core/models';
+import { PageErrorComponent } from '../../shared/page-error/page-error.component';
 
 interface DashboardViewState {
   loading: boolean;
@@ -15,7 +16,7 @@ interface DashboardViewState {
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [AsyncPipe, DatePipe, DecimalPipe, RouterLink],
+  imports: [AsyncPipe, DatePipe, DecimalPipe, RouterLink, PageErrorComponent],
   template: `
     @if (state$ | async; as state) {
       <section class="dashboard-action-grid" aria-label="Primary actions">
@@ -66,11 +67,10 @@ interface DashboardViewState {
       </section>
 
       @if (state.error) {
-        <section class="card dashboard-message error">
-          <h2>Couldn’t load today’s dashboard</h2>
-          <p>{{ state.error }}</p>
-          <button type="button" class="secondary" (click)="reload()">Try again</button>
-        </section>
+        <app-page-error
+          title="Couldn’t load today’s dashboard"
+          [message]="state.error"
+          (retry)="reload()" />
       } @else if (!state.loading) {
         @if (state.dashboard; as dashboard) {
           <section class="dashboard-section">

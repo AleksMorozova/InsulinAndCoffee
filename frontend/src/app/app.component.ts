@@ -1,10 +1,11 @@
 import { Component } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
+import { ToastContainerComponent } from './shared/toast-container/toast-container.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, ToastContainerComponent],
   template: `
     <header class="app-header">
       <a class="brand" routerLink="/">
@@ -72,6 +73,7 @@ import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/rou
     <main>
       <router-outlet />
     </main>
+    <app-toast-container />
     <footer class="app-footer">
       ☕ Powered by coffee • 💉 Powered by insulin • ❤️ Inspired by Taisha's legendary spreadsheet.
     </footer>

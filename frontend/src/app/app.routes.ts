@@ -7,6 +7,9 @@ import { FoodsComponent } from './pages/foods/foods.component';
 import { DeliveryMealsComponent } from './pages/delivery-meals/delivery-meals.component';
 import { SettingsComponent } from './pages/settings/settings.component';
 import { SuppliesComponent } from './pages/supplies/supplies.component';
+import { AccessDeniedPageComponent } from './pages/error-pages/access-denied-page.component';
+import { GenericErrorPageComponent } from './pages/error-pages/generic-error-page.component';
+import { NotFoundPageComponent } from './pages/error-pages/not-found-page.component';
 
 export const routes: Routes = [
   { path: '', component: DashboardComponent, title: 'Dashboard' },
@@ -17,5 +20,8 @@ export const routes: Routes = [
   { path: 'foods', component: FoodsComponent, title: 'Food Library' },
   { path: 'supplies', component: SuppliesComponent, title: 'Supplies' },
   { path: 'settings', component: SettingsComponent, title: 'Settings' },
-  { path: '**', redirectTo: '' }
+  { path: 'not-found', component: NotFoundPageComponent, title: 'Page not found' },
+  { path: 'access-denied', component: AccessDeniedPageComponent, title: 'Access denied' },
+  { path: 'error', component: GenericErrorPageComponent, title: 'Something went wrong' },
+  { path: '**', component: NotFoundPageComponent, title: 'Page not found' }
 ];

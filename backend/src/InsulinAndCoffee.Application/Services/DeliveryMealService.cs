@@ -1,6 +1,7 @@
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Domain.Entities;
+using InsulinAndCoffee.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
@@ -62,7 +63,7 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider)
         var deliveryMeal = await db.DeliveryMeals
             .AsNoTracking()
             .FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Delivery meal was not found.");
+            ?? throw new NotFoundException("Delivery meal", id);
 
         return ToDto(deliveryMeal);
     }
@@ -106,7 +107,7 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider)
             .AsNoTracking()
             .Include(m => m.Items)
             .FirstOrDefaultAsync(m => m.Id == mealId && m.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Meal was not found.");
+            ?? throw new NotFoundException("Meal", mealId);
 
         if (meal.ConfirmedBolus is null)
         {
@@ -148,7 +149,7 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider)
         Validate(request);
 
         var deliveryMeal = await db.DeliveryMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Delivery meal was not found.");
+            ?? throw new NotFoundException("Delivery meal", id);
 
         deliveryMeal.PlaceName = request.PlaceName.Trim();
         deliveryMeal.DishName = request.DishName.Trim();
@@ -168,7 +169,7 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider)
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
         var deliveryMeal = await db.DeliveryMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Delivery meal was not found.");
+            ?? throw new NotFoundException("Delivery meal", id);
 
         db.DeliveryMeals.Remove(deliveryMeal);
         await db.SaveChangesAsync(cancellationToken);
@@ -177,7 +178,7 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider)
     public async Task<DeliveryMealDto> ToggleFavoriteAsync(Guid id, CancellationToken cancellationToken)
     {
         var deliveryMeal = await db.DeliveryMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Delivery meal was not found.");
+            ?? throw new NotFoundException("Delivery meal", id);
 
         deliveryMeal.IsFavorite = !deliveryMeal.IsFavorite;
         await db.SaveChangesAsync(cancellationToken);
@@ -187,7 +188,7 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider)
     public async Task<UseDeliveryMealDto> CreateMealDraftFromDeliveryMealAsync(Guid id, CancellationToken cancellationToken)
     {
         var deliveryMeal = await db.DeliveryMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == DefaultUser.Id, cancellationToken)
-            ?? throw new KeyNotFoundException("Delivery meal was not found.");
+            ?? throw new NotFoundException("Delivery meal", id);
 
         var now = timeProvider.GetUtcNow();
         deliveryMeal.UsageCount += 1;

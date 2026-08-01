@@ -2,6 +2,7 @@ import { DecimalPipe } from '@angular/common';
 import { Component, OnInit } from '@angular/core';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
+import { getApiErrorMessage } from '../../core/api-error';
 import { ApiService } from '../../core/api.service';
 import { FoodItem, MealCalculation, mealTypes } from '../../core/models';
 import { DisclaimerComponent } from '../../shared/disclaimer.component';
@@ -366,7 +367,7 @@ export class CalculatorComponent implements OnInit {
         this.showCreateFood = false;
         this.newFoodForm.reset({ name: '', carbsPer100g: 0, proteinPer100g: 0, fatPer100g: 0, caloriesPer100g: 0, isFavorite: false, weightGrams: 100 });
       },
-      error: (err) => this.error = err?.error?.title ?? 'Could not create food.'
+      error: (err) => this.error = getApiErrorMessage(err, 'Could not create food.')
     });
   }
 
@@ -432,7 +433,7 @@ export class CalculatorComponent implements OnInit {
     if (this.form.invalid || !this.calculation) return;
     this.api.createMeal(this.createMealRequest()).subscribe({
       next: (meal) => this.router.navigate(['/meals', meal.id]),
-      error: (err) => this.error = err?.error?.title ?? 'Could not save meal.'
+      error: (err) => this.error = getApiErrorMessage(err, 'Could not save meal.')
     });
   }
 
@@ -440,7 +441,7 @@ export class CalculatorComponent implements OnInit {
     if (this.form.invalid || !this.calculation) return;
     this.api.createMeal(this.createMealRequest()).subscribe({
       next: () => this.resetMealBuilder(),
-      error: (err) => this.error = err?.error?.title ?? 'Could not save meal.'
+      error: (err) => this.error = getApiErrorMessage(err, 'Could not save meal.')
     });
   }
 
