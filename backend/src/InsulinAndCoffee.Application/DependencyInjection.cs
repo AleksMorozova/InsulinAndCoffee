@@ -9,6 +9,9 @@ public static class DependencyInjection
     {
         services.AddScoped<FoodService>();
         services.AddScoped<DeliveryMealService>();
+        services.AddScoped<DeliveryMealStranglerRouter>();
+        services.AddScoped<MockTypeScriptDeliveryMealService>();
+        services.AddSingleton<DeliveryMealStranglerOptions>();
         services.AddScoped<MealCalculationService>();
         services.AddScoped<MealService>();
         services.AddScoped<SettingsService>();
