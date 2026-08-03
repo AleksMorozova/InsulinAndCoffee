@@ -1,4 +1,5 @@
 using InsulinAndCoffee.Api.ExceptionHandling;
+using InsulinAndCoffee.Api.Middlewares;
 using InsulinAndCoffee.Application;
 using InsulinAndCoffee.Infrastructure;
 using Microsoft.AspNetCore.Mvc;
@@ -63,7 +64,10 @@ app.UseCors("Angular");
 app.UseAuthorization();
 
 app.MapHealthChecks("/health");
+
 app.MapControllers();
+
+app.UseMiddleware<CorrelationIdMiddleware>();
 
 if (!app.Environment.IsEnvironment("Testing"))
 {

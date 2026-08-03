@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "55432:5432"
+      - "5433:5432"
     volumes:
       - insulin_coffee_pgdata:/var/lib/postgresql/data
 

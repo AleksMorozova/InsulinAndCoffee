@@ -7,7 +7,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class MealService(IAppDbContext db, TimeProvider timeProvider)
+public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalculationService mealCalculationService)
 {
     public async Task<DashboardDto> GetDashboardAsync(CancellationToken cancellationToken)
     {
@@ -37,17 +37,8 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
             meals);
     }
 
-    public async Task<MealCalculationDto> CalculateMealAsync(CalculateMealRequest request, CancellationToken cancellationToken)
-    {
-        ValidateMealInputs(request.PreMealGlucose, request.Items, request.DirectCarbs);
-
-        var settings = await db.DiabetesSettings.AsNoTracking().FirstAsync(s => s.UserId == DefaultUser.Id, cancellationToken);
-        var calculatedItems = await CalculateItemsAsync(request.Items, request.DirectCarbs, request.DirectFoodName, cancellationToken);
-        var totalCarbs = Math.Round(calculatedItems.Sum(i => i.CalculatedCarbs), 2);
-        var (mealBolus, correctionBolus, suggestedBolus) = CalculateBolus(totalCarbs, request.PreMealGlucose, settings);
-
-        return new MealCalculationDto(totalCarbs, mealBolus, correctionBolus, suggestedBolus, calculatedItems);
-    }
+    public Task<MealCalculationDto> CalculateMealAsync(CalculateMealRequest request, CancellationToken cancellationToken) =>
+        mealCalculationService.CalculateMealAsync(request, cancellationToken);
 
     public async Task<MealDetailDto> CreateMealAsync(CreateMealRequest request, CancellationToken cancellationToken)
     {
@@ -122,7 +113,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
         }
 
         var existingCarbs = meal.Items.Sum(i => i.CalculatedCarbs);
-        var calculatedItems = await CalculateItemsAsync(request.Items, directCarbs: null, directFoodName: null, cancellationToken);
+        var calculatedItems = await mealCalculationService.CalculateItemsAsync(request.Items, directCarbs: null, directFoodName: null, cancellationToken);
         var newItems = calculatedItems
             .Select(item => new MealItem
             {
@@ -138,7 +129,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
 
         db.MealItems.AddRange(newItems);
 
-        RecalculateMealTotals(meal, existingCarbs + newItems.Sum(i => i.CalculatedCarbs), await GetSettingsAsync(cancellationToken));
+        await RecalculateMealTotalsAsync(meal, existingCarbs + newItems.Sum(i => i.CalculatedCarbs), cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
         return await GetMealAsync(id, cancellationToken);
@@ -158,7 +149,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
         item.WeightGrams = request.WeightGrams;
         item.CalculatedCarbs = Math.Round(item.WeightGrams * item.CarbsPer100gSnapshot / 100, 2);
 
-        RecalculateMealTotals(meal, meal.Items.Sum(i => i.CalculatedCarbs), await GetSettingsAsync(cancellationToken));
+        await RecalculateMealTotalsAsync(meal, meal.Items.Sum(i => i.CalculatedCarbs), cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
         return await GetMealAsync(mealId, cancellationToken);
@@ -176,7 +167,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
         }
 
         db.MealItems.Remove(item);
-        RecalculateMealTotals(meal, meal.Items.Where(i => i.Id != itemId).Sum(i => i.CalculatedCarbs), await GetSettingsAsync(cancellationToken));
+        await RecalculateMealTotalsAsync(meal, meal.Items.Where(i => i.Id != itemId).Sum(i => i.CalculatedCarbs), cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
         return await GetMealAsync(mealId, cancellationToken);
@@ -196,8 +187,8 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLower();
-            query = query.Where(m => m.Items.Any(i => i.FoodNameSnapshot.ToLower().Contains(term)));
+            var pattern = $"%{EscapeLikePattern(search.Trim())}%";
+            query = query.Where(m => m.Items.Any(i => EF.Functions.ILike(i.FoodNameSnapshot, pattern, "\\")));
         }
 
         return await query
@@ -261,89 +252,19 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider)
         return meal;
     }
 
-    private async Task<DiabetesSettings> GetSettingsAsync(CancellationToken cancellationToken) =>
-        await db.DiabetesSettings.AsNoTracking().FirstAsync(s => s.UserId == DefaultUser.Id, cancellationToken);
-
-    private async Task<IReadOnlyList<CalculatedMealItemDto>> CalculateItemsAsync(IReadOnlyList<MealItemInputDto> inputItems, decimal? directCarbs, string? directFoodName, CancellationToken cancellationToken)
+    private async Task RecalculateMealTotalsAsync(Meal meal, decimal totalCarbs, CancellationToken cancellationToken)
     {
-        if (directCarbs.HasValue)
-        {
-            return
-            [
-                new CalculatedMealItemDto(
-                    Guid.Empty,
-                    string.IsNullOrWhiteSpace(directFoodName) ? "Delivery meal" : directFoodName.Trim(),
-                    100,
-                    directCarbs.Value,
-                    Math.Round(directCarbs.Value, 2))
-            ];
-        }
-
-        var foodIds = inputItems.Select(i => i.FoodItemId).Distinct().ToList();
-        var foods = await db.FoodItems
-            .AsNoTracking()
-            .Where(f => f.UserId == DefaultUser.Id && foodIds.Contains(f.Id))
-            .ToDictionaryAsync(f => f.Id, cancellationToken);
-
-        if (foods.Count != foodIds.Count)
-        {
-            throw new ValidationException("One or more selected foods were not found.");
-        }
-
-        return inputItems.Select(input =>
-        {
-            var food = foods[input.FoodItemId];
-            var calculatedCarbs = Math.Round(input.WeightGrams * food.CarbsPer100g / 100, 2);
-            return new CalculatedMealItemDto(food.Id, food.Name, input.WeightGrams, food.CarbsPer100g, calculatedCarbs);
-        }).ToList();
-    }
-
-    private static void ValidateMealInputs(decimal preMealGlucose, IReadOnlyList<MealItemInputDto> items, decimal? directCarbs)
-    {
-        if (preMealGlucose <= 0)
-        {
-            throw new ValidationException("Pre-meal glucose must be greater than zero.");
-        }
-
-        if (directCarbs.HasValue)
-        {
-            if (directCarbs <= 0)
-            {
-                throw new ValidationException("Direct carbs must be greater than zero.");
-            }
-
-            return;
-        }
-
-        if (items.Count == 0)
-        {
-            throw new ValidationException("Add at least one food item.");
-        }
-
-        if (items.Any(i => i.WeightGrams <= 0))
-        {
-            throw new ValidationException("Food weights must be greater than zero.");
-        }
-    }
-
-    private static (decimal MealBolus, decimal CorrectionBolus, decimal SuggestedBolus) CalculateBolus(decimal totalCarbs, decimal preMealGlucose, DiabetesSettings settings)
-    {
-        var mealBolus = Math.Round(totalCarbs / settings.CarbRatio, 2);
-        var correctionBolus = preMealGlucose > settings.TargetGlucose
-            ? Math.Round((preMealGlucose - settings.TargetGlucose) / settings.CorrectionFactor, 2)
-            : 0;
-        var suggestedBolus = Math.Round(mealBolus + correctionBolus, 2);
-
-        return (mealBolus, correctionBolus, suggestedBolus);
-    }
-
-    private static void RecalculateMealTotals(Meal meal, decimal totalCarbs, DiabetesSettings settings)
-    {
-        meal.TotalCarbs = Math.Round(totalCarbs, 2);
-        var (_, _, suggestedBolus) = CalculateBolus(meal.TotalCarbs, meal.PreMealGlucose, settings);
-        meal.SuggestedBolus = suggestedBolus;
+        var totals = await mealCalculationService.CalculateTotalsAsync(totalCarbs, meal.PreMealGlucose, cancellationToken);
+        meal.TotalCarbs = totals.TotalCarbs;
+        meal.SuggestedBolus = totals.SuggestedBolus;
         meal.ConfirmedBolus = null;
     }
+
+    private static string EscapeLikePattern(string value) =>
+        value
+            .Replace("\\", "\\\\")
+            .Replace("%", "\\%")
+            .Replace("_", "\\_");
 
     private static MealSummaryDto ToSummary(Meal meal) =>
         new(meal.Id, meal.MealType, meal.MealTime, meal.PreMealGlucose, meal.TotalCarbs, meal.SuggestedBolus, meal.ConfirmedBolus, meal.Notes, meal.Items.Select(i => i.FoodNameSnapshot).ToList());

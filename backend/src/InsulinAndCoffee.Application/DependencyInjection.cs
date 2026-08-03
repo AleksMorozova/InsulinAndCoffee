@@ -9,6 +9,7 @@ public static class DependencyInjection
     {
         services.AddScoped<FoodService>();
         services.AddScoped<DeliveryMealService>();
+        services.AddScoped<MealCalculationService>();
         services.AddScoped<MealService>();
         services.AddScoped<SettingsService>();
         services.AddScoped<SupplyService>();
