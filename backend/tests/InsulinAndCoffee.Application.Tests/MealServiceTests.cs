@@ -22,7 +22,7 @@ public class MealServiceTests
     public async Task GetDashboardAsync_WhenNoMealsToday_ReturnsZeroTotalsAndEmptyMeals()
     {
         await using var db = CreateDbContext();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var result = await service.GetDashboardAsync(CancellationToken.None);
 
@@ -43,7 +43,7 @@ public class MealServiceTests
             Meal(MealType.Dinner, 80, 8, mealTime: previousLocalDay, createdAt: previousLocalDay),
             Meal(MealType.Breakfast, 42, 4, mealTime: todayInLocalTime, createdAt: todayInLocalTime));
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var result = await service.GetDashboardAsync(CancellationToken.None);
 
@@ -64,7 +64,7 @@ public class MealServiceTests
             Meal(MealType.Breakfast, 30, 3.5m, mealTime: olderMealTime, createdAt: olderMealTime),
             Meal(MealType.Dinner, 65, null, mealTime: newerMealTime, createdAt: newerMealTime));
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var result = await service.GetDashboardAsync(CancellationToken.None);
 
@@ -82,13 +82,29 @@ public class MealServiceTests
         Assert.Equal(3.5m, confirmedMeal.ConfirmedInsulin);
     }
 
+
+    [Fact]
+    public async Task CalculateMealAsync_WhenDiabetesSettingsAreMissing_ThrowsNotFound()
+    {
+        await using var db = CreateDbContext();
+        var food = AddFood(db, "Bread", 40m);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+
+        var exception = await Assert.ThrowsAsync<NotFoundException>(() =>
+            service.CalculateMealAsync(
+                new CalculateMealRequest(MealType.Breakfast, 6.5m, [new MealItemInputDto(food.Id, 100m)]),
+                CancellationToken.None));
+
+        Assert.Contains("Diabetes settings with id", exception.Message);
+    }
     [Fact]
     public async Task CreateMealAsync_AllowsMissingConfirmedBolusAndDoesNotCopySuggestedBolus()
     {
         await using var db = CreateDbContext();
         AddDefaultSettings(db);
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var result = await service.CreateMealAsync(
             new CreateMealRequest(
@@ -120,7 +136,7 @@ public class MealServiceTests
             Meal(MealType.Dinner, 65, null, mealTime: pendingMealTime, createdAt: pendingMealTime),
             Meal(MealType.Breakfast, 30, 0m, mealTime: zeroConfirmedMealTime, createdAt: zeroConfirmedMealTime));
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var result = await service.GetDashboardAsync(CancellationToken.None);
 
@@ -144,7 +160,7 @@ public class MealServiceTests
         var previousLocalDay = new DateTimeOffset(2026, 7, 11, 20, 59, 0, TimeSpan.Zero);
         db.Meals.Add(Meal(MealType.Dinner, 80, null, mealTime: previousLocalDay, createdAt: previousLocalDay));
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var result = await service.GetDashboardAsync(CancellationToken.None);
 
@@ -160,7 +176,7 @@ public class MealServiceTests
         var meal = Meal(MealType.Dinner, 65, null, mealTime: mealTime, createdAt: mealTime);
         db.Meals.Add(meal);
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var result = await service.ConfirmMealBolusAsync(meal.Id, new ConfirmMealBolusRequest(0m), CancellationToken.None);
         var dashboard = await service.GetDashboardAsync(CancellationToken.None);
@@ -181,7 +197,7 @@ public class MealServiceTests
         meal.Items.Add(MealItem(meal.Id, "Bread", weightGrams: 100m, carbsPer100g: 40m));
         db.Meals.Add(meal);
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var result = await service.ClearConfirmedBolusAsync(meal.Id, CancellationToken.None);
         var dashboard = await service.GetDashboardAsync(CancellationToken.None);
@@ -216,7 +232,7 @@ public class MealServiceTests
         var meal = Meal(MealType.Lunch, 42m, null, mealTime: mealTime, createdAt: mealTime);
         db.Meals.Add(meal);
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var result = await service.ClearConfirmedBolusAsync(meal.Id, CancellationToken.None);
 
@@ -230,7 +246,7 @@ public class MealServiceTests
     public async Task ClearConfirmedBolusAsync_WhenMealDoesNotExist_ThrowsNotFound()
     {
         await using var db = CreateDbContext();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var exception = await Assert.ThrowsAsync<NotFoundException>(() =>
             service.ClearConfirmedBolusAsync(Guid.NewGuid(), CancellationToken.None));
@@ -258,7 +274,7 @@ public class MealServiceTests
         });
         db.Meals.Add(meal);
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var result = await service.AddMealItemsAsync(
             meal.Id,
@@ -289,7 +305,7 @@ public class MealServiceTests
         var meal = Meal(MealType.Dinner, 30, 0m, mealTime: mealTime, createdAt: mealTime);
         db.Meals.Add(meal);
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var exception = await Assert.ThrowsAsync<ValidationException>(() =>
             service.AddMealItemsAsync(
@@ -312,7 +328,7 @@ public class MealServiceTests
         meal.Items.Add(item);
         db.Meals.Add(meal);
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var result = await service.UpdateMealItemAsync(meal.Id, item.Id, new UpdateMealItemRequest(100m), CancellationToken.None);
 
@@ -338,7 +354,7 @@ public class MealServiceTests
         meal.Items.Add(rice);
         db.Meals.Add(meal);
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var result = await service.RemoveMealItemAsync(meal.Id, rice.Id, CancellationToken.None);
         var dashboard = await service.GetDashboardAsync(CancellationToken.None);
@@ -365,7 +381,7 @@ public class MealServiceTests
         meal.Items.Add(item);
         db.Meals.Add(meal);
         await db.SaveChangesAsync();
-        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
 
         var updateException = await Assert.ThrowsAsync<ValidationException>(() =>
             service.UpdateMealItemAsync(meal.Id, item.Id, new UpdateMealItemRequest(100m), CancellationToken.None));

@@ -41,3 +41,4 @@ _ReSharper*/
 .vs/
 #Nuget packages folder
 packages/
+/backend/src/InsulinAndCoffee.Api/appsettings.Development.json
