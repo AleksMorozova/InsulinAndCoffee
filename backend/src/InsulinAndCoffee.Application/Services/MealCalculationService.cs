@@ -1,4 +1,5 @@
 using InsulinAndCoffee.Application.Abstractions;
+using InsulinAndCoffee.Application.Calculations;
 using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Domain.Entities;
 using InsulinAndCoffee.Domain.Exceptions;
@@ -15,7 +16,9 @@ public class MealCalculationService(IAppDbContext db)
         var settings = await GetSettingsAsync(cancellationToken);
         var calculatedItems = await CalculateItemsAsync(request.Items, request.DirectCarbs, request.DirectFoodName, cancellationToken);
         var totalCarbs = Math.Round(calculatedItems.Sum(i => i.CalculatedCarbs), 2);
-        var (mealBolus, correctionBolus, suggestedBolus) = CalculateBolus(totalCarbs, request.PreMealGlucose, settings);
+        var mealBolus = BolusCalculator.CalculateFoodBolus(totalCarbs, settings.CarbRatio);
+        var correctionBolus = BolusCalculator.CalculateCorrectionBolus(request.PreMealGlucose, settings.TargetGlucose, settings.CorrectionFactor);
+        var suggestedBolus = BolusCalculator.CalculateTotalBolus(mealBolus, correctionBolus);
 
         return new MealCalculationDto(totalCarbs, mealBolus, correctionBolus, suggestedBolus, calculatedItems);
     }
@@ -58,7 +61,9 @@ public class MealCalculationService(IAppDbContext db)
     {
         var settings = await GetSettingsAsync(cancellationToken);
         var roundedTotalCarbs = Math.Round(totalCarbs, 2);
-        var (_, _, suggestedBolus) = CalculateBolus(roundedTotalCarbs, preMealGlucose, settings);
+        var mealBolus = BolusCalculator.CalculateFoodBolus(roundedTotalCarbs, settings.CarbRatio);
+        var correctionBolus = BolusCalculator.CalculateCorrectionBolus(preMealGlucose, settings.TargetGlucose, settings.CorrectionFactor);
+        var suggestedBolus = BolusCalculator.CalculateTotalBolus(mealBolus, correctionBolus);
         return new MealTotalsResult(roundedTotalCarbs, suggestedBolus);
     }
 
@@ -94,16 +99,6 @@ public class MealCalculationService(IAppDbContext db)
         }
     }
 
-    private static (decimal MealBolus, decimal CorrectionBolus, decimal SuggestedBolus) CalculateBolus(decimal totalCarbs, decimal preMealGlucose, DiabetesSettings settings)
-    {
-        var mealBolus = Math.Round(totalCarbs / settings.CarbRatio, 2);
-        var correctionBolus = preMealGlucose > settings.TargetGlucose
-            ? Math.Round((preMealGlucose - settings.TargetGlucose) / settings.CorrectionFactor, 2)
-            : 0;
-        var suggestedBolus = Math.Round(mealBolus + correctionBolus, 2);
-
-        return (mealBolus, correctionBolus, suggestedBolus);
-    }
 }
 
 public sealed record MealTotalsResult(decimal TotalCarbs, decimal SuggestedBolus);
