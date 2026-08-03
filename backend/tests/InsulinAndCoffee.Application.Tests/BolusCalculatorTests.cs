@@ -52,6 +52,22 @@ public class BolusCalculatorTests
     }
 
     [Fact]
+    public void CalculateFoodBolus_WhenInputsArePrecisionSensitive_UsesDecimalArithmetic()
+    {
+        var result = BolusCalculator.CalculateFoodBolus(totalCarbs: 0.3m, carbRatio: 0.1m);
+
+        Assert.Equal(3m, result);
+    }
+
+    [Fact]
+    public void CalculateFoodBolus_WhenInputsAreVeryLarge_ReturnsRoundedDecimalResult()
+    {
+        var result = BolusCalculator.CalculateFoodBolus(totalCarbs: 7922816251426433759354395033.5m, carbRatio: 10m);
+
+        Assert.Equal(792281625142643375935439503.35m, result);
+    }
+
+    [Fact]
     public void CalculateCorrectionBolus_WhenCurrentGlucoseIsAboveTarget_ReturnsRoundedCorrection()
     {
         var result = BolusCalculator.CalculateCorrectionBolus(currentGlucose: 9.5m, targetGlucose: 6.5m, correctionFactor: 3m);
@@ -83,6 +99,22 @@ public class BolusCalculatorTests
     }
 
     [Fact]
+    public void CalculateCorrectionBolus_WhenCorrectionFactorIsZeroAndCurrentGlucoseEqualsTarget_ReturnsZero()
+    {
+        var result = BolusCalculator.CalculateCorrectionBolus(currentGlucose: 6.5m, targetGlucose: 6.5m, correctionFactor: 0m);
+
+        Assert.Equal(0m, result);
+    }
+
+    [Fact]
+    public void CalculateCorrectionBolus_WhenCorrectionFactorIsZeroAndCurrentGlucoseIsBelowTarget_ReturnsZero()
+    {
+        var result = BolusCalculator.CalculateCorrectionBolus(currentGlucose: 4.5m, targetGlucose: 6.5m, correctionFactor: 0m);
+
+        Assert.Equal(0m, result);
+    }
+
+    [Fact]
     public void CalculateCorrectionBolus_WhenCorrectionFactorIsNegative_ReturnsMathematicalResult()
     {
         var result = BolusCalculator.CalculateCorrectionBolus(currentGlucose: 9.5m, targetGlucose: 6.5m, correctionFactor: -3m);
@@ -96,6 +128,14 @@ public class BolusCalculatorTests
         var result = BolusCalculator.CalculateCorrectionBolus(currentGlucose: 8.2m, targetGlucose: 6.5m, correctionFactor: 3m);
 
         Assert.Equal(0.57m, result);
+    }
+
+    [Fact]
+    public void CalculateCorrectionBolus_WhenInputsArePrecisionSensitive_UsesDecimalArithmetic()
+    {
+        var result = BolusCalculator.CalculateCorrectionBolus(currentGlucose: 0.3m, targetGlucose: 0.1m, correctionFactor: 0.1m);
+
+        Assert.Equal(2m, result);
     }
 
     [Fact]
@@ -146,6 +186,29 @@ public class BolusCalculatorTests
     }
 
     [Fact]
+    public void CalculateTotalBolus_WhenFoodBolusIsNegative_ReturnsMathematicalRoundedSum()
+    {
+        var result = BolusCalculator.CalculateTotalBolus(foodBolus: -2m, correctionBolus: 1m);
+
+        Assert.Equal(-1m, result);
+    }
+
+    [Fact]
+    public void CalculateTotalBolus_WhenCorrectionBolusIsNegative_ReturnsMathematicalRoundedSum()
+    {
+        var result = BolusCalculator.CalculateTotalBolus(foodBolus: 2m, correctionBolus: -3m);
+
+        Assert.Equal(-1m, result);
+    }
+
+    [Fact]
+    public void CalculateTotalBolus_WhenSumOverflows_ThrowsOverflow()
+    {
+        Assert.Throws<OverflowException>(() =>
+            BolusCalculator.CalculateTotalBolus(decimal.MaxValue, 1m));
+    }
+
+    [Fact]
     public void RoundDose_WhenValueIsBelowRoundingBoundary_RoundsDown()
     {
         var result = BolusCalculator.RoundDose(1.234m);
@@ -162,6 +225,14 @@ public class BolusCalculatorTests
     }
 
     [Fact]
+    public void RoundDose_WhenMidpointWouldRoundUpToEven_UsesMidpointRoundingToEven()
+    {
+        var result = BolusCalculator.RoundDose(1.235m);
+
+        Assert.Equal(1.24m, result);
+    }
+
+    [Fact]
     public void RoundDose_WhenValueIsAboveRoundingBoundary_RoundsUp()
     {
         var result = BolusCalculator.RoundDose(1.236m);
@@ -175,5 +246,21 @@ public class BolusCalculatorTests
         var result = BolusCalculator.RoundDose(-1.225m);
 
         Assert.Equal(-1.22m, result);
+    }
+
+    [Fact]
+    public void RoundDose_WhenNegativeMidpointWouldRoundDownToEven_UsesMidpointRoundingToEven()
+    {
+        var result = BolusCalculator.RoundDose(-1.235m);
+
+        Assert.Equal(-1.24m, result);
+    }
+
+    [Fact]
+    public void RoundDose_WhenValueIsVeryLarge_ReturnsRoundedDecimal()
+    {
+        var result = BolusCalculator.RoundDose(7922816251426433759354395033.555m);
+
+        Assert.Equal(7922816251426433759354395033.56m, result);
     }
 }
