@@ -59,6 +59,17 @@ public class ApiErrorContractTests
 
     private sealed class ApiFactory : WebApplicationFactory<Program>
     {
+        private const string DefaultConnectionEnvironmentVariable = "ConnectionStrings__DefaultConnection";
+        private readonly string? originalDefaultConnection;
+
+        public ApiFactory()
+        {
+            originalDefaultConnection = Environment.GetEnvironmentVariable(DefaultConnectionEnvironmentVariable);
+            Environment.SetEnvironmentVariable(
+                DefaultConnectionEnvironmentVariable,
+                "Host=localhost;Database=insulin_coffee_tests;Username=test;Password=test");
+        }
+
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
@@ -69,6 +80,12 @@ public class ApiErrorContractTests
                 services.AddDbContext<AppDbContext>(options =>
                     options.UseInMemoryDatabase($"api-error-contract-{Guid.NewGuid()}"));
             });
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            Environment.SetEnvironmentVariable(DefaultConnectionEnvironmentVariable, originalDefaultConnection);
+            base.Dispose(disposing);
         }
     }
 }
