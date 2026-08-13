@@ -24,6 +24,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.HasPostgresEnum<MealType>();
         modelBuilder.HasPostgresEnum<ReadingType>();
         modelBuilder.HasPostgresEnum<ResultRating>();
+        modelBuilder.HasPostgresEnum<FoodMeasurementType>();
 
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
 

@@ -13,17 +13,24 @@ public record DiabetesSettingsDto(Guid Id, decimal TargetGlucose, decimal CarbRa
 
 public record UpdateDiabetesSettingsRequest(decimal TargetGlucose, decimal CarbRatio, decimal CorrectionFactor, decimal InsulinDurationHours);
 
-public record FoodItemDto(Guid Id, string Name, decimal CarbsPer100g, decimal ProteinPer100g, decimal FatPer100g, decimal CaloriesPer100g, bool IsFavorite, DateTimeOffset CreatedAt);
+public record FoodItemDto(Guid Id, string Name, FoodMeasurementType MeasurementType, decimal? CarbsPer100g, decimal? CarbsPerUnit, decimal ProteinPer100g, decimal FatPer100g, decimal CaloriesPer100g, bool IsFavorite, DateTimeOffset CreatedAt);
 
-public record UpsertFoodItemRequest(string Name, decimal CarbsPer100g, decimal ProteinPer100g, decimal FatPer100g, decimal CaloriesPer100g, bool IsFavorite);
+public record UpsertFoodItemRequest(string Name, FoodMeasurementType MeasurementType, decimal? CarbsPer100g, decimal? CarbsPerUnit, decimal ProteinPer100g, decimal FatPer100g, decimal CaloriesPer100g, bool IsFavorite);
 
-public record MealItemInputDto(Guid FoodItemId, decimal WeightGrams);
+public record MealItemInputDto(
+    Guid FoodItemId,
+    decimal? Quantity = null,
+    decimal? WeightGrams = null,
+    FoodMeasurementType? MeasurementType = null,
+    string? FoodNameSnapshot = null,
+    decimal? CarbsPer100gSnapshot = null,
+    decimal? CarbsPerUnitSnapshot = null);
 
-public record MealItemDto(Guid Id, Guid FoodItemId, string FoodNameSnapshot, decimal WeightGrams, decimal CarbsPer100gSnapshot, decimal CalculatedCarbs);
+public record MealItemDto(Guid Id, Guid FoodItemId, string FoodNameSnapshot, decimal Quantity, FoodMeasurementType MeasurementType, decimal? WeightGrams, decimal? CarbsPer100gSnapshot, decimal? CarbsPerUnitSnapshot, decimal CalculatedCarbs);
 
 public record MealCalculationDto(decimal TotalCarbs, decimal MealBolus, decimal CorrectionBolus, decimal SuggestedBolus, IReadOnlyList<CalculatedMealItemDto> Items);
 
-public record CalculatedMealItemDto(Guid FoodItemId, string FoodName, decimal WeightGrams, decimal CarbsPer100g, decimal CalculatedCarbs);
+public record CalculatedMealItemDto(Guid FoodItemId, string FoodName, decimal Quantity, FoodMeasurementType MeasurementType, decimal? WeightGrams, decimal? CarbsPer100g, decimal? CarbsPerUnit, decimal CalculatedCarbs);
 
 public record CalculateMealRequest(MealType MealType, decimal PreMealGlucose, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null);
 
@@ -33,7 +40,7 @@ public record ConfirmMealBolusRequest(decimal ConfirmedBolus);
 
 public record AddMealItemsRequest(IReadOnlyList<MealItemInputDto> Items);
 
-public record UpdateMealItemRequest(decimal WeightGrams);
+public record UpdateMealItemRequest(decimal? Quantity = null, decimal? WeightGrams = null);
 
 public record MealSummaryDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal SuggestedBolus, decimal? ConfirmedBolus, string? Notes, IReadOnlyList<string> FoodNames);
 

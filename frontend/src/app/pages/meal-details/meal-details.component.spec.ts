@@ -157,8 +157,11 @@ function createMeal(): MealDetail {
         id: 'item-1',
         foodItemId: 'food-1',
         foodNameSnapshot: 'Sushi Rice',
+        quantity: 300,
+        measurementType: 'Grams',
         weightGrams: 300,
         carbsPer100gSnapshot: 28,
+        carbsPerUnitSnapshot: null,
         calculatedCarbs: 84
       }
     ]

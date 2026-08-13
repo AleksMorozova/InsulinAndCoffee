@@ -1,5 +1,6 @@
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
+using InsulinAndCoffee.Domain.Calculations;
 using InsulinAndCoffee.Domain.Entities;
 using InsulinAndCoffee.Domain.Enums;
 using InsulinAndCoffee.Domain.Exceptions;
@@ -67,8 +68,11 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
                 Id = Guid.NewGuid(),
                 FoodItemId = item.FoodItemId,
                 FoodNameSnapshot = item.FoodName,
+                Quantity = item.Quantity,
+                MeasurementType = item.MeasurementType,
                 WeightGrams = item.WeightGrams,
                 CarbsPer100gSnapshot = item.CarbsPer100g,
+                CarbsPerUnitSnapshot = item.CarbsPerUnit,
                 CalculatedCarbs = item.CalculatedCarbs
             }).ToList(),
             GlucoseReadings =
@@ -97,9 +101,9 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
             throw new ValidationException("Add at least one food item.");
         }
 
-        if (request.Items.Any(i => i.WeightGrams <= 0))
+        if (request.Items.Any(i => ResolveQuantity(i) <= 0))
         {
-            throw new ValidationException("Food weights must be greater than zero.");
+            throw new ValidationException("Food quantities must be greater than zero.");
         }
 
         var meal = await db.Meals
@@ -121,8 +125,11 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
                 MealId = meal.Id,
                 FoodItemId = item.FoodItemId,
                 FoodNameSnapshot = item.FoodName,
+                Quantity = item.Quantity,
+                MeasurementType = item.MeasurementType,
                 WeightGrams = item.WeightGrams,
                 CarbsPer100gSnapshot = item.CarbsPer100g,
+                CarbsPerUnitSnapshot = item.CarbsPerUnit,
                 CalculatedCarbs = item.CalculatedCarbs
             })
             .ToList();
@@ -137,17 +144,24 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
 
     public async Task<MealDetailDto> UpdateMealItemAsync(Guid mealId, Guid itemId, UpdateMealItemRequest request, CancellationToken cancellationToken)
     {
-        if (request.WeightGrams <= 0)
+        var quantity = ResolveQuantity(request);
+        if (quantity <= 0)
         {
-            throw new ValidationException("Food weight must be greater than zero.");
+            throw new ValidationException("Food quantity must be greater than zero.");
         }
 
         var meal = await GetEditableMealAsync(mealId, cancellationToken);
         var item = meal.Items.FirstOrDefault(i => i.Id == itemId)
             ?? throw new NotFoundException("Meal item", itemId);
 
-        item.WeightGrams = request.WeightGrams;
-        item.CalculatedCarbs = Math.Round(item.WeightGrams * item.CarbsPer100gSnapshot / 100, 2);
+        if (item.MeasurementType == FoodMeasurementType.Piece && quantity != decimal.Truncate(quantity))
+        {
+            throw new ValidationException("Piece quantity must be a whole number.");
+        }
+
+        item.Quantity = quantity;
+        item.WeightGrams = item.MeasurementType == FoodMeasurementType.Grams ? quantity : null;
+        item.CalculatedCarbs = FoodCarbCalculator.Calculate(item.MeasurementType, item.Quantity, item.CarbsPer100gSnapshot, item.CarbsPerUnitSnapshot);
 
         await RecalculateMealTotalsAsync(meal, meal.Items.Sum(i => i.CalculatedCarbs), cancellationToken);
 
@@ -271,7 +285,25 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
 
     private static MealDetailDto ToDetail(Meal meal) =>
         new(meal.Id, meal.MealType, meal.MealTime, meal.PreMealGlucose, meal.TotalCarbs, meal.SuggestedBolus, meal.ConfirmedBolus, meal.Notes, meal.CreatedAt,
-            meal.Items.OrderBy(i => i.FoodNameSnapshot).Select(i => new MealItemDto(i.Id, i.FoodItemId, i.FoodNameSnapshot, i.WeightGrams, i.CarbsPer100gSnapshot, i.CalculatedCarbs)).ToList());
+            meal.Items.OrderBy(i => i.FoodNameSnapshot).Select(i => new MealItemDto(
+                i.Id,
+                i.FoodItemId,
+                i.FoodNameSnapshot,
+                ResolveQuantity(i),
+                i.MeasurementType,
+                i.WeightGrams,
+                i.CarbsPer100gSnapshot,
+                i.CarbsPerUnitSnapshot,
+                i.CalculatedCarbs)).ToList());
+
+    private static decimal ResolveQuantity(MealItemInputDto item) =>
+        item.Quantity ?? item.WeightGrams ?? 0;
+
+    private static decimal ResolveQuantity(UpdateMealItemRequest request) =>
+        request.Quantity ?? request.WeightGrams ?? 0;
+
+    private static decimal ResolveQuantity(MealItem item) =>
+        item.Quantity > 0 ? item.Quantity : item.WeightGrams ?? 0;
 
     private DateTimeOffset GetLocalDayStartUtc(DateOnly date)
     {
