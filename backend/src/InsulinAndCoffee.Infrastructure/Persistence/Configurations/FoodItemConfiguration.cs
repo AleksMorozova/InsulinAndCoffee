@@ -12,7 +12,9 @@ public class FoodItemConfiguration : IEntityTypeConfiguration<FoodItem>
         entity.Ignore(f => f.MealItems);
         entity.HasIndex(f => new { f.UserId, f.Name });
         entity.Property(f => f.Name).HasMaxLength(160).IsRequired();
+        entity.Property(f => f.MeasurementType).IsRequired();
         entity.Property(f => f.CarbsPer100g).HasPrecision(7, 2);
+        entity.Property(f => f.CarbsPerUnit).HasPrecision(8, 2);
         entity.Property(f => f.ProteinPer100g).HasPrecision(7, 2);
         entity.Property(f => f.FatPer100g).HasPrecision(7, 2);
         entity.Property(f => f.CaloriesPer100g).HasPrecision(8, 2);

@@ -1,6 +1,7 @@
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Domain.Entities;
+using InsulinAndCoffee.Domain.Enums;
 using InsulinAndCoffee.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
 
@@ -57,7 +58,9 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider)
             Id = Guid.NewGuid(),
             UserId = DefaultUser.Id,
             Name = request.Name.Trim(),
-            CarbsPer100g = request.CarbsPer100g,
+            MeasurementType = request.MeasurementType,
+            CarbsPer100g = request.MeasurementType == FoodMeasurementType.Grams ? request.CarbsPer100g : null,
+            CarbsPerUnit = request.MeasurementType == FoodMeasurementType.Grams ? null : request.CarbsPerUnit,
             ProteinPer100g = request.ProteinPer100g,
             FatPer100g = request.FatPer100g,
             CaloriesPer100g = request.CaloriesPer100g,
@@ -78,7 +81,9 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider)
             ?? throw new NotFoundException("Food item", id);
 
         food.Name = request.Name.Trim();
-        food.CarbsPer100g = request.CarbsPer100g;
+        food.MeasurementType = request.MeasurementType;
+        food.CarbsPer100g = request.MeasurementType == FoodMeasurementType.Grams ? request.CarbsPer100g : null;
+        food.CarbsPerUnit = request.MeasurementType == FoodMeasurementType.Grams ? null : request.CarbsPerUnit;
         food.ProteinPer100g = request.ProteinPer100g;
         food.FatPer100g = request.FatPer100g;
         food.CaloriesPer100g = request.CaloriesPer100g;
@@ -104,9 +109,30 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider)
             throw new ValidationException("Food name is required.");
         }
 
-        if (request.CarbsPer100g < 0 || request.ProteinPer100g < 0 || request.FatPer100g < 0 || request.CaloriesPer100g < 0)
+        if (request.ProteinPer100g < 0 || request.FatPer100g < 0 || request.CaloriesPer100g < 0)
         {
             throw new ValidationException("Nutrition values cannot be negative.");
+        }
+
+        switch (request.MeasurementType)
+        {
+            case FoodMeasurementType.Grams:
+                if (request.CarbsPer100g is null or < 0)
+                {
+                    throw new ValidationException("Carbs per 100 g must be zero or greater.");
+                }
+
+                break;
+            case FoodMeasurementType.Portion:
+            case FoodMeasurementType.Piece:
+                if (request.CarbsPerUnit is null or < 0)
+                {
+                    throw new ValidationException($"Carbs per {MeasurementUnitName(request.MeasurementType)} must be zero or greater.");
+                }
+
+                break;
+            default:
+                throw new ValidationException("Measurement type is not supported.");
         }
     }
 
@@ -124,5 +150,8 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider)
     }
 
     private static FoodItemDto ToDto(FoodItem food) =>
-        new(food.Id, food.Name, food.CarbsPer100g, food.ProteinPer100g, food.FatPer100g, food.CaloriesPer100g, food.IsFavorite, food.CreatedAt);
+        new(food.Id, food.Name, food.MeasurementType, food.CarbsPer100g, food.CarbsPerUnit, food.ProteinPer100g, food.FatPer100g, food.CaloriesPer100g, food.IsFavorite, food.CreatedAt);
+
+    private static string MeasurementUnitName(FoodMeasurementType measurementType) =>
+        measurementType == FoodMeasurementType.Piece ? "piece" : "portion";
 }

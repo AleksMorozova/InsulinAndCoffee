@@ -1,5 +1,6 @@
 export type MealType = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
 export type ResultRating = 'Perfect' | 'Good' | 'HighGlucose' | 'LowGlucose' | 'Unknown';
+export type FoodMeasurementType = 'Grams' | 'Portion' | 'Piece';
 
 export const mealTypes: MealType[] = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
 export const resultRatings: ResultRating[] = ['Perfect', 'Good', 'HighGlucose', 'LowGlucose', 'Unknown'];
@@ -16,7 +17,9 @@ export interface DiabetesSettings {
 export interface FoodItem {
   id: string;
   name: string;
-  carbsPer100g: number;
+  measurementType: FoodMeasurementType;
+  carbsPer100g: number | null;
+  carbsPerUnit: number | null;
   proteinPer100g: number;
   fatPer100g: number;
   caloriesPer100g: number;
@@ -34,14 +37,22 @@ export interface PaginatedResult<T> {
 
 export interface MealItemInput {
   foodItemId: string;
-  weightGrams: number;
+  quantity: number;
+  weightGrams?: number;
+  measurementType?: FoodMeasurementType | null;
+  foodNameSnapshot?: string | null;
+  carbsPer100gSnapshot?: number | null;
+  carbsPerUnitSnapshot?: number | null;
 }
 
 export interface CalculatedMealItem {
   foodItemId: string;
   foodName: string;
-  weightGrams: number;
-  carbsPer100g: number;
+  quantity: number;
+  measurementType: FoodMeasurementType;
+  weightGrams: number | null;
+  carbsPer100g: number | null;
+  carbsPerUnit: number | null;
   calculatedCarbs: number;
 }
 
@@ -71,8 +82,11 @@ export interface MealDetail extends MealSummary {
     id: string;
     foodItemId: string;
     foodNameSnapshot: string;
-    weightGrams: number;
-    carbsPer100gSnapshot: number;
+    quantity: number;
+    measurementType: FoodMeasurementType;
+    weightGrams: number | null;
+    carbsPer100gSnapshot: number | null;
+    carbsPerUnitSnapshot: number | null;
     calculatedCarbs: number;
   }[];
 }

@@ -98,6 +98,270 @@ public class MealServiceTests
 
         Assert.Contains("Diabetes settings with id", exception.Message);
     }
+
+    [Fact]
+    public async Task CalculateMealAsync_ForGramsFood_CalculatesCarbsFromCarbsPer100g()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var food = AddFood(db, "Buckwheat", 19m);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+
+        var result = await service.CalculateMealAsync(
+            new CalculateMealRequest(MealType.Lunch, 6.5m, [new MealItemInputDto(food.Id, 150m)]),
+            CancellationToken.None);
+
+        Assert.Equal(28.5m, result.TotalCarbs);
+        var item = Assert.Single(result.Items);
+        Assert.Equal(FoodMeasurementType.Grams, item.MeasurementType);
+        Assert.Equal(150m, item.Quantity);
+        Assert.Equal(150m, item.WeightGrams);
+        Assert.Equal(19m, item.CarbsPer100g);
+        Assert.Null(item.CarbsPerUnit);
+    }
+
+    [Theory]
+    [InlineData(1, 15)]
+    [InlineData(1.5, 22.5)]
+    public async Task CalculateMealAsync_ForPortionFood_CalculatesCarbsFromCarbsPerUnit(decimal quantity, decimal expectedCarbs)
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var food = AddFood(db, "Borscht", carbsPer100g: null, FoodMeasurementType.Portion, carbsPerUnit: 15m);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+
+        var result = await service.CalculateMealAsync(
+            new CalculateMealRequest(MealType.Lunch, 6.5m, [new MealItemInputDto(food.Id, quantity)]),
+            CancellationToken.None);
+
+        Assert.Equal(expectedCarbs, result.TotalCarbs);
+        var item = Assert.Single(result.Items);
+        Assert.Equal(FoodMeasurementType.Portion, item.MeasurementType);
+        Assert.Equal(quantity, item.Quantity);
+        Assert.Null(item.WeightGrams);
+        Assert.Equal(15m, item.CarbsPerUnit);
+    }
+
+    [Theory]
+    [InlineData(1, 8)]
+    [InlineData(2, 16)]
+    public async Task CalculateMealAsync_ForPieceFood_CalculatesCarbsFromCarbsPerUnit(decimal quantity, decimal expectedCarbs)
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var food = AddFood(db, "Cheesecake", carbsPer100g: null, FoodMeasurementType.Piece, carbsPerUnit: 8m);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+
+        var result = await service.CalculateMealAsync(
+            new CalculateMealRequest(MealType.Snack, 6.5m, [new MealItemInputDto(food.Id, quantity)]),
+            CancellationToken.None);
+
+        Assert.Equal(expectedCarbs, result.TotalCarbs);
+        var item = Assert.Single(result.Items);
+        Assert.Equal(FoodMeasurementType.Piece, item.MeasurementType);
+        Assert.Equal(quantity, item.Quantity);
+        Assert.Null(item.WeightGrams);
+        Assert.Equal(8m, item.CarbsPerUnit);
+    }
+
+    [Fact]
+    public async Task CalculateMealAsync_ForFractionalPieceQuantity_ThrowsValidation()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var food = AddFood(db, "Cheesecake", carbsPer100g: null, FoodMeasurementType.Piece, carbsPerUnit: 8m);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+
+        var exception = await Assert.ThrowsAsync<ValidationException>(() =>
+            service.CalculateMealAsync(
+                new CalculateMealRequest(MealType.Snack, 6.5m, [new MealItemInputDto(food.Id, 1.5m)]),
+                CancellationToken.None));
+
+        Assert.Equal("Piece quantity must be a whole number.", exception.Message);
+    }
+
+    [Fact]
+    public async Task CalculateMealAsync_ForMixedMeasurementMeal_CalculatesTotalCarbs()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var buckwheat = AddFood(db, "Buckwheat", 19m);
+        var borscht = AddFood(db, "Borscht", carbsPer100g: null, FoodMeasurementType.Portion, carbsPerUnit: 15m);
+        var cheesecake = AddFood(db, "Cheesecake", carbsPer100g: null, FoodMeasurementType.Piece, carbsPerUnit: 8m);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+
+        var result = await service.CalculateMealAsync(
+            new CalculateMealRequest(
+                MealType.Dinner,
+                6.5m,
+                [
+                    new MealItemInputDto(buckwheat.Id, 150m),
+                    new MealItemInputDto(borscht.Id, 1m),
+                    new MealItemInputDto(cheesecake.Id, 2m)
+                ]),
+            CancellationToken.None);
+
+        Assert.Equal(59.5m, result.TotalCarbs);
+        Assert.Equal(3, result.Items.Count);
+    }
+
+    [Fact]
+    public async Task CreateMealAsync_ForPortionAndPieceItems_PersistsQuantitySemantics()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var borscht = AddFood(db, "Borscht", carbsPer100g: null, FoodMeasurementType.Portion, carbsPerUnit: 15m);
+        var cheesecake = AddFood(db, "Cheesecake", carbsPer100g: null, FoodMeasurementType.Piece, carbsPerUnit: 8m);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+
+        var result = await service.CreateMealAsync(
+            new CreateMealRequest(
+                MealType.Dinner,
+                MealTime: null,
+                PreMealGlucose: 6.5m,
+                ConfirmedBolus: null,
+                Notes: null,
+                Items:
+                [
+                    new MealItemInputDto(borscht.Id, 1.5m),
+                    new MealItemInputDto(cheesecake.Id, 2m)
+                ]),
+            CancellationToken.None);
+
+        Assert.Equal(38.5m, result.TotalCarbs);
+        Assert.Contains(result.Items, item =>
+            item.FoodItemId == borscht.Id &&
+            item.MeasurementType == FoodMeasurementType.Portion &&
+            item.Quantity == 1.5m &&
+            item.CarbsPerUnitSnapshot == 15m &&
+            item.WeightGrams is null);
+        Assert.Contains(result.Items, item =>
+            item.FoodItemId == cheesecake.Id &&
+            item.MeasurementType == FoodMeasurementType.Piece &&
+            item.Quantity == 2m &&
+            item.CarbsPerUnitSnapshot == 8m &&
+            item.WeightGrams is null);
+    }
+
+    [Fact]
+    public async Task GetMealAsync_AfterFoodChangesFromGramsToPortion_KeepsHistoricalGramsSnapshot()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var soup = AddFood(db, "Soup", 5m);
+        await db.SaveChangesAsync();
+        var mealService = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+        var foodService = new FoodService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var savedMeal = await mealService.CreateMealAsync(
+            new CreateMealRequest(MealType.Lunch, null, 6.5m, null, null, [new MealItemInputDto(soup.Id, 300m)]),
+            CancellationToken.None);
+
+        await foodService.UpdateFoodAsync(
+            soup.Id,
+            new UpsertFoodItemRequest("Soup", FoodMeasurementType.Portion, null, 20m, 4m, 2m, 60m, false),
+            CancellationToken.None);
+
+        var historicalMeal = await mealService.GetMealAsync(savedMeal.Id, CancellationToken.None);
+
+        var historicalItem = Assert.Single(historicalMeal.Items);
+        Assert.Equal(FoodMeasurementType.Grams, historicalItem.MeasurementType);
+        Assert.Equal(300m, historicalItem.Quantity);
+        Assert.Equal(300m, historicalItem.WeightGrams);
+        Assert.Equal(5m, historicalItem.CarbsPer100gSnapshot);
+        Assert.Null(historicalItem.CarbsPerUnitSnapshot);
+        Assert.Equal(15m, historicalItem.CalculatedCarbs);
+        Assert.Equal(15m, historicalMeal.TotalCarbs);
+    }
+
+    [Fact]
+    public async Task GetMealAsync_AfterFoodChangesFromPieceToGrams_KeepsHistoricalPieceSnapshot()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var egg = AddFood(db, "Egg", carbsPer100g: null, FoodMeasurementType.Piece, carbsPerUnit: 0.5m);
+        await db.SaveChangesAsync();
+        var mealService = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+        var foodService = new FoodService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var savedMeal = await mealService.CreateMealAsync(
+            new CreateMealRequest(MealType.Breakfast, null, 6.5m, null, null, [new MealItemInputDto(egg.Id, 2m)]),
+            CancellationToken.None);
+
+        await foodService.UpdateFoodAsync(
+            egg.Id,
+            new UpsertFoodItemRequest("Egg", FoodMeasurementType.Grams, 1m, null, 13m, 11m, 155m, false),
+            CancellationToken.None);
+
+        var historicalMeal = await mealService.GetMealAsync(savedMeal.Id, CancellationToken.None);
+
+        var historicalItem = Assert.Single(historicalMeal.Items);
+        Assert.Equal(FoodMeasurementType.Piece, historicalItem.MeasurementType);
+        Assert.Equal(2m, historicalItem.Quantity);
+        Assert.Null(historicalItem.WeightGrams);
+        Assert.Null(historicalItem.CarbsPer100gSnapshot);
+        Assert.Equal(0.5m, historicalItem.CarbsPerUnitSnapshot);
+        Assert.Equal(1m, historicalItem.CalculatedCarbs);
+    }
+
+    [Fact]
+    public async Task CreateMealAsync_WhenReusingHistoricalSnapshot_DoesNotReinterpretQuantityWithCurrentFoodMeasurement()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var soup = AddFood(db, "Soup", 5m);
+        await db.SaveChangesAsync();
+        var mealService = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+        var foodService = new FoodService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone));
+        var originalMeal = await mealService.CreateMealAsync(
+            new CreateMealRequest(MealType.Lunch, null, 6.5m, null, null, [new MealItemInputDto(soup.Id, 300m)]),
+            CancellationToken.None);
+        var originalItem = Assert.Single(originalMeal.Items);
+
+        await foodService.UpdateFoodAsync(
+            soup.Id,
+            new UpsertFoodItemRequest("Soup", FoodMeasurementType.Portion, null, 20m, 4m, 2m, 60m, false),
+            CancellationToken.None);
+
+        var reusedMeal = await mealService.CreateMealAsync(
+            new CreateMealRequest(
+                MealType.Lunch,
+                null,
+                6.5m,
+                null,
+                null,
+                [
+                    new MealItemInputDto(
+                        originalItem.FoodItemId,
+                        originalItem.Quantity,
+                        originalItem.WeightGrams,
+                        originalItem.MeasurementType,
+                        originalItem.FoodNameSnapshot,
+                        originalItem.CarbsPer100gSnapshot,
+                        originalItem.CarbsPerUnitSnapshot)
+                ]),
+            CancellationToken.None);
+        var newFoodCalculation = await mealService.CalculateMealAsync(
+            new CalculateMealRequest(MealType.Lunch, 6.5m, [new MealItemInputDto(soup.Id, 1m)]),
+            CancellationToken.None);
+
+        var reusedItem = Assert.Single(reusedMeal.Items);
+        Assert.Equal(FoodMeasurementType.Grams, reusedItem.MeasurementType);
+        Assert.Equal(300m, reusedItem.Quantity);
+        Assert.Equal(15m, reusedItem.CalculatedCarbs);
+        Assert.Equal(15m, reusedMeal.TotalCarbs);
+
+        var newFoodItem = Assert.Single(newFoodCalculation.Items);
+        Assert.Equal(FoodMeasurementType.Portion, newFoodItem.MeasurementType);
+        Assert.Equal(1m, newFoodItem.Quantity);
+        Assert.Equal(20m, newFoodItem.CalculatedCarbs);
+        Assert.Equal(20m, newFoodCalculation.TotalCarbs);
+    }
+
     [Fact]
     public async Task CreateMealAsync_AllowsMissingConfirmedBolusAndDoesNotCopySuggestedBolus()
     {
@@ -422,14 +686,21 @@ public class MealServiceTests
             UpdatedAt = LocalNoonUtc
         });
 
-    private static FoodItem AddFood(AppDbContext db, string name, decimal carbsPer100g)
+    private static FoodItem AddFood(
+        AppDbContext db,
+        string name,
+        decimal? carbsPer100g,
+        FoodMeasurementType measurementType = FoodMeasurementType.Grams,
+        decimal? carbsPerUnit = null)
     {
         var food = new FoodItem
         {
             Id = Guid.NewGuid(),
             UserId = DefaultUser.Id,
             Name = name,
+            MeasurementType = measurementType,
             CarbsPer100g = carbsPer100g,
+            CarbsPerUnit = carbsPerUnit,
             ProteinPer100g = 0,
             FatPer100g = 0,
             CaloriesPer100g = 0,

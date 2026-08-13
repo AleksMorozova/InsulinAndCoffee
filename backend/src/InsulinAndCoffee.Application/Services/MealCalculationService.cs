@@ -1,7 +1,9 @@
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Calculations;
 using InsulinAndCoffee.Application.Dtos;
+using InsulinAndCoffee.Domain.Calculations;
 using InsulinAndCoffee.Domain.Entities;
+using InsulinAndCoffee.Domain.Enums;
 using InsulinAndCoffee.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
 
@@ -32,13 +34,17 @@ public class MealCalculationService(IAppDbContext db)
                 new CalculatedMealItemDto(
                     Guid.Empty,
                     string.IsNullOrWhiteSpace(directFoodName) ? "Delivery meal" : directFoodName.Trim(),
-                    100,
+                    1,
+                    FoodMeasurementType.Portion,
+                    null,
+                    null,
                     directCarbs.Value,
                     Math.Round(directCarbs.Value, 2))
             ];
         }
 
-        var foodIds = inputItems.Select(i => i.FoodItemId).Distinct().ToList();
+        var currentFoodInputs = inputItems.Where(input => input.MeasurementType is null).ToList();
+        var foodIds = currentFoodInputs.Select(i => i.FoodItemId).Distinct().ToList();
         var foods = await db.FoodItems
             .AsNoTracking()
             .Where(f => f.UserId == DefaultUser.Id && foodIds.Contains(f.Id))
@@ -51,9 +57,40 @@ public class MealCalculationService(IAppDbContext db)
 
         return inputItems.Select(input =>
         {
+            if (input.MeasurementType is { } snapshotMeasurementType)
+            {
+                var snapshotQuantity = ResolveQuantity(input);
+                ValidateSnapshotInput(input, snapshotMeasurementType, snapshotQuantity);
+                var snapshotCalculatedCarbs = FoodCarbCalculator.Calculate(
+                    snapshotMeasurementType,
+                    snapshotQuantity,
+                    input.CarbsPer100gSnapshot,
+                    input.CarbsPerUnitSnapshot);
+
+                return new CalculatedMealItemDto(
+                    input.FoodItemId,
+                    string.IsNullOrWhiteSpace(input.FoodNameSnapshot) ? "Saved food" : input.FoodNameSnapshot.Trim(),
+                    snapshotQuantity,
+                    snapshotMeasurementType,
+                    snapshotMeasurementType == FoodMeasurementType.Grams ? snapshotQuantity : null,
+                    input.CarbsPer100gSnapshot,
+                    input.CarbsPerUnitSnapshot,
+                    snapshotCalculatedCarbs);
+            }
+
             var food = foods[input.FoodItemId];
-            var calculatedCarbs = Math.Round(input.WeightGrams * food.CarbsPer100g / 100, 2);
-            return new CalculatedMealItemDto(food.Id, food.Name, input.WeightGrams, food.CarbsPer100g, calculatedCarbs);
+            var quantity = ResolveQuantity(input);
+            ValidateQuantity(food.MeasurementType, quantity);
+            var calculatedCarbs = FoodCarbCalculator.Calculate(food.MeasurementType, quantity, food.CarbsPer100g, food.CarbsPerUnit);
+            return new CalculatedMealItemDto(
+                food.Id,
+                food.Name,
+                quantity,
+                food.MeasurementType,
+                food.MeasurementType == FoodMeasurementType.Grams ? quantity : null,
+                food.CarbsPer100g,
+                food.CarbsPerUnit,
+                calculatedCarbs);
         }).ToList();
     }
 
@@ -93,12 +130,48 @@ public class MealCalculationService(IAppDbContext db)
             throw new ValidationException("Add at least one food item.");
         }
 
-        if (items.Any(i => i.WeightGrams <= 0))
+        if (items.Any(i => ResolveQuantity(i) <= 0))
         {
-            throw new ValidationException("Food weights must be greater than zero.");
+            throw new ValidationException("Food quantities must be greater than zero.");
         }
     }
 
+    private static decimal ResolveQuantity(MealItemInputDto item) =>
+        item.Quantity ?? item.WeightGrams ?? 0;
+
+    private static void ValidateQuantity(FoodMeasurementType measurementType, decimal quantity)
+    {
+        if (measurementType == FoodMeasurementType.Piece && quantity != decimal.Truncate(quantity))
+        {
+            throw new ValidationException("Piece quantity must be a whole number.");
+        }
+    }
+
+    private static void ValidateSnapshotInput(MealItemInputDto input, FoodMeasurementType measurementType, decimal quantity)
+    {
+        ValidateQuantity(measurementType, quantity);
+
+        switch (measurementType)
+        {
+            case FoodMeasurementType.Grams:
+                if (input.CarbsPer100gSnapshot is null or < 0)
+                {
+                    throw new ValidationException("Saved carbs per 100 g must be zero or greater.");
+                }
+
+                break;
+            case FoodMeasurementType.Portion:
+            case FoodMeasurementType.Piece:
+                if (input.CarbsPerUnitSnapshot is null or < 0)
+                {
+                    throw new ValidationException("Saved carbs per unit must be zero or greater.");
+                }
+
+                break;
+            default:
+                throw new ValidationException("Measurement type is not supported.");
+        }
+    }
 }
 
 public sealed record MealTotalsResult(decimal TotalCarbs, decimal SuggestedBolus);

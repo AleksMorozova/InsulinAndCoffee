@@ -3,11 +3,13 @@ import { Injectable } from '@angular/core';
 import { map } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { SKIP_GLOBAL_ERROR_NOTIFICATION } from './http-error-context';
-import { Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, MealCalculation, MealDetail, MealItemInput, MealSummary, MealType, PaginatedResult, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
+import { Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, FoodMeasurementType, MealCalculation, MealDetail, MealItemInput, MealSummary, MealType, PaginatedResult, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
 
 export interface UpsertFoodRequest {
   name: string;
-  carbsPer100g: number;
+  measurementType: FoodMeasurementType;
+  carbsPer100g?: number | null;
+  carbsPerUnit?: number | null;
   proteinPer100g: number;
   fatPer100g: number;
   caloriesPer100g: number;
@@ -37,7 +39,7 @@ export interface AddMealItemsRequest {
 }
 
 export interface UpdateMealItemRequest {
-  weightGrams: number;
+  quantity: number;
 }
 
 export interface UpsertDeliveryMealRequest {

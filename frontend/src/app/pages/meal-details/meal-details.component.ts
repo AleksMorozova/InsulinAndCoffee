@@ -6,7 +6,7 @@ import { BehaviorSubject, catchError, combineLatest, distinctUntilChanged, map, 
 import { ApiError } from '../../core/api-error';
 import { toApiError } from '../../core/api-error.mapper';
 import { ApiService } from '../../core/api.service';
-import { FoodItem, MealDetail } from '../../core/models';
+import { FoodItem, FoodMeasurementType, MealDetail } from '../../core/models';
 import { LoadingStateComponent } from '../../shared/loading-state/loading-state.component';
 import { PageErrorComponent } from '../../shared/page-error/page-error.component';
 
@@ -134,8 +134,8 @@ type MealDetailsState =
               <thead>
                 <tr>
                   <th>Food</th>
-                  <th>Weight</th>
-                  <th>Carbs/100g</th>
+                  <th>Amount</th>
+                  <th>Carb basis</th>
                   <th>Carbs</th>
                   @if (state.meal.confirmedBolus === null && state.meal.items.length > 0) {
                     <th class="meal-item-actions-heading" aria-hidden="true"></th>
@@ -149,15 +149,15 @@ type MealDetailsState =
                     <td class="meal-num">
                       @if (editingItemId === item.id) {
                         <form [formGroup]="editWeightForm" class="inline-edit-form" (ngSubmit)="saveItemWeight(state.meal.id, item.id)">
-                          <input type="number" min="1" step="1" formControlName="weightGrams" aria-label="Food weight in grams">
+                          <input type="number" [min]="quantityMin(item.measurementType)" [step]="quantityStep(item.measurementType)" formControlName="quantity" [attr.aria-label]="quantityLabel(item.measurementType)">
                           <button type="submit" class="secondary" [disabled]="editWeightForm.invalid">Save</button>
                           <button type="button" class="meal-details-quiet-action" (click)="cancelEditItem()">Cancel</button>
                         </form>
                       } @else {
-                        {{ item.weightGrams | number:'1.0-1' }} g
+                        {{ formatQuantity(item.quantity, item.measurementType) }}
                       }
                     </td>
-                    <td class="meal-num">{{ item.carbsPer100gSnapshot | number:'1.0-1' }} g</td>
+                    <td class="meal-num">{{ carbBasis(item) }}</td>
                     <td class="meal-num">{{ item.calculatedCarbs | number:'1.0-1' }} g</td>
                     @if (state.meal.confirmedBolus === null && state.meal.items.length > 0) {
                       <td class="meal-num meal-item-actions-cell">
@@ -211,12 +211,12 @@ type MealDetailsState =
                         <select formControlName="foodItemId">
                           <option value="">Choose food</option>
                           @for (food of foods; track food.id) {
-                            <option [value]="food.id">{{ food.name }} · {{ food.carbsPer100g | number:'1.0-1' }} g / 100g</option>
+                            <option [value]="food.id">{{ food.name }} · {{ foodCarbBasis(food) }}</option>
                           }
                         </select>
                       </label>
-                      <label>Weight
-                        <input type="number" min="1" step="1" formControlName="weightGrams">
+                      <label>{{ quantityLabel(selectedAddFood(i)) }}
+                        <input type="number" [min]="quantityMin(selectedAddFood(i))" [step]="quantityStep(selectedAddFood(i))" formControlName="quantity">
                       </label>
                       <button type="button" class="meal-details-quiet-action" (click)="removeAddFoodRow(i)" [disabled]="addFoodItems.length === 1">Remove</button>
                     </div>
@@ -270,7 +270,7 @@ export class MealDetailsComponent implements OnInit {
     items: this.fb.array([this.createAddFoodItemGroup()])
   });
   editWeightForm = this.fb.nonNullable.group({
-    weightGrams: [100, [Validators.required, Validators.min(1)]]
+    quantity: [100, [Validators.required, Validators.min(0.1)]]
   });
 
   constructor(private readonly api: ApiService, private readonly route: ActivatedRoute, private readonly fb: FormBuilder) {}
@@ -309,7 +309,8 @@ export class MealDetailsComponent implements OnInit {
   startEditItem(item: MealDetail['items'][number]) {
     this.editingItemId = item.id;
     this.editFoodError = '';
-    this.editWeightForm.reset({ weightGrams: item.weightGrams });
+    this.applyEditQuantityValidators(item.measurementType);
+    this.editWeightForm.reset({ quantity: item.quantity });
   }
 
   cancelEditItem() {
@@ -360,9 +361,9 @@ export class MealDetailsComponent implements OnInit {
     const items = this.addFoodItemsForm.getRawValue().items
       .map((item) => ({
         foodItemId: item.foodItemId ?? '',
-        weightGrams: item.weightGrams ?? 0
+        quantity: item.quantity ?? 0
       }))
-      .filter((item) => item.foodItemId.trim().length > 0 && item.weightGrams > 0);
+      .filter((item) => item.foodItemId.trim().length > 0 && item.quantity > 0);
 
     this.api.addMealItems(mealId, { items }).subscribe({
       next: () => {
@@ -389,9 +390,80 @@ export class MealDetailsComponent implements OnInit {
       : apiError.message;
   }
   private createAddFoodItemGroup() {
-    return this.fb.nonNullable.group({
+    const group = this.fb.nonNullable.group({
       foodItemId: ['', Validators.required],
-      weightGrams: [100, [Validators.required, Validators.min(1)]]
+      quantity: [100, [Validators.required, Validators.min(0.1)]]
     });
+    group.controls.foodItemId.valueChanges.subscribe((foodItemId) => {
+      const food = this.foods.find((item) => item.id === foodItemId);
+      group.controls.quantity.setValue(food ? this.defaultQuantity(food.measurementType) : 100);
+      this.applyAddQuantityValidators(group, food?.measurementType ?? 'Grams');
+    });
+    return group;
+  }
+
+  selectedAddFood(index: number) {
+    const foodId = this.addFoodItems.at(index).value.foodItemId;
+    return this.foods.find((food) => food.id === foodId);
+  }
+
+  formatQuantity(quantity: number, measurementType: FoodMeasurementType) {
+    if (measurementType === 'Grams') return `${this.formatNumber(quantity)} g`;
+    const unit = measurementType === 'Piece'
+      ? quantity === 1 ? 'piece' : 'pieces'
+      : quantity === 1 ? 'portion' : 'portions';
+    return `${this.formatNumber(quantity)} ${unit}`;
+  }
+
+  carbBasis(item: MealDetail['items'][number]) {
+    if (item.measurementType === 'Grams') return `${this.formatNumber(item.carbsPer100gSnapshot ?? 0)} g / 100 g`;
+    return `${this.formatNumber(item.carbsPerUnitSnapshot ?? 0)} g / ${item.measurementType === 'Piece' ? 'piece' : 'portion'}`;
+  }
+
+  foodCarbBasis(food: FoodItem) {
+    return food.measurementType === 'Grams'
+      ? `${this.formatNumber(food.carbsPer100g ?? 0)} g / 100 g`
+      : `${this.formatNumber(food.carbsPerUnit ?? 0)} g / ${food.measurementType === 'Piece' ? 'piece' : 'portion'}`;
+  }
+
+  quantityLabel(foodOrType?: FoodItem | FoodMeasurementType) {
+    const measurementType = typeof foodOrType === 'string' ? foodOrType : foodOrType?.measurementType;
+    if (measurementType === 'Portion') return 'Portions';
+    if (measurementType === 'Piece') return 'Pieces';
+    return 'Weight';
+  }
+
+  quantityStep(foodOrType?: FoodItem | FoodMeasurementType) {
+    const measurementType = typeof foodOrType === 'string' ? foodOrType : foodOrType?.measurementType;
+    return measurementType === 'Piece' ? 1 : 0.1;
+  }
+
+  quantityMin(foodOrType?: FoodItem | FoodMeasurementType) {
+    const measurementType = typeof foodOrType === 'string' ? foodOrType : foodOrType?.measurementType;
+    return measurementType === 'Piece' ? 1 : 0.1;
+  }
+
+  private defaultQuantity(measurementType: FoodMeasurementType) {
+    return measurementType === 'Grams' ? 100 : 1;
+  }
+
+  private applyEditQuantityValidators(measurementType: FoodMeasurementType) {
+    this.editWeightForm.controls.quantity.setValidators(this.quantityValidators(measurementType));
+    this.editWeightForm.controls.quantity.updateValueAndValidity({ emitEvent: false });
+  }
+
+  private applyAddQuantityValidators(group: ReturnType<MealDetailsComponent['createAddFoodItemGroup']>, measurementType: FoodMeasurementType) {
+    group.controls.quantity.setValidators(this.quantityValidators(measurementType));
+    group.controls.quantity.updateValueAndValidity({ emitEvent: false });
+  }
+
+  private quantityValidators(measurementType: FoodMeasurementType) {
+    return measurementType === 'Piece'
+      ? [Validators.required, Validators.min(1), Validators.pattern(/^\d+$/)]
+      : [Validators.required, Validators.min(0.1)];
+  }
+
+  private formatNumber(value: number) {
+    return new Intl.NumberFormat(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 }).format(value);
   }
 }
