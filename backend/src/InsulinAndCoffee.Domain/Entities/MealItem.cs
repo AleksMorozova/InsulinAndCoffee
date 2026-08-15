@@ -14,7 +14,9 @@ public class MealItem
     public decimal? CarbsPer100gSnapshot { get; set; }
     public decimal? CarbsPerUnitSnapshot { get; set; }
     public decimal CalculatedCarbs { get; set; }
+    public decimal? CarbOverride { get; set; }
 
     public Meal? Meal { get; set; }
     public FoodItem? FoodItem { get; set; }
 }
+

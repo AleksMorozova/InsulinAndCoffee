@@ -43,6 +43,7 @@ export interface MealItemInput {
   foodNameSnapshot?: string | null;
   carbsPer100gSnapshot?: number | null;
   carbsPerUnitSnapshot?: number | null;
+  carbOverride?: number | null;
 }
 
 export interface CalculatedMealItem {
@@ -54,9 +55,13 @@ export interface CalculatedMealItem {
   carbsPer100g: number | null;
   carbsPerUnit: number | null;
   calculatedCarbs: number;
+  carbOverride: number | null;
+  effectiveCarbs: number;
 }
 
 export interface MealCalculation {
+  foodCarbs: number;
+  carbAdjustment: number;
   totalCarbs: number;
   mealBolus: number;
   correctionBolus: number;
@@ -70,6 +75,7 @@ export interface MealSummary {
   mealTime: string;
   preMealGlucose: number;
   totalCarbs: number;
+  carbAdjustment: number;
   suggestedBolus: number;
   confirmedBolus: number | null;
   notes?: string;
@@ -88,6 +94,8 @@ export interface MealDetail extends MealSummary {
     carbsPer100gSnapshot: number | null;
     carbsPerUnitSnapshot: number | null;
     calculatedCarbs: number;
+    carbOverride: number | null;
+    effectiveCarbs: number;
   }[];
 }
 
@@ -165,3 +173,4 @@ export interface SupplyCheckResult {
   estimatedRunOutDate: string | null;
   status: SupplyStatus;
 }
+

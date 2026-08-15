@@ -9,6 +9,8 @@ describe('CalculatorComponent', () => {
     const api = {
       getFoods: () => of([]),
       calculateMeal: jasmine.createSpy('calculateMeal').and.returnValue(of({
+        foodCarbs: 0,
+        carbAdjustment: 0,
         totalCarbs: 0,
         mealBolus: 0,
         correctionBolus: 0,
@@ -43,7 +45,8 @@ describe('CalculatorComponent', () => {
       measurementType: new FormBuilder().control<'Grams'>('Grams'),
       foodNameSnapshot: new FormBuilder().control<string | null>('Soup'),
       carbsPer100gSnapshot: new FormBuilder().control<number | null>(5),
-      carbsPerUnitSnapshot: new FormBuilder().control<number | null>(null)
+      carbsPerUnitSnapshot: new FormBuilder().control<number | null>(null),
+      carbOverride: new FormBuilder().control<number | null>(null)
     }));
 
     expect(component.selectedMeasurementType(0)).toBe('Grams');
@@ -59,7 +62,8 @@ describe('CalculatorComponent', () => {
       measurementType: new FormBuilder().control<'Grams'>('Grams'),
       foodNameSnapshot: new FormBuilder().control<string | null>('Soup'),
       carbsPer100gSnapshot: new FormBuilder().control<number | null>(5),
-      carbsPerUnitSnapshot: new FormBuilder().control<number | null>(null)
+      carbsPerUnitSnapshot: new FormBuilder().control<number | null>(null),
+      carbOverride: new FormBuilder().control<number | null>(null)
     }));
 
     component.calculate();
@@ -72,7 +76,8 @@ describe('CalculatorComponent', () => {
           measurementType: 'Grams',
           foodNameSnapshot: 'Soup',
           carbsPer100gSnapshot: 5,
-          carbsPerUnitSnapshot: null
+          carbsPerUnitSnapshot: null,
+          carbOverride: null
         })
       ]
     }));
@@ -85,7 +90,8 @@ describe('CalculatorComponent', () => {
       measurementType: 'Grams',
       foodNameSnapshot: 'Old Soup',
       carbsPer100gSnapshot: 5,
-      carbsPerUnitSnapshot: null
+      carbsPerUnitSnapshot: null,
+      carbOverride: 12
     });
 
     component.onFoodQueryChange(0, 'Soup');
@@ -96,7 +102,8 @@ describe('CalculatorComponent', () => {
       measurementType: null,
       foodNameSnapshot: null,
       carbsPer100gSnapshot: null,
-      carbsPerUnitSnapshot: null
+      carbsPerUnitSnapshot: null,
+      carbOverride: null
     }));
   });
 
@@ -106,6 +113,20 @@ describe('CalculatorComponent', () => {
     expect(component.nutritionBasisLabel('Piece')).toBe('per piece');
   });
 
+
+  it('calculate_WhenCarbsAreAdjusted_SendsMealAdjustmentAndItemOverride', () => {
+    const { component, api } = createComponent();
+    component.foods = [foodItem({ id: 'soup-id', name: 'Soup' })];
+    component.items.at(0).patchValue({ foodItemId: 'soup-id', quantity: 100, carbOverride: 12 });
+    component.form.controls.carbAdjustment.setValue(10);
+
+    component.calculate();
+
+    expect(api.calculateMeal).toHaveBeenCalledWith(jasmine.objectContaining({
+      carbAdjustment: 10,
+      items: [jasmine.objectContaining({ carbOverride: 12 })]
+    }));
+  });
   function foodItem(overrides: Partial<FoodItem> = {}): FoodItem {
     return {
       id: 'food-id',
@@ -122,3 +143,5 @@ describe('CalculatorComponent', () => {
     };
   }
 });
+
+

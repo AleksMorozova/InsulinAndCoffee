@@ -210,6 +210,85 @@ public class MealServiceTests
         Assert.Equal(3, result.Items.Count);
     }
 
+
+    [Fact]
+    public async Task CalculateMealAsync_WithItemOverrideAndMealAdjustment_UsesEffectiveFinalCarbsForBolus()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var borscht = AddFood(db, "Borscht", carbsPer100g: null, FoodMeasurementType.Portion, carbsPerUnit: 15m);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+
+        var result = await service.CalculateMealAsync(
+            new CalculateMealRequest(
+                MealType.Lunch,
+                6.5m,
+                [new MealItemInputDto(borscht.Id, 1m, CarbOverride: 12m)],
+                CarbAdjustment: 10m),
+            CancellationToken.None);
+
+        Assert.Equal(12m, result.FoodCarbs);
+        Assert.Equal(10m, result.CarbAdjustment);
+        Assert.Equal(22m, result.TotalCarbs);
+        Assert.Equal(2.2m, result.SuggestedBolus);
+        var item = Assert.Single(result.Items);
+        Assert.Equal(15m, item.CalculatedCarbs);
+        Assert.Equal(12m, item.CarbOverride);
+        Assert.Equal(12m, item.EffectiveCarbs);
+    }
+
+    [Fact]
+    public async Task CalculateMealAsync_WhenAdjustmentMakesFinalCarbsNegative_ThrowsValidation()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var bread = AddFood(db, "Bread", 40m);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+
+        var exception = await Assert.ThrowsAsync<ValidationException>(() =>
+            service.CalculateMealAsync(
+                new CalculateMealRequest(MealType.Breakfast, 6.5m, [new MealItemInputDto(bread.Id, 50m)], CarbAdjustment: -25m),
+                CancellationToken.None));
+
+        Assert.Equal("Final meal carbs cannot be negative.", exception.Message);
+    }
+
+    [Fact]
+    public async Task CreateMealAsync_WithAdjustments_PersistsOriginalEffectiveAndFinalCarbs()
+    {
+        await using var db = CreateDbContext();
+        AddDefaultSettings(db);
+        var borscht = AddFood(db, "Borscht", carbsPer100g: null, FoodMeasurementType.Portion, carbsPerUnit: 15m);
+        await db.SaveChangesAsync();
+        var service = new MealService(db, new FixedTimeProvider(LocalNoonUtc, LocalTimeZone), new MealCalculationService(db));
+
+        var result = await service.CreateMealAsync(
+            new CreateMealRequest(
+                MealType.Lunch,
+                MealTime: null,
+                PreMealGlucose: 6.5m,
+                ConfirmedBolus: 2.2m,
+                Notes: null,
+                Items: [new MealItemInputDto(borscht.Id, 1m, CarbOverride: 12m)],
+                CarbAdjustment: 10m),
+            CancellationToken.None);
+
+        Assert.Equal(22m, result.TotalCarbs);
+        Assert.Equal(10m, result.CarbAdjustment);
+        var item = Assert.Single(result.Items);
+        Assert.Equal(15m, item.CalculatedCarbs);
+        Assert.Equal(12m, item.CarbOverride);
+        Assert.Equal(12m, item.EffectiveCarbs);
+
+        var savedMeal = await db.Meals.Include(m => m.Items).SingleAsync();
+        Assert.Equal(22m, savedMeal.TotalCarbs);
+        Assert.Equal(10m, savedMeal.CarbAdjustment);
+        var savedItem = Assert.Single(savedMeal.Items);
+        Assert.Equal(15m, savedItem.CalculatedCarbs);
+        Assert.Equal(12m, savedItem.CarbOverride);
+    }
     [Fact]
     public async Task CreateMealAsync_ForPortionAndPieceItems_PersistsQuantitySemantics()
     {
@@ -739,3 +818,4 @@ public class MealServiceTests
         public override DateTimeOffset GetUtcNow() => utcNow;
     }
 }
+

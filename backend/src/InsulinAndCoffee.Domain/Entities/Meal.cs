@@ -10,6 +10,7 @@ public class Meal
     public DateTimeOffset MealTime { get; set; }
     public decimal PreMealGlucose { get; set; }
     public decimal TotalCarbs { get; set; }
+    public decimal CarbAdjustment { get; set; }
     public decimal SuggestedBolus { get; set; }
     public decimal? ConfirmedBolus { get; set; }
     public string? Notes { get; set; }
@@ -19,3 +20,4 @@ public class Meal
     public ICollection<MealItem> Items { get; set; } = [];
     public ICollection<GlucoseReading> GlucoseReadings { get; set; } = [];
 }
+

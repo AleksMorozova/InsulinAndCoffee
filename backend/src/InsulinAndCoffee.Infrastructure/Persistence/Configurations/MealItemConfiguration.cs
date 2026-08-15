@@ -17,6 +17,8 @@ public class MealItemConfiguration : IEntityTypeConfiguration<MealItem>
         entity.Property(i => i.CarbsPer100gSnapshot).HasPrecision(7, 2);
         entity.Property(i => i.CarbsPerUnitSnapshot).HasPrecision(8, 2);
         entity.Property(i => i.CalculatedCarbs).HasPrecision(8, 2);
+        entity.Property(i => i.CarbOverride).HasPrecision(8, 2);
         entity.HasOne(i => i.Meal).WithMany(m => m.Items).HasForeignKey(i => i.MealId).OnDelete(DeleteBehavior.Cascade);
     }
 }
+
