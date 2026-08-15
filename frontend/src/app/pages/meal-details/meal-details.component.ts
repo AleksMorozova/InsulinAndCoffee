@@ -158,7 +158,12 @@ type MealDetailsState =
                       }
                     </td>
                     <td class="meal-num">{{ carbBasis(item) }}</td>
-                    <td class="meal-num">{{ item.calculatedCarbs | number:'1.0-1' }} g</td>
+                    <td class="meal-num">
+                      {{ item.effectiveCarbs | number:'1.0-1' }} g
+                      @if (item.carbOverride !== null) {
+                        <small class="meal-carb-adjustment-note">Adjusted from {{ item.calculatedCarbs | number:'1.0-1' }} g</small>
+                      }
+                    </td>
                     @if (state.meal.confirmedBolus === null && state.meal.items.length > 0) {
                       <td class="meal-num meal-item-actions-cell">
                         <div class="meal-item-actions">
@@ -196,7 +201,11 @@ type MealDetailsState =
                 <tr class="meal-total-row">
                   <td class="meal-food-name">Total</td>
                   <td></td>
-                  <td></td>
+                  <td>
+                    @if (state.meal.carbAdjustment !== 0) {
+                      <small class="meal-carb-adjustment-note">Adjustment {{ signedCarbAdjustment(state.meal.carbAdjustment) }} g</small>
+                    }
+                  </td>
                   <td class="meal-num">{{ state.meal.totalCarbs | number:'1.0-1' }} g</td>
                   @if (state.meal.confirmedBolus === null && state.meal.items.length > 0) { <td></td> }
                 </tr>
@@ -463,7 +472,12 @@ export class MealDetailsComponent implements OnInit {
       : [Validators.required, Validators.min(0.1)];
   }
 
+  signedCarbAdjustment(value: number) {
+    return value > 0 ? `+${this.formatNumber(value)}` : this.formatNumber(value);
+  }
+
   private formatNumber(value: number) {
     return new Intl.NumberFormat(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 }).format(value);
   }
 }
+

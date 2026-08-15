@@ -147,6 +147,7 @@ function createMeal(): MealDetail {
     mealTime: '2026-06-22T10:32:06Z',
     preMealGlucose: 6.5,
     totalCarbs: 84,
+    carbAdjustment: 0,
     suggestedBolus: 8.4,
     confirmedBolus: null,
     notes: 'Morning sushi',
@@ -162,8 +163,12 @@ function createMeal(): MealDetail {
         weightGrams: 300,
         carbsPer100gSnapshot: 28,
         carbsPerUnitSnapshot: null,
-        calculatedCarbs: 84
+        calculatedCarbs: 84,
+        carbOverride: null,
+        effectiveCarbs: 84
       }
     ]
   };
 }
+
+

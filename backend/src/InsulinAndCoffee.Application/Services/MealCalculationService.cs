@@ -13,16 +13,17 @@ public class MealCalculationService(IAppDbContext db)
 {
     public async Task<MealCalculationDto> CalculateMealAsync(CalculateMealRequest request, CancellationToken cancellationToken)
     {
-        ValidateMealInputs(request.PreMealGlucose, request.Items, request.DirectCarbs);
+        ValidateMealInputs(request.PreMealGlucose, request.Items, request.DirectCarbs, request.CarbAdjustment);
 
         var settings = await GetSettingsAsync(cancellationToken);
         var calculatedItems = await CalculateItemsAsync(request.Items, request.DirectCarbs, request.DirectFoodName, cancellationToken);
-        var totalCarbs = Math.Round(calculatedItems.Sum(i => i.CalculatedCarbs), 2);
+        var foodCarbs = Math.Round(calculatedItems.Sum(i => i.EffectiveCarbs), 2);
+        var totalCarbs = CalculateFinalCarbs(foodCarbs, request.CarbAdjustment);
         var mealBolus = BolusCalculator.CalculateFoodBolus(totalCarbs, settings.CarbRatio);
         var correctionBolus = BolusCalculator.CalculateCorrectionBolus(request.PreMealGlucose, settings.TargetGlucose, settings.CorrectionFactor);
         var suggestedBolus = BolusCalculator.CalculateTotalBolus(mealBolus, correctionBolus);
 
-        return new MealCalculationDto(totalCarbs, mealBolus, correctionBolus, suggestedBolus, calculatedItems);
+        return new MealCalculationDto(foodCarbs, Math.Round(request.CarbAdjustment, 2), totalCarbs, mealBolus, correctionBolus, suggestedBolus, calculatedItems);
     }
 
     public async Task<IReadOnlyList<CalculatedMealItemDto>> CalculateItemsAsync(IReadOnlyList<MealItemInputDto> inputItems, decimal? directCarbs, string? directFoodName, CancellationToken cancellationToken)
@@ -31,15 +32,16 @@ public class MealCalculationService(IAppDbContext db)
         {
             return
             [
-                new CalculatedMealItemDto(
+                CreateCalculatedItem(
                     Guid.Empty,
                     string.IsNullOrWhiteSpace(directFoodName) ? "Delivery meal" : directFoodName.Trim(),
                     1,
                     FoodMeasurementType.Portion,
                     null,
                     null,
-                    directCarbs.Value,
-                    Math.Round(directCarbs.Value, 2))
+                    null,
+                    Math.Round(directCarbs.Value, 2),
+                    null)
             ];
         }
 
@@ -57,6 +59,8 @@ public class MealCalculationService(IAppDbContext db)
 
         return inputItems.Select(input =>
         {
+            ValidateCarbOverride(input.CarbOverride);
+
             if (input.MeasurementType is { } snapshotMeasurementType)
             {
                 var snapshotQuantity = ResolveQuantity(input);
@@ -67,7 +71,7 @@ public class MealCalculationService(IAppDbContext db)
                     input.CarbsPer100gSnapshot,
                     input.CarbsPerUnitSnapshot);
 
-                return new CalculatedMealItemDto(
+                return CreateCalculatedItem(
                     input.FoodItemId,
                     string.IsNullOrWhiteSpace(input.FoodNameSnapshot) ? "Saved food" : input.FoodNameSnapshot.Trim(),
                     snapshotQuantity,
@@ -75,14 +79,15 @@ public class MealCalculationService(IAppDbContext db)
                     snapshotMeasurementType == FoodMeasurementType.Grams ? snapshotQuantity : null,
                     input.CarbsPer100gSnapshot,
                     input.CarbsPerUnitSnapshot,
-                    snapshotCalculatedCarbs);
+                    snapshotCalculatedCarbs,
+                    input.CarbOverride);
             }
 
             var food = foods[input.FoodItemId];
             var quantity = ResolveQuantity(input);
             ValidateQuantity(food.MeasurementType, quantity);
             var calculatedCarbs = FoodCarbCalculator.Calculate(food.MeasurementType, quantity, food.CarbsPer100g, food.CarbsPerUnit);
-            return new CalculatedMealItemDto(
+            return CreateCalculatedItem(
                 food.Id,
                 food.Name,
                 quantity,
@@ -90,25 +95,55 @@ public class MealCalculationService(IAppDbContext db)
                 food.MeasurementType == FoodMeasurementType.Grams ? quantity : null,
                 food.CarbsPer100g,
                 food.CarbsPerUnit,
-                calculatedCarbs);
+                calculatedCarbs,
+                input.CarbOverride);
         }).ToList();
     }
 
-    public async Task<MealTotalsResult> CalculateTotalsAsync(decimal totalCarbs, decimal preMealGlucose, CancellationToken cancellationToken)
+    public async Task<MealTotalsResult> CalculateTotalsAsync(decimal foodCarbs, decimal carbAdjustment, decimal preMealGlucose, CancellationToken cancellationToken)
     {
         var settings = await GetSettingsAsync(cancellationToken);
-        var roundedTotalCarbs = Math.Round(totalCarbs, 2);
-        var mealBolus = BolusCalculator.CalculateFoodBolus(roundedTotalCarbs, settings.CarbRatio);
+        var roundedFoodCarbs = Math.Round(foodCarbs, 2);
+        var totalCarbs = CalculateFinalCarbs(roundedFoodCarbs, carbAdjustment);
+        var mealBolus = BolusCalculator.CalculateFoodBolus(totalCarbs, settings.CarbRatio);
         var correctionBolus = BolusCalculator.CalculateCorrectionBolus(preMealGlucose, settings.TargetGlucose, settings.CorrectionFactor);
         var suggestedBolus = BolusCalculator.CalculateTotalBolus(mealBolus, correctionBolus);
-        return new MealTotalsResult(roundedTotalCarbs, suggestedBolus);
+        return new MealTotalsResult(totalCarbs, suggestedBolus);
+    }
+
+    private static CalculatedMealItemDto CreateCalculatedItem(
+        Guid foodItemId,
+        string foodName,
+        decimal quantity,
+        FoodMeasurementType measurementType,
+        decimal? weightGrams,
+        decimal? carbsPer100g,
+        decimal? carbsPerUnit,
+        decimal calculatedCarbs,
+        decimal? carbOverride)
+    {
+        var roundedCalculatedCarbs = Math.Round(calculatedCarbs, 2);
+        decimal? roundedOverride = carbOverride.HasValue ? Math.Round(carbOverride.Value, 2) : null;
+        var effectiveCarbs = roundedOverride ?? roundedCalculatedCarbs;
+
+        return new CalculatedMealItemDto(
+            foodItemId,
+            foodName,
+            quantity,
+            measurementType,
+            weightGrams,
+            carbsPer100g,
+            carbsPerUnit,
+            roundedCalculatedCarbs,
+            roundedOverride,
+            effectiveCarbs);
     }
 
     private async Task<DiabetesSettings> GetSettingsAsync(CancellationToken cancellationToken) =>
         await db.DiabetesSettings.AsNoTracking().FirstOrDefaultAsync(s => s.UserId == DefaultUser.Id, cancellationToken)
         ?? throw new NotFoundException("Diabetes settings", DefaultUser.Id);
 
-    private static void ValidateMealInputs(decimal preMealGlucose, IReadOnlyList<MealItemInputDto> items, decimal? directCarbs)
+    private static void ValidateMealInputs(decimal preMealGlucose, IReadOnlyList<MealItemInputDto> items, decimal? directCarbs, decimal carbAdjustment)
     {
         if (preMealGlucose <= 0)
         {
@@ -120,6 +155,11 @@ public class MealCalculationService(IAppDbContext db)
             if (directCarbs <= 0)
             {
                 throw new ValidationException("Direct carbs must be greater than zero.");
+            }
+
+            if (directCarbs.Value + carbAdjustment < 0)
+            {
+                throw new ValidationException("Final meal carbs cannot be negative.");
             }
 
             return;
@@ -136,8 +176,27 @@ public class MealCalculationService(IAppDbContext db)
         }
     }
 
+    private static decimal CalculateFinalCarbs(decimal foodCarbs, decimal carbAdjustment)
+    {
+        var totalCarbs = Math.Round(foodCarbs + carbAdjustment, 2);
+        if (totalCarbs < 0)
+        {
+            throw new ValidationException("Final meal carbs cannot be negative.");
+        }
+
+        return totalCarbs;
+    }
+
     private static decimal ResolveQuantity(MealItemInputDto item) =>
         item.Quantity ?? item.WeightGrams ?? 0;
+
+    private static void ValidateCarbOverride(decimal? carbOverride)
+    {
+        if (carbOverride is < 0)
+        {
+            throw new ValidationException("Carb override must be zero or greater.");
+        }
+    }
 
     private static void ValidateQuantity(FoodMeasurementType measurementType, decimal quantity)
     {
@@ -175,3 +234,4 @@ public class MealCalculationService(IAppDbContext db)
 }
 
 public sealed record MealTotalsResult(decimal TotalCarbs, decimal SuggestedBolus);
+

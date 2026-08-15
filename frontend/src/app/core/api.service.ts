@@ -22,6 +22,7 @@ export interface CalculateMealRequest {
   items: MealItemInput[];
   directCarbs?: number;
   directFoodName?: string;
+  carbAdjustment?: number;
 }
 
 export interface CreateMealRequest extends CalculateMealRequest {
@@ -40,6 +41,7 @@ export interface AddMealItemsRequest {
 
 export interface UpdateMealItemRequest {
   quantity: number;
+  carbOverride?: number | null;
 }
 
 export interface UpsertDeliveryMealRequest {
@@ -204,3 +206,4 @@ export class ApiService {
   }
 
 }
+

@@ -24,27 +24,28 @@ public record MealItemInputDto(
     FoodMeasurementType? MeasurementType = null,
     string? FoodNameSnapshot = null,
     decimal? CarbsPer100gSnapshot = null,
-    decimal? CarbsPerUnitSnapshot = null);
+    decimal? CarbsPerUnitSnapshot = null,
+    decimal? CarbOverride = null);
 
-public record MealItemDto(Guid Id, Guid FoodItemId, string FoodNameSnapshot, decimal Quantity, FoodMeasurementType MeasurementType, decimal? WeightGrams, decimal? CarbsPer100gSnapshot, decimal? CarbsPerUnitSnapshot, decimal CalculatedCarbs);
+public record MealItemDto(Guid Id, Guid FoodItemId, string FoodNameSnapshot, decimal Quantity, FoodMeasurementType MeasurementType, decimal? WeightGrams, decimal? CarbsPer100gSnapshot, decimal? CarbsPerUnitSnapshot, decimal CalculatedCarbs, decimal? CarbOverride, decimal EffectiveCarbs);
 
-public record MealCalculationDto(decimal TotalCarbs, decimal MealBolus, decimal CorrectionBolus, decimal SuggestedBolus, IReadOnlyList<CalculatedMealItemDto> Items);
+public record MealCalculationDto(decimal FoodCarbs, decimal CarbAdjustment, decimal TotalCarbs, decimal MealBolus, decimal CorrectionBolus, decimal SuggestedBolus, IReadOnlyList<CalculatedMealItemDto> Items);
 
-public record CalculatedMealItemDto(Guid FoodItemId, string FoodName, decimal Quantity, FoodMeasurementType MeasurementType, decimal? WeightGrams, decimal? CarbsPer100g, decimal? CarbsPerUnit, decimal CalculatedCarbs);
+public record CalculatedMealItemDto(Guid FoodItemId, string FoodName, decimal Quantity, FoodMeasurementType MeasurementType, decimal? WeightGrams, decimal? CarbsPer100g, decimal? CarbsPerUnit, decimal CalculatedCarbs, decimal? CarbOverride, decimal EffectiveCarbs);
 
-public record CalculateMealRequest(MealType MealType, decimal PreMealGlucose, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null);
+public record CalculateMealRequest(MealType MealType, decimal PreMealGlucose, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null, decimal CarbAdjustment = 0);
 
-public record CreateMealRequest(MealType MealType, DateTimeOffset? MealTime, decimal PreMealGlucose, decimal? ConfirmedBolus, string? Notes, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null);
+public record CreateMealRequest(MealType MealType, DateTimeOffset? MealTime, decimal PreMealGlucose, decimal? ConfirmedBolus, string? Notes, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null, decimal CarbAdjustment = 0);
 
 public record ConfirmMealBolusRequest(decimal ConfirmedBolus);
 
 public record AddMealItemsRequest(IReadOnlyList<MealItemInputDto> Items);
 
-public record UpdateMealItemRequest(decimal? Quantity = null, decimal? WeightGrams = null);
+public record UpdateMealItemRequest(decimal? Quantity = null, decimal? WeightGrams = null, decimal? CarbOverride = null);
 
-public record MealSummaryDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal SuggestedBolus, decimal? ConfirmedBolus, string? Notes, IReadOnlyList<string> FoodNames);
+public record MealSummaryDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal CarbAdjustment, decimal SuggestedBolus, decimal? ConfirmedBolus, string? Notes, IReadOnlyList<string> FoodNames);
 
-public record MealDetailDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal SuggestedBolus, decimal? ConfirmedBolus, string? Notes, DateTimeOffset CreatedAt, IReadOnlyList<MealItemDto> Items);
+public record MealDetailDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal CarbAdjustment, decimal SuggestedBolus, decimal? ConfirmedBolus, string? Notes, DateTimeOffset CreatedAt, IReadOnlyList<MealItemDto> Items);
 
 public record DashboardDto(
     DateOnly Date,
@@ -141,3 +142,4 @@ public record SupplyCheckResultDto(
     decimal? DaysLeft,
     DateOnly? EstimatedRunOutDate,
     string Status);
+

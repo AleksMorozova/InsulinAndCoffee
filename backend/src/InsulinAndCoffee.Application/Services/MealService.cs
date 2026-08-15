@@ -48,7 +48,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
             throw new ValidationException("Confirmed bolus cannot be negative.");
         }
 
-        var calculation = await CalculateMealAsync(new CalculateMealRequest(request.MealType, request.PreMealGlucose, request.Items, request.DirectCarbs, request.DirectFoodName), cancellationToken);
+        var calculation = await CalculateMealAsync(new CalculateMealRequest(request.MealType, request.PreMealGlucose, request.Items, request.DirectCarbs, request.DirectFoodName, request.CarbAdjustment), cancellationToken);
         var now = timeProvider.GetUtcNow();
         var mealTime = request.MealTime ?? now;
         var meal = new Meal
@@ -59,6 +59,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
             MealTime = mealTime,
             PreMealGlucose = request.PreMealGlucose,
             TotalCarbs = calculation.TotalCarbs,
+            CarbAdjustment = calculation.CarbAdjustment,
             SuggestedBolus = calculation.SuggestedBolus,
             ConfirmedBolus = request.ConfirmedBolus,
             Notes = request.Notes,
@@ -73,7 +74,8 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
                 WeightGrams = item.WeightGrams,
                 CarbsPer100gSnapshot = item.CarbsPer100g,
                 CarbsPerUnitSnapshot = item.CarbsPerUnit,
-                CalculatedCarbs = item.CalculatedCarbs
+                CalculatedCarbs = item.CalculatedCarbs,
+                CarbOverride = item.CarbOverride
             }).ToList(),
             GlucoseReadings =
             [
@@ -116,7 +118,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
             throw new ValidationException("Cannot add food after the insulin dose has been confirmed.");
         }
 
-        var existingCarbs = meal.Items.Sum(i => i.CalculatedCarbs);
+        var existingCarbs = meal.Items.Sum(EffectiveCarbs);
         var calculatedItems = await mealCalculationService.CalculateItemsAsync(request.Items, directCarbs: null, directFoodName: null, cancellationToken);
         var newItems = calculatedItems
             .Select(item => new MealItem
@@ -130,13 +132,14 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
                 WeightGrams = item.WeightGrams,
                 CarbsPer100gSnapshot = item.CarbsPer100g,
                 CarbsPerUnitSnapshot = item.CarbsPerUnit,
-                CalculatedCarbs = item.CalculatedCarbs
+                CalculatedCarbs = item.CalculatedCarbs,
+                CarbOverride = item.CarbOverride
             })
             .ToList();
 
         db.MealItems.AddRange(newItems);
 
-        await RecalculateMealTotalsAsync(meal, existingCarbs + newItems.Sum(i => i.CalculatedCarbs), cancellationToken);
+        await RecalculateMealTotalsAsync(meal, existingCarbs + newItems.Sum(EffectiveCarbs), cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
         return await GetMealAsync(id, cancellationToken);
@@ -161,9 +164,15 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
 
         item.Quantity = quantity;
         item.WeightGrams = item.MeasurementType == FoodMeasurementType.Grams ? quantity : null;
-        item.CalculatedCarbs = FoodCarbCalculator.Calculate(item.MeasurementType, item.Quantity, item.CarbsPer100gSnapshot, item.CarbsPerUnitSnapshot);
+        if (request.CarbOverride is < 0)
+        {
+            throw new ValidationException("Carb override must be zero or greater.");
+        }
 
-        await RecalculateMealTotalsAsync(meal, meal.Items.Sum(i => i.CalculatedCarbs), cancellationToken);
+        item.CalculatedCarbs = FoodCarbCalculator.Calculate(item.MeasurementType, item.Quantity, item.CarbsPer100gSnapshot, item.CarbsPerUnitSnapshot);
+        item.CarbOverride = request.CarbOverride;
+
+        await RecalculateMealTotalsAsync(meal, meal.Items.Sum(EffectiveCarbs), cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
         return await GetMealAsync(mealId, cancellationToken);
@@ -181,7 +190,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
         }
 
         db.MealItems.Remove(item);
-        await RecalculateMealTotalsAsync(meal, meal.Items.Where(i => i.Id != itemId).Sum(i => i.CalculatedCarbs), cancellationToken);
+        await RecalculateMealTotalsAsync(meal, meal.Items.Where(i => i.Id != itemId).Sum(EffectiveCarbs), cancellationToken);
 
         await db.SaveChangesAsync(cancellationToken);
         return await GetMealAsync(mealId, cancellationToken);
@@ -266,9 +275,9 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
         return meal;
     }
 
-    private async Task RecalculateMealTotalsAsync(Meal meal, decimal totalCarbs, CancellationToken cancellationToken)
+    private async Task RecalculateMealTotalsAsync(Meal meal, decimal foodCarbs, CancellationToken cancellationToken)
     {
-        var totals = await mealCalculationService.CalculateTotalsAsync(totalCarbs, meal.PreMealGlucose, cancellationToken);
+        var totals = await mealCalculationService.CalculateTotalsAsync(foodCarbs, meal.CarbAdjustment, meal.PreMealGlucose, cancellationToken);
         meal.TotalCarbs = totals.TotalCarbs;
         meal.SuggestedBolus = totals.SuggestedBolus;
         meal.ConfirmedBolus = null;
@@ -281,10 +290,10 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
             .Replace("_", "\\_");
 
     private static MealSummaryDto ToSummary(Meal meal) =>
-        new(meal.Id, meal.MealType, meal.MealTime, meal.PreMealGlucose, meal.TotalCarbs, meal.SuggestedBolus, meal.ConfirmedBolus, meal.Notes, meal.Items.Select(i => i.FoodNameSnapshot).ToList());
+        new(meal.Id, meal.MealType, meal.MealTime, meal.PreMealGlucose, meal.TotalCarbs, meal.CarbAdjustment, meal.SuggestedBolus, meal.ConfirmedBolus, meal.Notes, meal.Items.Select(i => i.FoodNameSnapshot).ToList());
 
     private static MealDetailDto ToDetail(Meal meal) =>
-        new(meal.Id, meal.MealType, meal.MealTime, meal.PreMealGlucose, meal.TotalCarbs, meal.SuggestedBolus, meal.ConfirmedBolus, meal.Notes, meal.CreatedAt,
+        new(meal.Id, meal.MealType, meal.MealTime, meal.PreMealGlucose, meal.TotalCarbs, meal.CarbAdjustment, meal.SuggestedBolus, meal.ConfirmedBolus, meal.Notes, meal.CreatedAt,
             meal.Items.OrderBy(i => i.FoodNameSnapshot).Select(i => new MealItemDto(
                 i.Id,
                 i.FoodItemId,
@@ -294,7 +303,12 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
                 i.WeightGrams,
                 i.CarbsPer100gSnapshot,
                 i.CarbsPerUnitSnapshot,
-                i.CalculatedCarbs)).ToList());
+                i.CalculatedCarbs,
+                i.CarbOverride,
+                EffectiveCarbs(i))).ToList());
+
+    private static decimal EffectiveCarbs(MealItem item) =>
+        item.CarbOverride ?? item.CalculatedCarbs;
 
     private static decimal ResolveQuantity(MealItemInputDto item) =>
         item.Quantity ?? item.WeightGrams ?? 0;
@@ -311,3 +325,4 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
         return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(localStart, timeProvider.LocalTimeZone), TimeSpan.Zero);
     }
 }
+

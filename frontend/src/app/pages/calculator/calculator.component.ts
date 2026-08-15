@@ -123,14 +123,21 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
               </div>
             }
             <div formArrayName="items" class="current-meal-list">
+              <div class="meal-item-grid-head" aria-hidden="true">
+                <span>Food</span>
+                <span>Amount</span>
+                <span>Carbs</span>
+                <span>Override</span>
+                <span>Action</span>
+              </div>
               @for (item of items.controls; track $index; let i = $index) {
-                <article class="meal-item-card" [formGroupName]="i">
+                <article class="meal-item-card" [formGroupName]="i" [class.has-carb-override]="hasItemOverride(i)">
                   <div class="meal-item-main">
-                    <label [for]="'meal-food-' + i">Food</label>
                     <input
                       [id]="'meal-food-' + i"
                       type="text"
                       role="combobox"
+                      aria-label="Food"
                       aria-autocomplete="list"
                       [attr.aria-controls]="'food-options-' + i"
                       [attr.list]="'food-options-' + i"
@@ -144,13 +151,29 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
                       }
                     </datalist>
                   </div>
-                  <label class="meal-weight">{{ quantityLabel(selectedMeasurementType(i)) }}
-                    <input type="number" [min]="quantityMin(selectedMeasurementType(i))" [step]="quantityStep(selectedMeasurementType(i))" formControlName="quantity">
+                  <div class="meal-weight">
+                    <input type="number" [min]="quantityMin(selectedMeasurementType(i))" [step]="quantityStep(selectedMeasurementType(i))" formControlName="quantity" [attr.aria-label]="quantityLabel(selectedMeasurementType(i))">
                     <span>{{ quantitySuffix(selectedMeasurementType(i), itemQuantity(i)) }}</span>
-                  </label>
-                  <div class="meal-item-carbs">
-                    <span>Carbs</span>
-                    <strong>{{ itemCarbs(i) | number:'1.0-1' }} g</strong>
+                  </div>
+                  <div class="meal-item-carbs" aria-label="Calculated carbs">
+                    <strong>{{ itemCalculatedCarbs(i) | number:'1.0-1' }} g</strong>
+                  </div>
+                  <div class="item-carb-override">
+                    <div class="override-input-wrap">
+                      <input
+                        [id]="'item-carb-override-' + i"
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        formControlName="carbOverride"
+                        placeholder="Auto"
+                        aria-label="Override carbs"
+                        [class.active]="hasItemOverride(i)">
+                      <span>g</span>
+                    </div>
+                    @if (hasItemOverride(i)) {
+                      <button type="button" class="reset-carb-button" aria-label="Reset to calculated carbs" title="Reset to calculated carbs" (click)="resetItemOverride(i)">↺</button>
+                    }
                   </div>
                   <button
                     type="button"
@@ -178,11 +201,30 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
             <div class="calculation-hero-values">
               <div>
                 <strong>{{ calculation.totalCarbs | number:'1.0-1' }} g</strong>
-                <span>Estimated carbs</span>
+                <span>Final carbs</span>
               </div>
               <div>
                 <strong>{{ calculation.suggestedBolus | number:'1.0-2' }} U</strong>
                 <span>Suggested insulin</span>
+              </div>
+            </div>
+            <div class="carb-adjustment-panel">
+              <div class="carb-summary-lines">
+                <span><span>Foods</span><strong>{{ calculation.foodCarbs | number:'1.0-1' }} g</strong></span>
+                @if (hasCarbAdjustment()) {
+                  <span><span>Manual adjustment</span><strong>{{ signedCarbAdjustment() }} g</strong></span>
+                }
+              </div>
+              <div class="meal-carb-adjustment-control">
+                <span>Adjust carbs</span>
+                <div class="adjustment-control-row">
+                  <button type="button" class="adjustment-step-button" aria-label="Subtract 1 gram" (click)="adjustCarbAdjustment(-1)">−</button>
+                  <span class="adjustment-input-wrap">
+                    <input type="text" inputmode="decimal" [value]="adjustmentInputValue" (input)="setCarbAdjustmentFromInput($event)" (blur)="syncCarbAdjustmentInput()" aria-label="Manual carb adjustment delta">
+                    <span>g</span>
+                  </span>
+                  <button type="button" class="adjustment-step-button" aria-label="Add 1 gram" (click)="adjustCarbAdjustment(1)">+</button>
+                </div>
               </div>
             </div>
             <div class="calculation-breakdown">
@@ -240,6 +282,7 @@ export class CalculatorComponent implements OnInit {
   showCreateFood = false;
   newFoodTargetIndex = 0;
   foodQueries: string[] = [''];
+  adjustmentInputValue = '0';
   private lastCalculationKey = '';
 
   newFoodForm = this.fb.nonNullable.group({
@@ -259,6 +302,7 @@ export class CalculatorComponent implements OnInit {
     preMealGlucose: this.fb.nonNullable.control(6.5, [Validators.required, Validators.min(0.1)]),
     confirmedBolus: this.fb.control<number | null>(null, [Validators.min(0)]),
     notes: this.fb.control(''),
+    carbAdjustment: this.fb.nonNullable.control(0),
     items: this.fb.array([
       this.fb.group({
         foodItemId: this.fb.nonNullable.control('', Validators.required),
@@ -266,7 +310,8 @@ export class CalculatorComponent implements OnInit {
         measurementType: this.fb.control<FoodMeasurementType | null>(null),
         foodNameSnapshot: this.fb.control<string | null>(null),
         carbsPer100gSnapshot: this.fb.control<number | null>(null),
-        carbsPerUnitSnapshot: this.fb.control<number | null>(null)
+        carbsPerUnitSnapshot: this.fb.control<number | null>(null),
+        carbOverride: this.fb.control<number | null>(null, [Validators.min(0)])
       })
     ])
   });
@@ -301,7 +346,8 @@ export class CalculatorComponent implements OnInit {
       this.form.patchValue({
         mealType: previousMeal.mealType,
         preMealGlucose: previousMeal.preMealGlucose,
-        notes: previousMeal.notes ?? ''
+        notes: previousMeal.notes ?? '',
+        carbAdjustment: previousMeal.carbAdjustment ?? 0
       });
       this.items.clear();
       for (const item of previousMeal.items) {
@@ -311,12 +357,14 @@ export class CalculatorComponent implements OnInit {
           measurementType: this.fb.control<FoodMeasurementType | null>(item.measurementType ?? null),
           foodNameSnapshot: this.fb.control<string | null>(item.foodNameSnapshot ?? null),
           carbsPer100gSnapshot: this.fb.control<number | null>(item.carbsPer100gSnapshot ?? null),
-          carbsPerUnitSnapshot: this.fb.control<number | null>(item.carbsPerUnitSnapshot ?? null)
+          carbsPerUnitSnapshot: this.fb.control<number | null>(item.carbsPerUnitSnapshot ?? null),
+          carbOverride: this.fb.control<number | null>(item.carbOverride ?? null, [Validators.min(0)])
         }));
         this.applyItemQuantityValidators(this.items.length - 1, item.measurementType ?? 'Grams');
       }
       this.syncFoodQueries();
     }
+    this.syncCarbAdjustmentInput();
     this.calculate();
   }
 
@@ -330,7 +378,8 @@ export class CalculatorComponent implements OnInit {
       measurementType: this.fb.control<FoodMeasurementType | null>(null),
       foodNameSnapshot: this.fb.control<string | null>(null),
       carbsPer100gSnapshot: this.fb.control<number | null>(null),
-      carbsPerUnitSnapshot: this.fb.control<number | null>(null)
+      carbsPerUnitSnapshot: this.fb.control<number | null>(null),
+      carbOverride: this.fb.control<number | null>(null, [Validators.min(0)])
     }));
     this.foodQueries.push('');
   }
@@ -342,17 +391,80 @@ export class CalculatorComponent implements OnInit {
     if (this.items.length === 0) {
       this.addItem();
     }
+    this.syncCarbAdjustmentInput();
     this.calculate();
   }
 
   removeItem(index: number) {
     this.items.removeAt(index);
     this.foodQueries.splice(index, 1);
+    this.syncCarbAdjustmentInput();
     this.calculate();
   }
 
-  itemCarbs(index: number) {
+  itemCalculatedCarbs(index: number) {
     return this.calculation?.items[index]?.calculatedCarbs ?? 0;
+  }
+
+  itemEffectiveCarbs(index: number) {
+    return this.calculation?.items[index]?.effectiveCarbs ?? this.itemCalculatedCarbs(index);
+  }
+
+  hasItemOverride(index: number) {
+    const value = this.items.at(index).value.carbOverride;
+    return value !== null && value !== undefined;
+  }
+
+  resetItemOverride(index: number) {
+    this.items.at(index).patchValue({ carbOverride: null });
+  }
+
+  focusItemOverride(index: number) {
+    window.setTimeout(() => document.getElementById(`item-carb-override-${index}`)?.focus(), 0);
+  }
+
+  hasCarbAdjustment() {
+    return (this.form.controls.carbAdjustment.value ?? 0) !== 0;
+  }
+
+  signedCarbAdjustment() {
+    const value = this.form.controls.carbAdjustment.value ?? 0;
+    if (value > 0) return `+${this.formatAdjustment(value)}`;
+    if (value < 0) return `-${this.formatAdjustment(value)}`;
+    return '0';
+  }
+
+
+  adjustCarbAdjustment(delta: number) {
+    const current = this.form.controls.carbAdjustment.value ?? 0;
+    this.form.controls.carbAdjustment.setValue(Math.round((current + delta) * 10) / 10);
+    this.syncCarbAdjustmentInput();
+  }
+
+  setCarbAdjustmentFromInput(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const rawValue = input.value.trim();
+    this.adjustmentInputValue = rawValue;
+
+    if (!rawValue || rawValue === '+' || rawValue === '-' || rawValue === '.' || rawValue === '+.' || rawValue === '-.') {
+      return;
+    }
+
+    const parsed = Number(rawValue.replace(',', '.').replace(/^\+/, ''));
+    if (Number.isFinite(parsed)) {
+      this.form.controls.carbAdjustment.setValue(Math.round(parsed * 10) / 10);
+      if (!/[.,]$/.test(rawValue)) {
+        this.syncCarbAdjustmentInput();
+      }
+    }
+  }
+
+  syncCarbAdjustmentInput() {
+    this.adjustmentInputValue = this.signedCarbAdjustment();
+  }
+
+  private formatAdjustment(value: number) {
+    return `${Math.abs(value)}`;
   }
 
   itemQuantity(index: number) {
@@ -377,7 +489,8 @@ export class CalculatorComponent implements OnInit {
       measurementType: null,
       foodNameSnapshot: null,
       carbsPer100gSnapshot: null,
-      carbsPerUnitSnapshot: null
+      carbsPerUnitSnapshot: null,
+      carbOverride: null
     });
     this.applyItemQuantityValidators(index, food?.measurementType ?? 'Grams');
   }
@@ -425,9 +538,10 @@ export class CalculatorComponent implements OnInit {
 
     const effectiveIndex = Math.min(targetIndex, this.items.length - 1);
     const target = this.items.at(effectiveIndex);
-    target.patchValue({ foodItemId, quantity });
+    target.patchValue({ foodItemId, quantity, carbOverride: null });
     this.applyItemQuantityValidators(effectiveIndex, this.foods.find((food) => food.id === foodItemId)?.measurementType ?? 'Grams');
     this.foodQueries[effectiveIndex] = this.foods.find((food) => food.id === foodItemId)?.name ?? '';
+    this.syncCarbAdjustmentInput();
     this.calculate();
   }
 
@@ -451,7 +565,8 @@ export class CalculatorComponent implements OnInit {
       preMealGlucose: this.form.controls.preMealGlucose.value,
       items: this.directMode ? [] : validItems,
       directCarbs: this.directMode ? this.directCarbs : undefined,
-      directFoodName: this.directMode ? this.directFoodName : undefined
+      directFoodName: this.directMode ? this.directFoodName : undefined,
+      carbAdjustment: this.form.controls.carbAdjustment.value ?? 0
     };
 
     const calculationKey = JSON.stringify(request);
@@ -497,7 +612,8 @@ export class CalculatorComponent implements OnInit {
       notes: value.notes ?? '',
       items: this.directMode ? [] : value.items,
       directCarbs: this.directMode ? this.directCarbs : undefined,
-      directFoodName: this.directMode ? this.directFoodName : undefined
+      directFoodName: this.directMode ? this.directFoodName : undefined,
+      carbAdjustment: this.form.controls.carbAdjustment.value ?? 0
     };
   }
 
@@ -515,19 +631,22 @@ export class CalculatorComponent implements OnInit {
       measurementType: this.fb.control<FoodMeasurementType | null>(null),
       foodNameSnapshot: this.fb.control<string | null>(null),
       carbsPer100gSnapshot: this.fb.control<number | null>(null),
-      carbsPerUnitSnapshot: this.fb.control<number | null>(null)
+      carbsPerUnitSnapshot: this.fb.control<number | null>(null),
+      carbOverride: this.fb.control<number | null>(null, [Validators.min(0)])
     }));
     this.form.reset({
       mealType: this.form.controls.mealType.value,
       preMealGlucose: this.form.controls.preMealGlucose.value,
       confirmedBolus: null,
       notes: '',
-      items: [{ foodItemId: '', quantity: 100, measurementType: null, foodNameSnapshot: null, carbsPer100gSnapshot: null, carbsPerUnitSnapshot: null }]
+      carbAdjustment: 0,
+      items: [{ foodItemId: '', quantity: 100, measurementType: null, foodNameSnapshot: null, carbsPer100gSnapshot: null, carbsPerUnitSnapshot: null, carbOverride: null }]
     });
     this.form.controls.confirmedBolus.markAsPristine();
     this.calculation = undefined;
     this.lastCalculationKey = '';
     this.error = '';
+    this.syncCarbAdjustmentInput();
   }
 
   private syncFoodQueries() {
@@ -630,3 +749,22 @@ export class CalculatorComponent implements OnInit {
     quantityControl?.updateValueAndValidity({ emitEvent: false });
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
