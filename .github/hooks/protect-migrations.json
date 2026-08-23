@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File .github/hooks/protect-migrations.ps1",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
