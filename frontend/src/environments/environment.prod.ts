@@ -1,4 +1,5 @@
 export const environment = {
   production: true,
-  apiUrl: 'https://insulinandcoffee.onrender.com/api'
+  apiUrl: 'https://insulinandcoffee.onrender.com/api',
+  googleClientId: ''
 };

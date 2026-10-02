@@ -8,6 +8,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using InsulinAndCoffee.Application.Abstractions;
+using InsulinAndCoffee.Application.Services;
+using Microsoft.AspNetCore.Authorization;
 
 namespace InsulinAndCoffee.Application.Tests;
 
@@ -60,14 +63,18 @@ public class ApiErrorContractTests
     private sealed class ApiFactory : WebApplicationFactory<Program>
     {
         private const string DefaultConnectionEnvironmentVariable = "ConnectionStrings__DefaultConnection";
+        private const string JwtKeyEnvironmentVariable = "Jwt__SigningKey";
         private readonly string? originalDefaultConnection;
+        private readonly string? originalJwtKey;
 
         public ApiFactory()
         {
             originalDefaultConnection = Environment.GetEnvironmentVariable(DefaultConnectionEnvironmentVariable);
+            originalJwtKey = Environment.GetEnvironmentVariable(JwtKeyEnvironmentVariable);
             Environment.SetEnvironmentVariable(
                 DefaultConnectionEnvironmentVariable,
                 "Host=localhost;Database=insulin_coffee_tests;Username=test;Password=test");
+            Environment.SetEnvironmentVariable(JwtKeyEnvironmentVariable, "api-error-contract-test-signing-key-32-chars");
         }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -79,12 +86,21 @@ public class ApiErrorContractTests
                 services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
                 services.AddDbContext<AppDbContext>(options =>
                     options.UseInMemoryDatabase($"api-error-contract-{Guid.NewGuid()}"));
+                services.RemoveAll<ICurrentUser>();
+                services.AddScoped<ICurrentUser>(_ => new TestCurrentUser());
+                services.PostConfigure<AuthorizationOptions>(options => options.FallbackPolicy = null);
             });
+        }
+
+        private sealed class TestCurrentUser : ICurrentUser
+        {
+            public Guid UserId => DefaultUser.Id;
         }
 
         protected override void Dispose(bool disposing)
         {
             Environment.SetEnvironmentVariable(DefaultConnectionEnvironmentVariable, originalDefaultConnection);
+            Environment.SetEnvironmentVariable(JwtKeyEnvironmentVariable, originalJwtKey);
             base.Dispose(disposing);
         }
     }

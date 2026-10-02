@@ -13,7 +13,7 @@ import { RouterLink } from '@angular/router';
       <p>You do not have permission to view this page.</p>
       <div class="error-screen-actions">
         <button type="button" class="secondary" (click)="goBack()">Return to previous page</button>
-        <a routerLink="/"><button type="button" class="subtle">Go to home page</button></a>
+        <a routerLink="/dashboard"><button type="button" class="subtle">Go to dashboard</button></a>
       </div>
     </section>
   `

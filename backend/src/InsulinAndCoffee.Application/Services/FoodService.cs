@@ -7,8 +7,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class FoodService(IAppDbContext db, TimeProvider timeProvider)
+public class FoodService(IAppDbContext db, TimeProvider timeProvider, ICurrentUser? currentUser = null)
 {
+    private Guid UserId => currentUser?.UserId ?? DefaultUser.Id;
     private const int MaxPageSize = 100;
 
     public async Task<PaginatedResult<FoodItemDto>> GetFoodsAsync(
@@ -21,7 +22,7 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider)
 
         var query = db.FoodItems
             .AsNoTracking()
-            .Where(f => f.UserId == DefaultUser.Id);
+            .Where(f => f.UserId == UserId);
 
         if (!string.IsNullOrWhiteSpace(search))
         {
@@ -56,7 +57,7 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider)
         var food = new FoodItem
         {
             Id = Guid.NewGuid(),
-            UserId = DefaultUser.Id,
+            UserId = UserId,
             Name = request.Name.Trim(),
             MeasurementType = request.MeasurementType,
             CarbsPer100g = request.MeasurementType == FoodMeasurementType.Grams ? request.CarbsPer100g : null,
@@ -77,7 +78,7 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider)
     {
         ValidateFood(request);
 
-        var food = await db.FoodItems.FirstOrDefaultAsync(f => f.Id == id && f.UserId == DefaultUser.Id, cancellationToken)
+        var food = await db.FoodItems.FirstOrDefaultAsync(f => f.Id == id && f.UserId == UserId, cancellationToken)
             ?? throw new NotFoundException("Food item", id);
 
         food.Name = request.Name.Trim();
@@ -95,7 +96,7 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider)
 
     public async Task DeleteFoodAsync(Guid id, CancellationToken cancellationToken)
     {
-        var food = await db.FoodItems.FirstOrDefaultAsync(f => f.Id == id && f.UserId == DefaultUser.Id, cancellationToken)
+        var food = await db.FoodItems.FirstOrDefaultAsync(f => f.Id == id && f.UserId == UserId, cancellationToken)
             ?? throw new NotFoundException("Food item", id);
 
         db.FoodItems.Remove(food);

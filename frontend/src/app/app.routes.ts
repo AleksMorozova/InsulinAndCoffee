@@ -10,16 +10,23 @@ import { SuppliesComponent } from './pages/supplies/supplies.component';
 import { AccessDeniedPageComponent } from './pages/error-pages/access-denied-page.component';
 import { GenericErrorPageComponent } from './pages/error-pages/generic-error-page.component';
 import { NotFoundPageComponent } from './pages/error-pages/not-found-page.component';
+import { LoginComponent } from './pages/auth/login.component';
+import { RegisterComponent } from './pages/auth/register.component';
+import { authGuard } from './core/auth.guard';
+import { guestGuard } from './core/guest.guard';
 
 export const routes: Routes = [
-  { path: '', component: DashboardComponent, title: 'Dashboard' },
-  { path: 'calculator', component: CalculatorComponent, title: 'Current Meal' },
-  { path: 'history', component: HistoryComponent, title: 'Meal History' },
-  { path: 'meals/:id', component: MealDetailsComponent, title: 'Meal Details' },
-  { path: 'delivery-meals', component: DeliveryMealsComponent, title: 'Ask Past Me' },
-  { path: 'foods', component: FoodsComponent, title: 'Food Library' },
-  { path: 'supplies', component: SuppliesComponent, title: 'Supplies' },
-  { path: 'settings', component: SettingsComponent, title: 'Settings' },
+  { path: 'login', component: LoginComponent, title: 'Sign in', canActivate: [guestGuard] },
+  { path: 'register', component: RegisterComponent, title: 'Create account', canActivate: [guestGuard] },
+  { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
+  { path: 'dashboard', component: DashboardComponent, title: 'Dashboard', canActivate: [authGuard] },
+  { path: 'calculator', component: CalculatorComponent, title: 'Current Meal', canActivate: [authGuard] },
+  { path: 'history', component: HistoryComponent, title: 'Meal History', canActivate: [authGuard] },
+  { path: 'meals/:id', component: MealDetailsComponent, title: 'Meal Details', canActivate: [authGuard] },
+  { path: 'delivery-meals', component: DeliveryMealsComponent, title: 'Ask Past Me', canActivate: [authGuard] },
+  { path: 'foods', component: FoodsComponent, title: 'Food Library', canActivate: [authGuard] },
+  { path: 'supplies', component: SuppliesComponent, title: 'Supplies', canActivate: [authGuard] },
+  { path: 'settings', component: SettingsComponent, title: 'Settings', canActivate: [authGuard] },
   { path: 'not-found', component: NotFoundPageComponent, title: 'Page not found' },
   { path: 'access-denied', component: AccessDeniedPageComponent, title: 'Access denied' },
   { path: 'error', component: GenericErrorPageComponent, title: 'Something went wrong' },
