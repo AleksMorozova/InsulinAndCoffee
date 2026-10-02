@@ -15,7 +15,7 @@ import { ActivatedRoute, Router, RouterLink } from '@angular/router';
       }
       <div class="error-screen-actions">
         <button type="button" (click)="tryAgain()">Try again</button>
-        <a routerLink="/"><button type="button" class="subtle">Go to home page</button></a>
+        <a routerLink="/dashboard"><button type="button" class="subtle">Go to dashboard</button></a>
       </div>
     </section>
   `

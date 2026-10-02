@@ -1,14 +1,16 @@
 import { Component } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { ToastContainerComponent } from './shared/toast-container/toast-container.component';
+import { AuthService } from './core/auth.service';
 
 @Component({
   selector: 'app-root',
   standalone: true,
   imports: [RouterOutlet, RouterLink, RouterLinkActive, ToastContainerComponent],
   template: `
+    @if (auth.isAuthenticated()) {
     <header class="app-header">
-      <a class="brand" routerLink="/">
+      <a class="brand" routerLink="/dashboard">
         <span class="brand-mark">I&C</span>
         <span>
           <strong>Insulin & Coffee</strong>
@@ -16,7 +18,7 @@ import { ToastContainerComponent } from './shared/toast-container/toast-containe
         </span>
       </a>
       <nav>
-        <a routerLink="/" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">
+        <a routerLink="/dashboard" routerLinkActive="active">
           <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
             <path d="M3 11.5 12 4l9 7.5" />
             <path d="M5.5 10.5V20h13v-9.5" />
@@ -68,8 +70,10 @@ import { ToastContainerComponent } from './shared/toast-container/toast-containe
           </svg>
           Settings
         </a>
+        <button type="button" class="nav-logout" (click)="auth.logout()">Logout {{ auth.user()?.username }}</button>
       </nav>
     </header>
+    }
     <main>
       <router-outlet />
     </main>
@@ -80,5 +84,5 @@ import { ToastContainerComponent } from './shared/toast-container/toast-containe
   `
 })
 export class AppComponent {
-  constructor(readonly router: Router) {}
+  constructor(readonly router: Router, readonly auth: AuthService) {}
 }

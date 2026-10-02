@@ -28,12 +28,14 @@ This application is not a medical device. All insulin calculations are informati
 - Settings
 - Delivery Meals: a personal delivery-food library for repeated restaurant, cafe, and delivery orders
 
-## Seed Data
+## Development accounts
 
-The database seeds one default user:
+The database seeds two development accounts:
 
-- Name: Aleksandra
-- Email: `aleksandra@example.com`
+- `aleks` / `aleks` owns the existing seeded and migrated personal data.
+- `test` / `test` starts with an empty personal dataset.
+
+Change or disable these credentials before any public deployment.
 
 Default settings:
 
@@ -61,7 +63,23 @@ The food library is seeded with Philadelphia Roll, Sushi Rice, Bread, Butter, Co
    dotnet ef database update --project backend/src/InsulinAndCoffee.Infrastructure --startup-project backend/src/InsulinAndCoffee.Api
    ```
 
-3. Run the API:
+3. Configure a local JWT signing key outside source control (one-time setup):
+
+   ```powershell
+   dotnet user-secrets set "Jwt:SigningKey" "replace-with-a-random-key-of-at-least-32-characters" --project backend/src/InsulinAndCoffee.Api
+   ```
+
+   In deployed environments, configure the equivalent `Jwt__SigningKey` environment variable through the hosting platform's secret store.
+
+   To enable Google sign-in, create a Web OAuth client in Google Cloud, add `http://localhost:4200` as an authorized JavaScript origin, and configure the same client ID in both places:
+
+   ```powershell
+   dotnet user-secrets set "GoogleAuth:ClientId" "your-client-id.apps.googleusercontent.com" --project backend/src/InsulinAndCoffee.Api
+   ```
+
+   Set `googleClientId` to that value in `frontend/src/environments/environment.ts` for local development and in `environment.prod.ts` for the production build. The client ID is public configuration; do not create or expose a Google client secret for this browser ID-token flow.
+
+4. Run the API:
 
    ```powershell
    dotnet run --project backend/src/InsulinAndCoffee.Api --launch-profile https

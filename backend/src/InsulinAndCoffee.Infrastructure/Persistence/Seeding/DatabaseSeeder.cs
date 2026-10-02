@@ -12,13 +12,25 @@ public static class DatabaseSeeder
         var createdAt = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
         var settingsId = Guid.Parse("22222222-2222-2222-2222-222222222222");
 
-        modelBuilder.Entity<User>().HasData(new User
-        {
-            Id = DefaultUser.Id,
-            Name = "Aleksandra",
-            Email = "aleksandra@example.com",
-            CreatedAt = createdAt
-        });
+        modelBuilder.Entity<User>().HasData(
+            new User
+            {
+                Id = DefaultUser.Id,
+                Username = "aleks",
+                NormalizedUsername = "ALEKS",
+                PasswordHash = "AQAAAAEAAYagAAAAEAECAwQFBgcICQoLDA0ODxBMPHQezI1M8YLABEKG2FiLp/rtXcX+I9tdIpVT6LyDaQ==",
+                Name = "Aleksandra",
+                Email = "aleksandra@example.com",
+                CreatedAt = createdAt
+            },
+            new User
+            {
+                Id = DefaultUser.TestId,
+                Username = "test",
+                NormalizedUsername = "TEST",
+                PasswordHash = "AQAAAAEAAYagAAAAEBESExQVFhcYGRobHB0eHyDf6LRW/jUdZHWh9UtHIm2EAKtQ6QD9bahKcCQwqbntqQ==",
+                CreatedAt = createdAt
+            });
 
         modelBuilder.Entity<DiabetesSettings>().HasData(new DiabetesSettings
         {

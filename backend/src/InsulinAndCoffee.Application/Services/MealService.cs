@@ -8,8 +8,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalculationService mealCalculationService)
+public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalculationService mealCalculationService, ICurrentUser? currentUser = null)
 {
+    private Guid UserId => currentUser?.UserId ?? DefaultUser.Id;
     public async Task<DashboardDto> GetDashboardAsync(CancellationToken cancellationToken)
     {
         var today = DateOnly.FromDateTime(timeProvider.GetLocalNow().Date);
@@ -18,7 +19,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
 
         var meals = await db.Meals
             .AsNoTracking()
-            .Where(m => m.UserId == DefaultUser.Id && m.CreatedAt >= todayStartUtc && m.CreatedAt < tomorrowStartUtc)
+            .Where(m => m.UserId == UserId && m.CreatedAt >= todayStartUtc && m.CreatedAt < tomorrowStartUtc)
             .OrderByDescending(m => m.MealTime)
             .Select(m => new DashboardMealDto(
                 m.Id,
@@ -54,7 +55,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
         var meal = new Meal
         {
             Id = Guid.NewGuid(),
-            UserId = DefaultUser.Id,
+            UserId = UserId,
             MealType = request.MealType,
             MealTime = mealTime,
             PreMealGlucose = request.PreMealGlucose,
@@ -82,7 +83,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
                 new GlucoseReading
                 {
                     Id = Guid.NewGuid(),
-                    UserId = DefaultUser.Id,
+                    UserId = UserId,
                     Value = request.PreMealGlucose,
                     ReadingTime = mealTime,
                     ReadingType = ReadingType.BeforeMeal,
@@ -110,7 +111,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
 
         var meal = await db.Meals
             .Include(m => m.Items)
-            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
+            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == UserId, cancellationToken)
             ?? throw new NotFoundException("Meal", id);
 
         if (meal.ConfirmedBolus is not null)
@@ -201,7 +202,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
         var query = db.Meals
             .AsNoTracking()
             .Include(m => m.Items)
-            .Where(m => m.UserId == DefaultUser.Id);
+            .Where(m => m.UserId == UserId);
 
         if (mealType.HasValue)
         {
@@ -225,7 +226,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
         var meal = await db.Meals
             .AsNoTracking()
             .Include(m => m.Items)
-            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
+            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == UserId, cancellationToken)
             ?? throw new NotFoundException("Meal", id);
 
         return ToDetail(meal);
@@ -240,7 +241,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
 
         var meal = await db.Meals
             .Include(m => m.Items)
-            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
+            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == UserId, cancellationToken)
             ?? throw new NotFoundException("Meal", id);
 
         meal.ConfirmedBolus = request.ConfirmedBolus;
@@ -252,7 +253,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
     {
         var meal = await db.Meals
             .Include(m => m.Items)
-            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
+            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == UserId, cancellationToken)
             ?? throw new NotFoundException("Meal", id);
 
         meal.ConfirmedBolus = null;
@@ -264,7 +265,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
     {
         var meal = await db.Meals
             .Include(m => m.Items)
-            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == DefaultUser.Id, cancellationToken)
+            .FirstOrDefaultAsync(m => m.Id == id && m.UserId == UserId, cancellationToken)
             ?? throw new NotFoundException("Meal", id);
 
         if (meal.ConfirmedBolus is not null)

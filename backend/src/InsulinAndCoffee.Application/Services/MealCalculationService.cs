@@ -9,8 +9,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class MealCalculationService(IAppDbContext db)
+public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser = null)
 {
+    private Guid UserId => currentUser?.UserId ?? DefaultUser.Id;
     public async Task<MealCalculationDto> CalculateMealAsync(CalculateMealRequest request, CancellationToken cancellationToken)
     {
         ValidateMealInputs(request.PreMealGlucose, request.Items, request.DirectCarbs, request.CarbAdjustment);
@@ -49,7 +50,7 @@ public class MealCalculationService(IAppDbContext db)
         var foodIds = currentFoodInputs.Select(i => i.FoodItemId).Distinct().ToList();
         var foods = await db.FoodItems
             .AsNoTracking()
-            .Where(f => f.UserId == DefaultUser.Id && foodIds.Contains(f.Id))
+            .Where(f => f.UserId == UserId && foodIds.Contains(f.Id))
             .ToDictionaryAsync(f => f.Id, cancellationToken);
 
         if (foods.Count != foodIds.Count)
@@ -140,8 +141,8 @@ public class MealCalculationService(IAppDbContext db)
     }
 
     private async Task<DiabetesSettings> GetSettingsAsync(CancellationToken cancellationToken) =>
-        await db.DiabetesSettings.AsNoTracking().FirstOrDefaultAsync(s => s.UserId == DefaultUser.Id, cancellationToken)
-        ?? throw new NotFoundException("Diabetes settings", DefaultUser.Id);
+        await db.DiabetesSettings.AsNoTracking().FirstOrDefaultAsync(s => s.UserId == UserId, cancellationToken)
+        ?? throw new NotFoundException("Diabetes settings", UserId);
 
     private static void ValidateMealInputs(decimal preMealGlucose, IReadOnlyList<MealItemInputDto> items, decimal? directCarbs, decimal carbAdjustment)
     {

@@ -6,12 +6,13 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class SupplyService(IAppDbContext db, TimeProvider timeProvider)
+public class SupplyService(IAppDbContext db, TimeProvider timeProvider, ICurrentUser? currentUser = null)
 {
+    private Guid UserId => currentUser?.UserId ?? DefaultUser.Id;
     public async Task<IReadOnlyList<SupplyItemDto>> GetAllAsync(CancellationToken cancellationToken) =>
         await db.SupplyItems
             .AsNoTracking()
-            .Where(item => item.UserId == DefaultUser.Id)
+            .Where(item => item.UserId == UserId)
             .OrderBy(item => item.Name)
             .Select(item => ToDto(item))
             .ToListAsync(cancellationToken);
@@ -20,7 +21,7 @@ public class SupplyService(IAppDbContext db, TimeProvider timeProvider)
     {
         var item = await db.SupplyItems
             .AsNoTracking()
-            .FirstOrDefaultAsync(item => item.Id == id && item.UserId == DefaultUser.Id, cancellationToken)
+            .FirstOrDefaultAsync(item => item.Id == id && item.UserId == UserId, cancellationToken)
             ?? throw new NotFoundException("Supply item", id);
 
         return ToDto(item);
@@ -33,7 +34,7 @@ public class SupplyService(IAppDbContext db, TimeProvider timeProvider)
         var item = new SupplyItem
         {
             Id = Guid.NewGuid(),
-            UserId = DefaultUser.Id,
+            UserId = UserId,
             Name = request.Name.Trim(),
             CurrentQuantity = request.CurrentQuantity,
             Unit = request.Unit.Trim(),
@@ -52,7 +53,7 @@ public class SupplyService(IAppDbContext db, TimeProvider timeProvider)
     {
         Validate(request.Name, request.Unit, request.CurrentQuantity, request.DailyUsage, request.LowStockThresholdDays);
         var item = await db.SupplyItems
-            .FirstOrDefaultAsync(item => item.Id == id && item.UserId == DefaultUser.Id, cancellationToken)
+            .FirstOrDefaultAsync(item => item.Id == id && item.UserId == UserId, cancellationToken)
             ?? throw new NotFoundException("Supply item", id);
 
         var now = timeProvider.GetUtcNow();
@@ -71,7 +72,7 @@ public class SupplyService(IAppDbContext db, TimeProvider timeProvider)
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
         var item = await db.SupplyItems
-            .FirstOrDefaultAsync(item => item.Id == id && item.UserId == DefaultUser.Id, cancellationToken)
+            .FirstOrDefaultAsync(item => item.Id == id && item.UserId == UserId, cancellationToken)
             ?? throw new NotFoundException("Supply item", id);
 
         db.SupplyItems.Remove(item);
@@ -83,7 +84,7 @@ public class SupplyService(IAppDbContext db, TimeProvider timeProvider)
         var today = DateOnly.FromDateTime(timeProvider.GetUtcNow().UtcDateTime);
         var items = await db.SupplyItems
             .AsNoTracking()
-            .Where(item => item.UserId == DefaultUser.Id)
+            .Where(item => item.UserId == UserId)
             .OrderBy(item => item.Name)
             .ToListAsync(cancellationToken);
 
