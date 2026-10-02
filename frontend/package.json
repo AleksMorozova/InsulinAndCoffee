@@ -4,7 +4,7 @@
   "scripts": {
     "ng": "node ./node_modules/@angular/cli/bin/ng.js",
     "start": "node ./node_modules/@angular/cli/bin/ng.js serve",
-    "build": "node ./node_modules/@angular/cli/bin/ng.js build",
+    "build": "node ./scripts/generate-production-environment.mjs && node ./node_modules/@angular/cli/bin/ng.js build",
     "test": "node ./node_modules/@angular/cli/bin/ng.js test"
   },
   "private": true,

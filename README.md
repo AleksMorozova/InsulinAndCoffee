@@ -77,7 +77,7 @@ The food library is seeded with Philadelphia Roll, Sushi Rice, Bread, Butter, Co
    dotnet user-secrets set "GoogleAuth:ClientId" "your-client-id.apps.googleusercontent.com" --project backend/src/InsulinAndCoffee.Api
    ```
 
-   Set `googleClientId` to that value in `frontend/src/environments/environment.ts` for local development and in `environment.prod.ts` for the production build. The client ID is public configuration; do not create or expose a Google client secret for this browser ID-token flow.
+   Set `googleClientId` to that value in `frontend/src/environments/environment.ts` for local development. For Vercel production builds, add `GOOGLE_CLIENT_ID` as a project environment variable; the build script generates the production Angular environment automatically. The client ID is public configuration; do not create or expose a Google client secret for this browser ID-token flow.
 
 4. Run the API:
 
