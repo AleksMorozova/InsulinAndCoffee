@@ -35,6 +35,24 @@ export interface PaginatedResult<T> {
   totalPages: number;
 }
 
+export interface LoginAttempt {
+  id: string;
+  username: string;
+  userId: string | null;
+  success: boolean;
+  attemptedAtUtc: string;
+  failureReason: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+}
+
+export interface LoginAttemptStats {
+  totalAttempts: number;
+  successfulAttempts: number;
+  failedAttempts: number;
+  uniqueUsernames: number;
+}
+
 export interface MealItemInput {
   foodItemId: string;
   quantity: number;

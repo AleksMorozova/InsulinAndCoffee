@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using InsulinAndCoffee.Infrastructure;
 using InsulinAndCoffee.Application.Abstractions;
+using InsulinAndCoffee.Domain.Entities;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
@@ -34,6 +35,86 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
     {
         var response = await factory.CreateClient().PostAsJsonAsync("/api/auth/login", new { username = "aleks", password = "wrong" });
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Login_SuccessAndFailure_PersistSafeAuditRecords()
+    {
+        var username = $"audit-{Guid.NewGuid():N}"[..20];
+        var client = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/auth/register", new { username, password = "safe-test-password" })).StatusCode);
+
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("audit-test-agent");
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync("/api/auth/login", new { username, password = "wrong-password" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/auth/login", new { username, password = "safe-test-password" })).StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var attempts = await scope.ServiceProvider.GetRequiredService<AppDbContext>().LoginAttempts
+            .Where(attempt => attempt.Username == username)
+            .OrderBy(attempt => attempt.AttemptedAtUtc)
+            .ToListAsync();
+        Assert.Equal(2, attempts.Count);
+        Assert.False(attempts[0].IsSuccessful);
+        Assert.Equal("InvalidCredentials", attempts[0].FailureReason);
+        Assert.NotNull(attempts[0].UserId);
+        Assert.True(attempts[1].IsSuccessful);
+        Assert.Null(attempts[1].FailureReason);
+        Assert.All(attempts, attempt => Assert.Equal("audit-test-agent", attempt.UserAgent));
+        Assert.DoesNotContain(attempts, attempt =>
+            string.Equals(attempt.FailureReason, "safe-test-password", StringComparison.Ordinal) ||
+            string.Equals(attempt.UserAgent, "safe-test-password", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Login_UnknownUsername_PersistsAttemptWithoutUserId()
+    {
+        var username = $"unknown-{Guid.NewGuid():N}"[..20];
+        var response = await factory.CreateClient().PostAsJsonAsync("/api/auth/login", new { username, password = "not-the-password" });
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        using var scope = factory.Services.CreateScope();
+        var attempt = await scope.ServiceProvider.GetRequiredService<AppDbContext>().LoginAttempts
+            .SingleAsync(item => item.Username == username);
+        Assert.Null(attempt.UserId);
+        Assert.False(attempt.IsSuccessful);
+    }
+
+    [Fact]
+    public async Task AdminLoginAttempts_RegularUserIsForbiddenAndAdminIsAllowed()
+    {
+        var regularClient = factory.CreateClient();
+        regularClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(regularClient, "aleks", "aleks"));
+        Assert.Equal(HttpStatusCode.Forbidden, (await regularClient.GetAsync("/api/admin/login-attempts")).StatusCode);
+
+        var adminClient = factory.CreateClient();
+        adminClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(adminClient, "admin", "admin"));
+        Assert.Equal(HttpStatusCode.OK, (await adminClient.GetAsync("/api/admin/login-attempts")).StatusCode);
+    }
+
+    [Fact]
+    public async Task AdminLoginAttempts_FiltersOrdersAndPagesResults()
+    {
+        var marker = $"filter-{Guid.NewGuid():N}"[..20];
+        var now = DateTimeOffset.UtcNow;
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.LoginAttempts.AddRange(
+                Attempt(marker, false, now.AddMinutes(-2)),
+                Attempt(marker, true, now.AddMinutes(-1)),
+                Attempt(marker, false, now));
+            await db.SaveChangesAsync(CancellationToken.None);
+        }
+
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(client, "admin", "admin"));
+        using var firstPage = JsonDocument.Parse(await client.GetStringAsync($"/api/admin/login-attempts?username={marker}&success=false&page=1&pageSize=1"));
+        Assert.Equal(2, firstPage.RootElement.GetProperty("totalCount").GetInt32());
+        Assert.Equal(2, firstPage.RootElement.GetProperty("totalPages").GetInt32());
+        Assert.Equal(now, firstPage.RootElement.GetProperty("items")[0].GetProperty("attemptedAtUtc").GetDateTimeOffset());
+
+        using var secondPage = JsonDocument.Parse(await client.GetStringAsync($"/api/admin/login-attempts?username={marker}&success=false&page=2&pageSize=1"));
+        Assert.Equal(now.AddMinutes(-2), secondPage.RootElement.GetProperty("items")[0].GetProperty("attemptedAtUtc").GetDateTimeOffset());
     }
 
     [Fact]
@@ -127,6 +208,12 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         return json.RootElement.GetProperty("accessToken").GetString()!;
     }
+
+    private static LoginAttempt Attempt(string username, bool successful, DateTimeOffset attemptedAt) => new()
+    {
+        Id = Guid.NewGuid(), Username = username, IsSuccessful = successful, AttemptedAtUtc = attemptedAt,
+        FailureReason = successful ? null : "InvalidCredentials"
+    };
 
     public sealed class ApiFactory : WebApplicationFactory<Program>
     {

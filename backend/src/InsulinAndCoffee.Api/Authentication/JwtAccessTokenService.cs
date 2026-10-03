@@ -23,7 +23,8 @@ public sealed class JwtAccessTokenService(IOptions<JwtOptions> options, TimeProv
             settings.Audience,
             [
                 new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-                new Claim(ClaimTypes.Name, user.Username)
+                new Claim(ClaimTypes.Name, user.Username),
+                new Claim(ClaimTypes.Role, user.Role.ToString())
             ],
             now.UtcDateTime,
             expiresAt.UtcDateTime,
