@@ -1,5 +1,7 @@
 namespace InsulinAndCoffee.Domain.Entities;
 
+using InsulinAndCoffee.Domain.Enums;
+
 public class User
 {
     public Guid Id { get; set; }
@@ -10,6 +12,7 @@ public class User
     public string? Name { get; set; }
     public string? Email { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public UserRole Role { get; set; } = UserRole.User;
 
     public DiabetesSettings? DiabetesSettings { get; set; }
     public ICollection<FoodItem> FoodItems { get; set; } = [];
@@ -17,4 +20,5 @@ public class User
     public ICollection<GlucoseReading> GlucoseReadings { get; set; } = [];
     public ICollection<DeliveryMeal> DeliveryMeals { get; set; } = [];
     public ICollection<SupplyItem> SupplyItems { get; set; } = [];
+    public ICollection<LoginAttempt> LoginAttempts { get; set; } = [];
 }

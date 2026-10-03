@@ -21,6 +21,7 @@ public static class DatabaseSeeder
                 PasswordHash = "AQAAAAEAAYagAAAAEAECAwQFBgcICQoLDA0ODxBMPHQezI1M8YLABEKG2FiLp/rtXcX+I9tdIpVT6LyDaQ==",
                 Name = "Aleksandra",
                 Email = "aleksandra@example.com",
+                Role = UserRole.User,
                 CreatedAt = createdAt
             },
             new User
@@ -29,6 +30,16 @@ public static class DatabaseSeeder
                 Username = "test",
                 NormalizedUsername = "TEST",
                 PasswordHash = "AQAAAAEAAYagAAAAEBESExQVFhcYGRobHB0eHyDf6LRW/jUdZHWh9UtHIm2EAKtQ6QD9bahKcCQwqbntqQ==",
+                Role = UserRole.User,
+                CreatedAt = createdAt
+            },
+            new User
+            {
+                Id = DefaultUser.AdminId,
+                Username = "admin",
+                NormalizedUsername = "ADMIN",
+                PasswordHash = "AQAAAAEAAYagAAAAECEiIyQlJicoKSorLC0uLzBXEdW+BGN5gO3c2qSq9rXkV3MMBmSSIi01BzcD6kMADA==",
+                Role = UserRole.Admin,
                 CreatedAt = createdAt
             });
 

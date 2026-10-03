@@ -14,6 +14,8 @@ import { LoginComponent } from './pages/auth/login.component';
 import { RegisterComponent } from './pages/auth/register.component';
 import { authGuard } from './core/auth.guard';
 import { guestGuard } from './core/guest.guard';
+import { adminGuard } from './core/admin.guard';
+import { LoginAttemptsComponent } from './pages/admin/login-attempts.component';
 
 export const routes: Routes = [
   { path: 'login', component: LoginComponent, title: 'Sign in', canActivate: [guestGuard] },
@@ -27,6 +29,7 @@ export const routes: Routes = [
   { path: 'foods', component: FoodsComponent, title: 'Food Library', canActivate: [authGuard] },
   { path: 'supplies', component: SuppliesComponent, title: 'Supplies', canActivate: [authGuard] },
   { path: 'settings', component: SettingsComponent, title: 'Settings', canActivate: [authGuard] },
+  { path: 'admin/login-attempts', component: LoginAttemptsComponent, title: 'Login History', canActivate: [adminGuard] },
   { path: 'not-found', component: NotFoundPageComponent, title: 'Page not found' },
   { path: 'access-denied', component: AccessDeniedPageComponent, title: 'Access denied' },
   { path: 'error', component: GenericErrorPageComponent, title: 'Something went wrong' },

@@ -21,7 +21,7 @@ public sealed class AuthController(AuthService authService) : ControllerBase
     [HttpPost("login")]
     public async Task<ActionResult<AuthTokenDto>> Login(LoginRequest request, CancellationToken cancellationToken)
     {
-        var result = await authService.LoginAsync(request, cancellationToken);
+        var result = await authService.LoginAsync(request, GetAttemptMetadata(), cancellationToken);
         return result is null ? Unauthorized() : Ok(result);
     }
 
@@ -29,7 +29,7 @@ public sealed class AuthController(AuthService authService) : ControllerBase
     [HttpPost("google")]
     public async Task<ActionResult<AuthTokenDto>> Google(GoogleLoginRequest request, CancellationToken cancellationToken)
     {
-        var result = await authService.LoginWithGoogleAsync(request, cancellationToken);
+        var result = await authService.LoginWithGoogleAsync(request, GetAttemptMetadata(), cancellationToken);
         return result is null ? Unauthorized() : Ok(result);
     }
 
@@ -37,4 +37,8 @@ public sealed class AuthController(AuthService authService) : ControllerBase
     [HttpGet("me")]
     public async Task<ActionResult<AuthUserDto>> Me(CancellationToken cancellationToken) =>
         Ok(await authService.GetCurrentAsync(cancellationToken));
+
+    private LoginAttemptMetadata GetAttemptMetadata() => new(
+        HttpContext.Connection.RemoteIpAddress?.ToString(),
+        Request.Headers.UserAgent.ToString());
 }

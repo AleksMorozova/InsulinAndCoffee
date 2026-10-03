@@ -70,6 +70,9 @@ import { AuthService } from './core/auth.service';
           </svg>
           Settings
         </a>
+        @if (auth.isAdmin()) {
+          <a routerLink="/admin/login-attempts" routerLinkActive="active">Login History</a>
+        }
         <button type="button" class="nav-logout" (click)="auth.logout()">Logout {{ auth.user()?.username }}</button>
       </nav>
     </header>

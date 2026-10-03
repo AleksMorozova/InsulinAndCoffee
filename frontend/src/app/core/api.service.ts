@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { map } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { SKIP_GLOBAL_ERROR_NOTIFICATION } from './http-error-context';
-import { Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, FoodMeasurementType, MealCalculation, MealDetail, MealItemInput, MealSummary, MealType, PaginatedResult, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
+import { Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, FoodMeasurementType, LoginAttempt, LoginAttemptStats, MealCalculation, MealDetail, MealItemInput, MealSummary, MealType, PaginatedResult, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
 
 export interface UpsertFoodRequest {
   name: string;
@@ -203,6 +203,24 @@ export class ApiService {
 
   getSupplyCheck() {
     return this.http.get<SupplyCheckResult[]>(`${this.apiUrl}/supplies/check`, { context: this.localErrorContext });
+  }
+
+  getLoginAttempts(page: number, pageSize: number, username: string, success: string, from: string, to: string) {
+    let params = new HttpParams().set('page', page).set('pageSize', pageSize);
+    if (username) params = params.set('username', username);
+    if (success) params = params.set('success', success);
+    if (from) params = params.set('from', new Date(from).toISOString());
+    if (to) params = params.set('to', new Date(to).toISOString());
+    return this.http.get<PaginatedResult<LoginAttempt>>(`${this.apiUrl}/admin/login-attempts`, { params });
+  }
+
+  getLoginAttemptStats(username: string, success: string, from: string, to: string) {
+    let params = new HttpParams();
+    if (username) params = params.set('username', username);
+    if (success) params = params.set('success', success);
+    if (from) params = params.set('from', new Date(from).toISOString());
+    if (to) params = params.set('to', new Date(to).toISOString());
+    return this.http.get<LoginAttemptStats>(`${this.apiUrl}/admin/login-attempts/stats`, { params });
   }
 
 }
