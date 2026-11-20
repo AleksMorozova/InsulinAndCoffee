@@ -5,7 +5,7 @@ import { environment } from '../../environments/environment';
 import { SKIP_GLOBAL_ERROR_NOTIFICATION } from './http-error-context';
 import { CalculatedMealItem, Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, FoodMeasurementType, LoginAttempt, LoginAttemptStats, MealCalculation, MealCarbPreview, MealDetail, MealItemInput, MealSummary, MealType, PaginatedResult, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
 
-import { AssistantConversation, AssistantTurn, MealAssistantResponse } from './meal-assistant.models';
+import { AssistantConversation, AssistantFoodSelection, AssistantTurn, MealAssistantResponse } from './meal-assistant.models';
 
 export interface UpsertFoodRequest {
   name: string;
@@ -83,8 +83,8 @@ export class ApiService {
 
   constructor(private readonly http: HttpClient) {}
 
-  sendMealAssistantMessage(conversationId: string | null, message: string, requestId: string) {
-    return this.http.post<MealAssistantResponse>(`${this.apiUrl}/meal-assistant/messages`, { conversationId, message, requestId }, { context: this.localErrorContext });
+  sendMealAssistantMessage(conversationId: string | null, message: string, requestId: string, selection?: AssistantFoodSelection) {
+    return this.http.post<MealAssistantResponse>(`${this.apiUrl}/meal-assistant/messages`, { conversationId, message, requestId, ...(selection ? { selection } : {}) }, { context: this.localErrorContext });
   }
 
   getMealAssistantConversations() {

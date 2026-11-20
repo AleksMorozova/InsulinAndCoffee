@@ -58,31 +58,32 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
         if (quantityEdit && FoodKnowledgeSearchService.Terms(target ?? "").Any(term =>
                 term is "carb" or "carbs" or "carbohydrates" or "углеводы" or "углеводов" or "вуглеводи" or "вуглеводів"))
             return Feedback("Change carbohydrate overrides in Calculator.");
+        var score = AssistantFoodMatching.Score(target ?? "").Compile();
+        var bestScore = items.Select(item => score(item.FoodName)).DefaultIfEmpty(0).Max();
         var matches = items.Where(item => string.IsNullOrWhiteSpace(target) ||
-            FoodKnowledgeSearchService.Terms(target).Any(term => term.Length > 0 &&
-                (" " + item.FoodName.ToLowerInvariant() + " ").Contains(" " + term + " ", StringComparison.Ordinal))).ToArray();
-        if (!string.IsNullOrWhiteSpace(target))
-        {
-            var exact = items.Where(item => item.FoodName.Equals(target, StringComparison.OrdinalIgnoreCase)).ToArray();
-            if (exact.Length > 0) matches = exact;
-        }
+            bestScore > 0 && score(item.FoodName) == bestScore).ToArray();
         if (op is "add" or "replace" or "clarify")
         {
-            if (op == "replace" && matches.Length != 1) return Finish(["Which item should I replace?"]);
+            if (current?.Issues.Count > 1)
+                return Feedback("Several foods still need clarification. Resend the complete meal with the intended foods and quantities.");
+            if (op == "replace" && current?.Issues.Count > 0)
+                return Feedback("Clarify the unresolved food before replacing another item.");
+            if (op == "replace" && matches.Length != 1) return Feedback("Which item should I replace?", search);
             if (op == "clarify" && current?.Pending is null) return current;
             var queries = op == "clarify" ? search.Foods.Select(food => food with
             {
                 Quantity = food.Quantity ?? current?.Pending?.Quantity,
                 Unit = food.Unit ?? current?.Pending?.Unit,
-                Restaurant = food.Restaurant ?? current?.Pending?.Restaurant
+                Restaurant = food.FoodItemId.HasValue ? null : food.Restaurant ?? current?.Pending?.Restaurant
             }).ToArray() : search.Foods;
             var addition = await BuildAsync(queries, token);
             if (addition is null) return current;
-            if (op == "replace" && addition.Issues.Count > 0) return Finish(addition.Issues);
+            if (op == "replace" && addition.Issues.Count > 0) return Feedback(string.Join(" ", addition.Issues));
             if (op == "replace") items.Remove(matches[0]);
             items.AddRange(addition.Items);
             sources.AddRange(addition.Sources ?? []);
-            return Finish(addition.Issues, addition.Pending);
+            return Finish(op == "add" ? (current?.Issues ?? []).Concat(addition.Issues).ToArray() : addition.Issues,
+                op == "add" && current?.Pending is not null ? current.Pending : addition.Pending);
         }
 
         if (matches.Length == 0) return Feedback("That food is not in your draft. Ask to add it first.");
@@ -121,7 +122,8 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
 
         AssistantDraft Finish(IReadOnlyList<string> issues, AssistantFoodQuery? pending = null) =>
             new(items, issues, Math.Round(items.Sum(item => item.EffectiveCarbs), 2),
-                sources.Where(source => items.Any(item => item.FoodName == source.Name)).Distinct().ToArray(), pending);
+                sources.Where(source => items.Any(item => item.FoodName == source.Name)).Distinct().ToArray(),
+                issues.Count == 1 ? pending : null);
     }
 
     private static MealItemInputDto ToInput(CalculatedMealItemDto item) =>
@@ -136,17 +138,22 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
         var issues = new List<string>();
         var sources = new List<AssistantDraftSource>();
         AssistantFoodQuery? pending = null;
-        foreach (var query in queries)
+        foreach (var original in queries)
         {
+            var query = AssistantFoodMatching.Query(original);
             if (!string.IsNullOrWhiteSpace(query.Restaurant))
             {
-                var places = FoodKnowledgeSearchService.Terms(query.Restaurant);
-                var dishes = FoodKnowledgeSearchService.Terms(query.Name);
-                var orders = await db.DeliveryMeals.AsNoTracking().Where(order => order.UserId == userId
-                    && places.Contains(order.PlaceName.ToLower()) && dishes.Contains(order.DishName.ToLower()))
-                    .OrderBy(order => order.Id).Take(2).ToListAsync(cancellationToken);
+                var orders = await FoodKnowledgeSearchService.FindOrders(db.DeliveryMeals.AsNoTracking()
+                    .Where(order => order.UserId == userId), query, false).Take(2).ToListAsync(cancellationToken);
+                if (orders.Count > 1)
+                {
+                    var placeScore = AssistantFoodMatching.Score(query.Restaurant).Compile();
+                    var dishScore = AssistantFoodMatching.Score(query.Name).Compile();
+                    orders = orders.Where(order => placeScore(order.PlaceName) == placeScore(orders[0].PlaceName)
+                        && (query.Name.Length == 0 || dishScore(order.DishName) == dishScore(orders[0].DishName))).ToList();
+                }
                 if (orders.Count != 1 || query.Quantity is not (null or 1m) ||
-                    query.Unit is not (null or FoodMeasurementType.Piece or FoodMeasurementType.Portion) || orders[0].Carbs <= 0)
+                    query.Unit is not (null or FoodMeasurementType.Piece or FoodMeasurementType.Portion) || orders[0].Carbs < 0)
                 {
                     pending = query;
                     issues.Add($"Choose one complete saved order for {query.Name} from {query.Restaurant}.");
@@ -159,20 +166,16 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                 sources.Add(new AssistantDraftSource(order.Id, "AskPastMe", label));
                 continue;
             }
-            var names = FoodKnowledgeSearchService.Terms(query.Name);
-            var name = names[0];
-            var exactNames = names.Concat(names.Select(alias => "[meal assistant local fixture v1] " + alias)).ToArray();
-            var foods = await db.FoodItems.AsNoTracking()
-                .Where(food => food.UserId == userId && exactNames.Contains(food.Name.ToLower()))
-                .OrderBy(food => food.Id).Take(2).ToListAsync(cancellationToken);
-            if (foods.Count == 0)
+            var owned = db.FoodItems.AsNoTracking().Where(food => food.UserId == userId);
+            var foods = query.FoodItemId is Guid selectedId
+                ? await owned.Where(food => food.Id == selectedId).ToListAsync(cancellationToken)
+                : await FoodKnowledgeSearchService.FindFoods(owned, query.Name, false).Take(2).ToListAsync(cancellationToken);
+            if (query.FoodItemId.HasValue && foods.Count == 0)
+                throw new ValidationException("The selected food is no longer available. Search again.");
+            if (foods.Count > 1)
             {
-                var prefix = name + " ";
-                var suffix = " " + name;
-                var infix = " " + name + " ";
-                foods = await db.FoodItems.AsNoTracking().Where(food => food.UserId == userId &&
-                    (food.Name.ToLower().StartsWith(prefix) || food.Name.ToLower().EndsWith(suffix)
-                    || food.Name.ToLower().Contains(infix))).OrderBy(food => food.Id).Take(2).ToListAsync(cancellationToken);
+                var foodScore = AssistantFoodMatching.Score(query.Name).Compile();
+                foods = foods.Where(food => foodScore(food.Name) == foodScore(foods[0].Name)).ToList();
             }
             if (foods.Count != 1)
             {
@@ -186,6 +189,7 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
             if ((query.Unit.HasValue && query.Unit != food.MeasurementType) || quantity is null or < 0.1m
                 || (food.MeasurementType == FoodMeasurementType.Piece && decimal.Truncate(quantity.Value) != quantity.Value))
             {
+                pending = query;
                 issues.Add($"Specify a compatible quantity for {query.Name} ({food.MeasurementType}).");
                 continue;
             }
@@ -201,6 +205,7 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
 
         var items = await calculation
             .CalculateItemsAsync(inputs, null, null, cancellationToken);
-        return new AssistantDraft(items, issues, Math.Round(items.Sum(item => item.EffectiveCarbs), 2), sources, pending);
+        return new AssistantDraft(items, issues, Math.Round(items.Sum(item => item.EffectiveCarbs), 2), sources,
+            issues.Count == 1 ? pending : null);
     }
 }

@@ -308,10 +308,10 @@ public class MealAssistantTests
 
         var steps = new (string Message, AssistantSearch Search, decimal Total)[]
         {
-            ("борщ и кусочек пиццы", new([new("борщ", 1, FoodMeasurementType.Portion), new("кусочек пиццы", null, null)], "draft", "create"), 50m),
+            ("борщ и кусочек Four cheese pizza", new([new("борщ", 1, FoodMeasurementType.Portion), new("Four cheese pizza", 1, FoodMeasurementType.Piece)], "draft", "create"), 50m),
             ("добавь ещё кусочек пиццы", new([new("кусочек пиццы", null, null)], "draft", "increase"), 80m),
             ("убери борщ", new([], "draft", "remove", "борщ"), 60m),
-            ("добавь 180 г картошки", new([new("180 г картошки", null, null)], "draft", "add"), 123m),
+            ("добавь 180 г Fried potatoes", new([new("180 г Fried potatoes", null, null)], "draft", "add"), 123m),
             ("добавь ещё 20 грамм картошки", new([new("20 грамм картошки", null, null)], "draft", "increase", "картошки"), 130m),
             ("сделай картошки 150 грамм", new([new("картошки", 150, FoodMeasurementType.Grams)], "draft", "set"), 112.5m),
             ("убери один кусочек пиццы", new([new("один кусочек пиццы", null, null)], "draft", "decrease"), 82.5m),

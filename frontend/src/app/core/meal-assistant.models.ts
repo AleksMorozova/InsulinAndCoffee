@@ -1,11 +1,14 @@
 import { CalculatedMealItem, FoodMeasurementType, MealType } from './models';
 
+export interface AssistantFoodSelection { foodId: string; quantity?: number; unit?: FoodMeasurementType; }
+export interface AssistantSavedFood { id: string; name: string; unit: FoodMeasurementType; carbsPer100g: number | null; carbsPerUnit: number | null; }
+
 export interface MealAssistantResponse {
   conversationId: string;
   message: string;
   draft?: AssistantDraft | null;
   knowledge?: {
-    foods: { id: string; name: string; unit: FoodMeasurementType; carbsPer100g: number | null; carbsPerUnit: number | null }[];
+    foods: AssistantSavedFood[];
     orders: AssistantOrder[];
   } | null;
   meals: {

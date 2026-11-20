@@ -17,13 +17,15 @@ public class MealHistorySearchService(IAppDbContext db, ICurrentUser currentUser
         var meals = db.Meals.AsNoTracking().Where(meal => meal.UserId == userId);
         if (search.Foods.Length > 0)
         {
-            var terms = search.Foods.SelectMany(food => Alternatives(food.Name)).SelectMany(Terms).Distinct().ToArray();
-            meals = FilterCandidates(meals, terms);
+            meals = meals.Where(AssistantFoodMatching.Positive(CandidatePriority(search.Foods)));
         }
 
-        var candidates = await meals.OrderByDescending(meal => meal.MealTime).ThenBy(meal => meal.Id)
+        var priority = CandidatePriority(search.Foods);
+        var candidates = await meals.OrderByDescending(priority)
+            .ThenByDescending(meal => meal.MealTime).ThenBy(meal => meal.Id)
             .Take(250).Include(meal => meal.Items).ToListAsync(cancellationToken);
-        var ranked = candidates.Select(meal => (Meal: meal, Rank: Rank(meal, search.Foods)))
+        var rank = priority.Compile();
+        var ranked = candidates.Select(meal => (Meal: meal, Rank: rank(meal)))
             .Where(candidate => candidate.Rank > 0)
             .OrderByDescending(candidate => candidate.Rank)
             .ThenByDescending(candidate => candidate.Meal.MealTime)
@@ -42,13 +44,45 @@ public class MealHistorySearchService(IAppDbContext db, ICurrentUser currentUser
             byMeal[candidate.Meal.Id].ToArray())).ToArray();
     }
 
+    public static Expression<Func<Meal, int>> CandidatePriority(AssistantFoodQuery[] foods)
+    {
+        var meal = Expression.Parameter(typeof(Meal), "meal");
+        Expression matched = Expression.Constant(0);
+        Expression exact = Expression.Constant(true);
+        var exactItem = Expression.Parameter(typeof(MealItem), "exactItem");
+        Expression covered = Expression.Constant(false);
+        foreach (var food in foods)
+        {
+            var query = AssistantFoodMatching.Query(food);
+            var name = string.IsNullOrWhiteSpace(query.Restaurant) ? query.Name : query.Restaurant + " " + query.Name;
+            var itemScore = AssistantFoodMatching.On<MealItem>(item => item.FoodNameSnapshot, AssistantFoodMatching.Score(name, true));
+            Expression Has(int minimum) => Expression.Call(typeof(Enumerable), nameof(Enumerable.Any), [typeof(MealItem)],
+                Expression.Property(meal, nameof(Meal.Items)), AssistantFoodMatching.Positive(itemScore, minimum));
+            matched = Expression.Add(matched, Expression.Condition(Has(2), Expression.Constant(1), Expression.Constant(0)));
+            exact = Expression.AndAlso(exact, Has(4));
+            var exactName = AssistantFoodMatching.Normalize(name);
+            covered = Expression.OrElse(covered, Expression.Equal(
+                Expression.Call(typeof(AssistantFoodMatching), nameof(AssistantFoodMatching.Normalize), null,
+                    Expression.Property(exactItem, nameof(MealItem.FoodNameSnapshot))), Expression.Constant(exactName)));
+        }
+        exact = Expression.AndAlso(exact, Expression.Call(typeof(Enumerable), nameof(Enumerable.All), [typeof(MealItem)],
+            Expression.Property(meal, nameof(Meal.Items)), Expression.Lambda<Func<MealItem, bool>>(covered, exactItem)));
+        Expression priority = foods.Length == 0 ? Expression.Constant(1) : Expression.Condition(
+            Expression.Equal(matched, Expression.Constant(foods.Length)),
+            Expression.Condition(Expression.AndAlso(exact, Expression.Equal(
+                Expression.Property(Expression.Property(meal, nameof(Meal.Items)), "Count"), Expression.Constant(foods.Length))),
+                Expression.Constant(3), Expression.Constant(2)),
+            Expression.Condition(Expression.GreaterThan(matched, Expression.Constant(0)), Expression.Constant(1), Expression.Constant(0)));
+        return Expression.Lambda<Func<Meal, int>>(priority, meal);
+    }
+
     public static IQueryable<Meal> FilterCandidates(IQueryable<Meal> meals, string[] terms)
     {
         Expression<Func<Meal, bool>> predicate = meal => false;
         foreach (var term in terms)
         {
             Expression<Func<Meal, bool>> matches = meal =>
-                meal.Items.Any(item => item.FoodNameSnapshot.ToLower().Contains(term));
+                meal.Items.Any(item => AssistantFoodMatching.Normalize(item.FoodNameSnapshot).Contains(term));
             var body = new ReplaceParameter(matches.Parameters[0], predicate.Parameters[0]).Visit(matches.Body);
             predicate = Expression.Lambda<Func<Meal, bool>>(Expression.OrElse(predicate.Body, body), predicate.Parameters);
         }
@@ -58,16 +92,6 @@ public class MealHistorySearchService(IAppDbContext db, ICurrentUser currentUser
     private sealed class ReplaceParameter(ParameterExpression source, ParameterExpression target) : ExpressionVisitor
     {
         protected override Expression VisitParameter(ParameterExpression node) => node == source ? target : node;
-    }
-
-    private static int Rank(Meal meal, AssistantFoodQuery[] foods)
-    {
-        if (foods.Length == 0) return 1;
-        var matched = foods.Count(food => meal.Items.Any(item => Matches(food.Name, item.FoodNameSnapshot)));
-        if (matched == 0) return 0;
-        if (matched < foods.Length) return 1;
-        return meal.Items.Count == foods.Length && foods.All(food =>
-            meal.Items.Any(item => Normalize(food.Name) == Normalize(item.FoodNameSnapshot))) ? 3 : 2;
     }
 
     private static AssistantMeal Map(Meal meal, int rank, AssistantFoodQuery[] foods,
@@ -87,29 +111,6 @@ public class MealHistorySearchService(IAppDbContext db, ICurrentUser currentUser
                         item.CarbsPer100gSnapshot, item.CarbsPerUnitSnapshot) : null);
             }).ToArray(), readings, meal.Items.Count > 0);
 
-    private static string Normalize(string value) => string.Join(' ', value.Normalize(NormalizationForm.FormKC)
-        .ToLowerInvariant().Split([' ', '-', ',', '.', '’', '\''], StringSplitOptions.RemoveEmptyEntries));
-
-    private static readonly string[][] Aliases =
-    [
-        ["chicken", "курка", "курятина", "курица"],
-        ["rice", "рис"],
-        ["fried potatoes", "смажена картопля", "жареная картошка"],
-        ["wheat porridge", "пшенична каша", "пшеничная каша"],
-        ["potato pie", "пиріжок з картоплею", "пирожок с картошкой"]
-    ];
-
-    private static IEnumerable<string> Alternatives(string name)
-    {
-        var normalized = Normalize(name);
-        return Aliases.FirstOrDefault(group => group.Contains(normalized, StringComparer.Ordinal)) ?? FoodKnowledgeSearchService.Terms(normalized);
-    }
-
-    private static IEnumerable<string> Terms(string value) => Normalize(value).Split(' ', StringSplitOptions.RemoveEmptyEntries);
-    private static bool Matches(string food, string snapshot)
-    {
-        var name = Normalize(snapshot);
-        var words = Terms(name).ToHashSet(StringComparer.Ordinal);
-        return Alternatives(food).Any(alias => Terms(alias).All(words.Contains));
-    }
+    private static string Normalize(string value) => AssistantFoodMatching.Normalize(value);
+    private static bool Matches(string food, string snapshot) => AssistantFoodMatching.Score(food, true).Compile()(snapshot) >= 2;
 }

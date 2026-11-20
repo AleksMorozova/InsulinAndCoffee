@@ -29,6 +29,36 @@ describe('MealAssistantComponent', () => {
     fixture = TestBed.createComponent(MealAssistantComponent);
   });
 
+  it('selects a saved candidate by id and retries only that selection with the same request id', () => {
+    const food = { id: 'chosen-food', name: 'Salad', unit: 'Portion' as const, carbsPer100g: null, carbsPerUnit: 20 };
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => new Error('Offline')));
+    const component = fixture.componentInstance;
+    component.candidateQuantities[food.id] = 2;
+    component.selectFood(food);
+    const first = api.sendMealAssistantMessage.calls.mostRecent().args;
+    expect(first[3]).toEqual({ foodId: food.id, quantity: 2, unit: 'Portion' });
+    expect(component.message).toBe('Use Salad');
+
+    api.sendMealAssistantMessage.and.returnValue(of(response));
+    component.send();
+    expect(api.sendMealAssistantMessage.calls.mostRecent().args).toEqual(first);
+    expect(component.turns.length).toBe(1);
+  });
+
+  it('creates a new request when the user changes a failed candidate quantity', () => {
+    const food = { id: 'chosen-food', name: 'Salad', unit: 'Portion' as const, carbsPer100g: null, carbsPerUnit: 20 };
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => new Error('Offline')));
+    const component = fixture.componentInstance;
+    component.candidateQuantities[food.id] = 2;
+    component.selectFood(food);
+    const first = api.sendMealAssistantMessage.calls.mostRecent().args;
+    component.candidateQuantities[food.id] = 3;
+    component.selectFood(food);
+    const second = api.sendMealAssistantMessage.calls.mostRecent().args;
+    expect(second[2]).not.toBe(first[2]);
+    expect(second[3]?.quantity).toBe(3);
+  });
+
   it('shows progress, renders saved facts and submits follow-ups with the same conversation', () => {
     const pending = new Subject<MealAssistantResponse>();
     api.sendMealAssistantMessage.and.returnValue(pending);
