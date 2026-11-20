@@ -1,32 +1,14 @@
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
+using InsulinAndCoffee.Domain.Entities;
+using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
 public class FoodKnowledgeSearchService(IAppDbContext db, ICurrentUser currentUser)
 {
-    private static readonly string[][] Aliases =
-    [
-        ["sushi", "суши", "суші"],
-        ["roll", "rolls", "ролы", "роллы", "роли", "роли́"],
-        ["shawarma", "шаурма", "шаурму", "шаверма", "шаверму"],
-        ["borscht", "борщ", "борща", "борщу"],
-        ["porridge", "каша", "каши", "каші"],
-        ["bread", "хлеб", "хлеба", "хліб", "хліба"],
-        ["pizza", "пицца", "піца", "пиццу", "піцу", "пиццы", "піци"],
-        ["potatoes", "potato", "картошка", "картошки", "картошку", "картопля", "картоплі", "картоплю"],
-        ["california", "калифорния", "каліфорнія", "california roll", "california sushi", "калифорнию", "каліфорнію"],
-        ["le grill", "ле гриль", "ле грілль"],
-        ["huli huli", "хули хули", "хулі хулі"]
-    ];
-
-    internal static string[] Terms(string name)
-    {
-        var normalized = string.Join(' ', name.Normalize(System.Text.NormalizationForm.FormKC).ToLowerInvariant()
-            .Split([' ', '-', ',', '.', '?', '!', '\t'], StringSplitOptions.RemoveEmptyEntries));
-        return Aliases.FirstOrDefault(group => group.Contains(normalized)) ?? [normalized];
-    }
+    internal static string[] Terms(string name) => AssistantFoodMatching.Terms(name);
 
     internal static string LookupName(string message)
     {
@@ -39,10 +21,26 @@ public class FoodKnowledgeSearchService(IAppDbContext db, ICurrentUser currentUs
 
     internal static bool IsKnownTerm(string message) => Terms(message).Length > 1;
 
-    private static IEnumerable<string> DiscoveryTerms(string name)
+    internal static IQueryable<FoodItem> FindFoods(IQueryable<FoodItem> foods, string name, bool discovery)
     {
-        var terms = Terms(name);
-        return terms[0] is "sushi" or "roll" ? terms.Concat(Terms(terms[0] == "sushi" ? "roll" : "sushi")) : terms;
+        var score = AssistantFoodMatching.On<FoodItem>(food => food.Name, AssistantFoodMatching.Score(name, discovery));
+        return foods.Where(AssistantFoodMatching.Positive(score, discovery ? 1 : 3)).OrderByDescending(score).ThenBy(food => food.Id);
+    }
+
+    internal static IQueryable<DeliveryMeal> FindOrders(IQueryable<DeliveryMeal> orders, AssistantFoodQuery food, bool discovery)
+    {
+        Expression<Func<DeliveryMeal, int>> place = order => 0;
+        if (!string.IsNullOrWhiteSpace(food.Restaurant))
+        {
+            place = AssistantFoodMatching.On<DeliveryMeal>(order => order.PlaceName, AssistantFoodMatching.Score(food.Restaurant));
+            orders = orders.Where(AssistantFoodMatching.Positive(place, 3));
+        }
+        if (string.IsNullOrWhiteSpace(food.Name)) return orders.OrderByDescending(place).ThenBy(order => order.Id);
+        var dish = AssistantFoodMatching.On<DeliveryMeal>(order => order.DishName, AssistantFoodMatching.Score(food.Name, discovery));
+        if (!discovery) return orders.Where(AssistantFoodMatching.Positive(dish, 3)).OrderByDescending(place).ThenByDescending(dish).ThenBy(order => order.Id);
+        var text = AssistantFoodMatching.On<DeliveryMeal>(order => order.PlaceName + " " + order.DishName + " " + order.PortionDescription + " " + order.Tags + " " + (order.Notes ?? ""),
+            AssistantFoodMatching.Score(food.Name, true));
+        return orders.Where(AssistantFoodMatching.Positive(text)).OrderByDescending(place).ThenByDescending(dish).ThenBy(order => order.Id);
     }
 
     public async Task<AssistantKnowledge> SearchAsync(AssistantFoodQuery[] foods, CancellationToken cancellationToken)
@@ -50,23 +48,19 @@ public class FoodKnowledgeSearchService(IAppDbContext db, ICurrentUser currentUs
         var owner = currentUser.UserId;
         var saved = new List<AssistantSavedFood>();
         var orders = new List<AssistantOrder>();
-        foreach (var food in foods)
+        foreach (var original in foods)
         {
-            var restaurants = string.IsNullOrWhiteSpace(food.Restaurant) ? [] : Terms(food.Restaurant);
-            foreach (var term in DiscoveryTerms(LookupName(food.Name)))
+            var food = AssistantFoodMatching.Query(original with { Name = LookupName(original.Name) });
+            var searches = food.Name.Length > 0 && Terms(food.Name)[0] is "sushi" or "roll"
+                ? new[] { food.Name, Terms(food.Name)[0] == "sushi" ? "roll" : "sushi" } : [food.Name];
+            foreach (var name in searches)
             {
-                if (restaurants.Length == 0) saved.AddRange(await db.FoodItems.AsNoTracking()
-                    .Where(item => item.UserId == owner && item.Name.ToLower().Contains(term))
-                    .OrderByDescending(item => item.Name.ToLower() == term).ThenBy(item => item.Name).ThenBy(item => item.Id)
-                    .Take(5).Select(item => new AssistantSavedFood(item.Id, item.Name, item.MeasurementType, item.CarbsPer100g, item.CarbsPerUnit))
-                    .ToListAsync(cancellationToken));
-                orders.AddRange(await db.DeliveryMeals.AsNoTracking()
-                    .Where(item => item.UserId == owner && (restaurants.Length == 0 || restaurants.Contains(item.PlaceName.ToLower())) && (item.PlaceName.ToLower().Contains(term)
-                        || item.DishName.ToLower().Contains(term) || item.PortionDescription.ToLower().Contains(term)
-                        || item.Tags.ToLower().Contains(term) || (item.Notes != null && item.Notes.ToLower().Contains(term))))
-                    .OrderByDescending(item => item.PlaceName.ToLower() == term || item.DishName.ToLower() == term)
-                    .ThenByDescending(item => item.LastUsedAt).ThenBy(item => item.Id).Take(5)
-                    .Select(item => new AssistantOrder(item.Id, item.PlaceName, item.DishName, item.PortionDescription, item.Carbs, item.LastUsedAt))
+                if (string.IsNullOrWhiteSpace(food.Restaurant))
+                    saved.AddRange(await FindFoods(db.FoodItems.AsNoTracking().Where(item => item.UserId == owner), name, true)
+                        .Take(8).Select(item => new AssistantSavedFood(item.Id, item.Name, item.MeasurementType, item.CarbsPer100g, item.CarbsPerUnit))
+                        .ToListAsync(cancellationToken));
+                orders.AddRange(await FindOrders(db.DeliveryMeals.AsNoTracking().Where(item => item.UserId == owner), food with { Name = name }, true)
+                    .Take(8).Select(item => new AssistantOrder(item.Id, item.PlaceName, item.DishName, item.PortionDescription, item.Carbs, item.LastUsedAt))
                     .ToListAsync(cancellationToken));
             }
         }

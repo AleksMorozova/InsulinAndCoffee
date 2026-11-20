@@ -1,4 +1,6 @@
 using InsulinAndCoffee.Application.Abstractions;
+using InsulinAndCoffee.Application.Services;
+using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 using InsulinAndCoffee.Domain.Entities;
 using InsulinAndCoffee.Domain.Enums;
 using InsulinAndCoffee.Infrastructure.Persistence.Seeding;
@@ -23,6 +25,20 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.HasDbFunction(typeof(AssistantFoodMatching).GetMethod(nameof(AssistantFoodMatching.Normalize), [typeof(string)])
+            ?? throw new InvalidOperationException("Food name normalization is unavailable."))
+            .HasTranslation(arguments =>
+            {
+                SqlExpression Text(string value) => new SqlConstantExpression(value, arguments[0].TypeMapping);
+                SqlExpression Call(string name, params SqlExpression[] values) =>
+                    new SqlFunctionExpression(name, values, nullable: true,
+                        argumentsPropagateNullability: values.Select(_ => true), typeof(string), arguments[0].TypeMapping);
+                var lower = Call("lower", Call("normalize", arguments[0], new SqlFragmentExpression("NFKC")));
+                var fixture = Call("replace", lower, Text("[meal assistant local fixture v1] "), Text(""));
+                var apostrophe = Call("replace", fixture, Text("’"), Text("'"));
+                return Call("btrim", Call("regexp_replace", apostrophe, Text(AssistantFoodMatching.Separators), Text(" "), Text("g")));
+            });
 
         modelBuilder.HasPostgresEnum<MealType>();
         modelBuilder.HasPostgresEnum<ReadingType>();

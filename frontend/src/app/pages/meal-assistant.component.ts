@@ -6,7 +6,7 @@ import { Router, RouterLink } from '@angular/router';
 import { finalize, firstValueFrom } from 'rxjs';
 import { getApiErrorMessage, isApiError } from '../core/api-error';
 import { ApiService } from '../core/api.service';
-import { AssistantConversation, AssistantDraft, AssistantOrder, AssistantTurn, assistantFoodName } from '../core/meal-assistant.models';
+import { AssistantConversation, AssistantDraft, AssistantFoodSelection, AssistantSavedFood, AssistantOrder, AssistantTurn, assistantFoodName } from '../core/meal-assistant.models';
 
 @Component({
   standalone: true,
@@ -66,7 +66,11 @@ import { AssistantConversation, AssistantDraft, AssistantOrder, AssistantTurn, a
           </div>
           @if (turn.answer.draft?.items?.length && turn.answer.knowledge; as alternatives) {
             <details class="source-choices"><summary>{{ draftLabel(turn.question, 'sources') }}</summary>
-            @for (food of alternatives.foods; track food.id) { <p>{{ displayFoodName(food.name) }}</p> }
+            @for (food of alternatives.foods; track food.id) {
+              <p>{{ displayFoodName(food.name) }} · {{ unitLabel(food.unit) }}</p>
+              <label>Quantity ({{ unitLabel(food.unit) }}) <input type="number" min="0.1" [step]="food.unit === 'Piece' ? 1 : 0.1" [(ngModel)]="candidateQuantities[food.id]"></label>
+              <button type="button" [disabled]="loading" (click)="selectFood(food)">Choose this food</button>
+            }
             @for (order of alternatives.orders; track order.id) { <p>{{ order.placeName }} · {{ order.dishName }}</p> }
             </details>
           }
@@ -79,6 +83,8 @@ import { AssistantConversation, AssistantDraft, AssistantOrder, AssistantTurn, a
               } @else if ((food.unit === 'Grams' ? food.carbsPer100g : food.carbsPerUnit) === 0) {
                 <p>0 g carbs per {{ food.unit === 'Grams' ? '100 g' : unitLabel(food.unit) }}</p>
               } @else { <p>Carbohydrate value unavailable.</p> }
+              <label>Quantity ({{ unitLabel(food.unit) }}) <input type="number" min="0.1" [step]="food.unit === 'Piece' ? 1 : 0.1" [(ngModel)]="candidateQuantities[food.id]"></label>
+              <button type="button" [disabled]="loading" (click)="selectFood(food)">Choose this food</button>
             </section>
           }
           @for (order of (!turn.answer.draft?.items?.length ? turn.answer.knowledge?.orders : null) ?? []; track order.id) {
@@ -273,7 +279,9 @@ export class MealAssistantComponent {
   turns: AssistantTurn[] = [];
   conversationId: string | null = null;
   message = '';
-  failedSend?: { question: string; conversationId: string | null; requestId: string };
+  failedSend?: { question: string; conversationId: string | null; requestId: string; selection?: AssistantFoodSelection };
+  candidateQuantities: Record<string, number | undefined> = {};
+  private selectedFood?: AssistantFoodSelection;
   loading = false;
   sending = '';
   drawerOpen = false;
@@ -377,6 +385,13 @@ export class MealAssistantComponent {
     }
   }
 
+  selectFood(food: AssistantSavedFood) {
+    if (this.loading || this.sessionExpired) return;
+    this.selectedFood = { foodId: food.id, quantity: this.candidateQuantities[food.id], unit: food.unit };
+    this.message = 'Use ' + this.displayFoodName(food.name);
+    this.send();
+  }
+
   send() {
     const question = this.message.trim();
     if (!question || this.loading || this.sessionExpired) return;
@@ -386,8 +401,13 @@ export class MealAssistantComponent {
     this.loading = true;
     this.error = '';
     const pending = this.failedSend?.question === question && this.failedSend.conversationId === this.conversationId
-      ? this.failedSend : { question, conversationId: this.conversationId, requestId: crypto.randomUUID() };
-    this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId).pipe(
+      && (!this.selectedFood || JSON.stringify(this.selectedFood) === JSON.stringify(this.failedSend.selection))
+      ? this.failedSend : { question, conversationId: this.conversationId, requestId: crypto.randomUUID(), selection: this.selectedFood };
+    const request = pending.selection
+      ? this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId, pending.selection)
+      : this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId);
+    this.selectedFood = undefined;
+    request.pipe(
       takeUntilDestroyed(this.destroyRef),
       finalize(() => { this.loading = false; this.sending = ''; })
     ).subscribe({

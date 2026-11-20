@@ -256,6 +256,47 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
         Assert.Equal(HttpStatusCode.NotFound, delete.StatusCode);
     }
 
+    [Fact]
+    public async Task AssistantSelection_UsesAuthorizedFoodAndIgnoresClientCarbohydrateValues()
+    {
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(client, "test", "test"));
+        using var created = await client.PostAsJsonAsync("/api/foods", new
+        {
+            name = "Selected salad " + Guid.NewGuid().ToString("N"), measurementType = "Portion", carbsPerUnit = 5m,
+            proteinPer100g = 0m, fatPer100g = 0m, caloriesPer100g = 0m, isFavorite = false
+        });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var food = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var foodId = food.RootElement.GetProperty("id").GetGuid();
+        using var response = await client.PostAsJsonAsync("/api/meal-assistant/messages", new
+        {
+            message = "Use this saved food", requestId = Guid.NewGuid(),
+            selection = new { foodId, quantity = 2m, unit = "Portion", carbsPerUnit = 999999m }
+        });
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        using var answer = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(10m, answer.RootElement.GetProperty("draft").GetProperty("totalCarbs").GetDecimal());
+        Assert.Equal(foodId, answer.RootElement.GetProperty("draft").GetProperty("items")[0].GetProperty("foodItemId").GetGuid());
+    }
+
+    [Fact]
+    public async Task AssistantSelection_UnavailableId_ReturnsProblemDetails400()
+    {
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(client, "test", "test"));
+        using var response = await client.PostAsJsonAsync("/api/meal-assistant/messages", new
+        {
+            message = "Use this saved food", requestId = Guid.NewGuid(), selection = new { foodId = Guid.NewGuid(), quantity = 1m }
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var problem = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        Assert.Equal(400, problem.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal("Validation failed", problem.RootElement.GetProperty("title").GetString());
+        Assert.Contains("no longer available", problem.RootElement.GetProperty("detail").GetString());
+        Assert.True(problem.RootElement.TryGetProperty("traceId", out _));
+    }
+
     private static async Task<string> LoginAsync(HttpClient client, string username, string password)
     {
         var response = await client.PostAsJsonAsync("/api/auth/login", new { username, password });

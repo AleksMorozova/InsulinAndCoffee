@@ -2,8 +2,9 @@ using InsulinAndCoffee.Domain.Enums;
 
 namespace InsulinAndCoffee.Application.Dtos;
 
-public record MealAssistantRequest(Guid? ConversationId, string Message, Guid? RequestId = null);
-public record AssistantFoodQuery(string Name, decimal? Quantity, FoodMeasurementType? Unit, string? Restaurant = null);
+public record MealAssistantRequest(Guid? ConversationId, string Message, Guid? RequestId = null, AssistantFoodSelection? Selection = null);
+public record AssistantFoodSelection(Guid FoodId, decimal? Quantity = null, FoodMeasurementType? Unit = null);
+public record AssistantFoodQuery(string Name, decimal? Quantity, FoodMeasurementType? Unit, string? Restaurant = null, Guid? FoodItemId = null);
 public record AssistantSearch(AssistantFoodQuery[] Foods, string Intent = "history", string? Operation = null, string? Target = null);
 public record AssistantMealItem(string Name, decimal Quantity, FoodMeasurementType Unit, decimal Carbs, decimal? RequestedQuantity, FoodMeasurementType? RequestedUnit, decimal? EstimatedCarbs);
 public record AssistantMeal(Guid Id, DateTimeOffset MealTime, MealType MealType, decimal TotalCarbs,
