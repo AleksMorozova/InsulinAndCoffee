@@ -151,8 +151,18 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Health_WithoutToken_ReturnsHealthy()
+    {
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/health");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
+        Assert.Empty(response.Headers.WwwAuthenticate);
+    }
+
     [Theory]
-    [InlineData("/health")]
     [InlineData("/api/auth/me")]
     [InlineData("/api/dashboard/today")]
     [InlineData("/api/meals")]
@@ -164,6 +174,7 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
     {
         var response = await factory.CreateClient().GetAsync(path);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Contains(response.Headers.WwwAuthenticate, challenge => challenge.Scheme == "Bearer");
     }
 
     [Fact]
