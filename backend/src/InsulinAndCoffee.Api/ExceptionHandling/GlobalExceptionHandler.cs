@@ -14,6 +14,12 @@ public class GlobalExceptionHandler(
     {
         var problemDetails = exception switch
         {
+            AssistantConflictException ex => new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Assistant request conflict",
+                Detail = ex.Message
+            },
             MealAssistantUnavailableException ex => new ProblemDetails
             {
                 Status = ex.Code == "assistant_timeout" ? StatusCodes.Status504GatewayTimeout : StatusCodes.Status503ServiceUnavailable,
@@ -72,6 +78,11 @@ public class GlobalExceptionHandler(
 
         if (exception is MealAssistantUnavailableException assistantError)
             problemDetails.Extensions["code"] = assistantError.Code;
+        if (exception is AssistantConflictException conflict)
+        {
+            problemDetails.Extensions["code"] = conflict.Code;
+            if (conflict.CurrentDraftVersion is long version) problemDetails.Extensions["currentDraftVersion"] = version;
+        }
         problemDetails.Instance = httpContext.Request.Path;
         problemDetails.Extensions["traceId"] = httpContext.TraceIdentifier;
 

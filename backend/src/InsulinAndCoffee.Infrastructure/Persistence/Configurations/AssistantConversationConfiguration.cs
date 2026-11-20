@@ -9,7 +9,22 @@ public class AssistantConversationConfiguration : IEntityTypeConfiguration<Assis
     public void Configure(EntityTypeBuilder<AssistantConversation> entity)
     {
         entity.HasOne<User>().WithMany().HasForeignKey(conversation => conversation.UserId);
+        entity.Property(conversation => conversation.DraftVersion).IsConcurrencyToken().HasDefaultValue(0L);
+        entity.Property(conversation => conversation.Revision).IsConcurrencyToken().HasDefaultValue(0L);
         entity.HasMany(conversation => conversation.Messages).WithOne().HasForeignKey(message => message.ConversationId);
+    }
+}
+
+public class AssistantRequestReceiptConfiguration : IEntityTypeConfiguration<AssistantRequestReceipt>
+{
+    public void Configure(EntityTypeBuilder<AssistantRequestReceipt> entity)
+    {
+        entity.HasKey(receipt => new { receipt.UserId, receipt.RequestId });
+        entity.HasOne<User>().WithMany().HasForeignKey(receipt => receipt.UserId);
+        entity.Property(receipt => receipt.PayloadHash).HasMaxLength(64).IsRequired();
+        entity.Property(receipt => receipt.ResponseJson).IsRequired();
+        entity.HasIndex(receipt => receipt.ConversationId);
+        // Keep receipts after explicit conversation deletion; replay then returns 404, never recreates it.
     }
 }
 

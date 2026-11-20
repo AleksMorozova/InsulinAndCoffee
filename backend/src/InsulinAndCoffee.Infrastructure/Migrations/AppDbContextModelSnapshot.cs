@@ -32,6 +32,21 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("DraftJson")
+                        .HasColumnType("text");
+
+                    b.Property<long>("DraftVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -75,6 +90,36 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                     b.HasIndex("ConversationId", "CreatedAt");
 
                     b.ToTable("AssistantMessages");
+                });
+
+            modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.AssistantRequestReceipt", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("ResponseJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("UserId", "RequestId");
+
+                    b.HasIndex("ConversationId");
+
+                    b.ToTable("AssistantRequestReceipts");
                 });
 
             modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.DeliveryMeal", b =>
@@ -733,6 +778,15 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                     b.HasOne("InsulinAndCoffee.Domain.Entities.AssistantConversation", null)
                         .WithMany("Messages")
                         .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.AssistantRequestReceipt", b =>
+                {
+                    b.HasOne("InsulinAndCoffee.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

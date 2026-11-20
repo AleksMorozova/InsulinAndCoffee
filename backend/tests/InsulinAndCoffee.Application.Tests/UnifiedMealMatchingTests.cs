@@ -171,7 +171,7 @@ public class UnifiedMealMatchingTests
         db.FoodItems.Add(food);
         await db.SaveChangesAsync(CancellationToken.None);
         var result = await Service(db, new Model(new([]))).SendAsync(
-            new(null, "Choose saved California", Selection: new(food.Id)), CancellationToken.None);
+            new(null, "Choose saved California", Guid.NewGuid(), Selection: new(food.Id)), CancellationToken.None);
         var item = Assert.Single(Assert.IsType<AssistantDraft>(result.Draft).Items);
         Assert.Equal("California 60 g", item.FoodName);
         Assert.Equal(FoodMeasurementType.Portion, item.MeasurementType);
@@ -238,10 +238,10 @@ public class UnifiedMealMatchingTests
         await db.SaveChangesAsync(CancellationToken.None);
         var model = new Model(new([new("Salad", 2m, FoodMeasurementType.Portion)], "draft"));
         var service = Service(db, model);
-        var first = await service.SendAsync(new(null, "Plan two portions of salad"), CancellationToken.None);
+        var first = await service.SendAsync(new(null, "Plan two portions of salad", Guid.NewGuid()), CancellationToken.None);
         Assert.Equal(2, first.Knowledge?.Foods.Count);
         Assert.Empty(Assert.IsType<AssistantDraft>(first.Draft).Items);
-        var result = await service.SendAsync(new(first.ConversationId, "Choose this salad", Selection: new(selected.Id)), CancellationToken.None);
+        var result = await service.SendAsync(new(first.ConversationId, "Choose this salad", Guid.NewGuid(), Selection: new(selected.Id), ExpectedDraftVersion: first.DraftVersion), CancellationToken.None);
         Assert.Empty(Assert.IsType<AssistantDraft>(result.Draft).Issues);
         Assert.Equal(40m, result.Draft.TotalCarbs);
         Assert.Equal(1, model.Calls);
@@ -256,11 +256,11 @@ public class UnifiedMealMatchingTests
         await db.SaveChangesAsync(CancellationToken.None);
         var model = new Model(new([new("Salad", 60m, FoodMeasurementType.Grams)], "draft"));
         var service = Service(db, model);
-        var first = await service.SendAsync(new(null, "Plan 60 grams of salad"), CancellationToken.None);
+        var first = await service.SendAsync(new(null, "Plan 60 grams of salad", Guid.NewGuid()), CancellationToken.None);
         await Assert.ThrowsAsync<ValidationException>(() => service.SendAsync(
             new(first.ConversationId, "Choose this salad", Selection: new(selected.Id)), CancellationToken.None));
         Assert.Equal(2, await db.AssistantMessages.CountAsync(CancellationToken.None));
-        var result = await service.SendAsync(new(first.ConversationId, "Choose two portions", Selection: new(selected.Id, 2m)), CancellationToken.None);
+        var result = await service.SendAsync(new(first.ConversationId, "Choose two portions", Guid.NewGuid(), Selection: new(selected.Id, 2m), ExpectedDraftVersion: first.DraftVersion), CancellationToken.None);
         Assert.Equal(40m, Assert.IsType<AssistantDraft>(result.Draft).TotalCarbs);
         Assert.Equal(1, model.Calls);
     }
@@ -361,7 +361,7 @@ public class UnifiedMealMatchingTests
         var result = await service.SendAsync(new(null, "  RED  LENTIL SOUP  "), CancellationToken.None);
         Assert.Single(Assert.IsType<AssistantKnowledge>(result.Knowledge).Foods);
         Assert.Equal(0, model.Calls);
-        await service.SendAsync(new(result.ConversationId, "add another 30 g"), CancellationToken.None);
+        await service.SendAsync(new(result.ConversationId, "add another 30 g", Guid.NewGuid(), ExpectedDraftVersion: result.DraftVersion), CancellationToken.None);
         Assert.Equal(1, model.Calls);
     }
 

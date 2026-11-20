@@ -4,6 +4,9 @@ export interface AssistantFoodSelection { foodId: string; quantity?: number; uni
 export interface AssistantSavedFood { id: string; name: string; unit: FoodMeasurementType; carbsPer100g: number | null; carbsPerUnit: number | null; }
 
 export interface MealAssistantResponse {
+  draftVersion?: number;
+  requestId?: string | null;
+  replayed?: boolean;
   conversationId: string;
   message: string;
   draft?: AssistantDraft | null;
@@ -33,6 +36,8 @@ export interface MealAssistantResponse {
     }[];
   }[];
 }
+
+export interface AssistantDraftState { draftVersion: number; draft: AssistantDraft | null; }
 
 export interface AssistantDraft {
   editFeedback?: string | null;

@@ -297,6 +297,40 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
         Assert.True(problem.RootElement.TryGetProperty("traceId", out _));
     }
 
+    [Fact]
+    public async Task AssistantMutation_StaleVersion_ReturnsMachineReadableConflictWithoutChangingDraft()
+    {
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(client, "test", "test"));
+        using var created = await client.PostAsJsonAsync("/api/foods", new
+        {
+            name = "Versioned food " + Guid.NewGuid().ToString("N"), measurementType = "Portion", carbsPerUnit = 5m,
+            proteinPer100g = 0m, fatPer100g = 0m, caloriesPer100g = 0m, isFavorite = false
+        });
+        using var food = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var foodId = food.RootElement.GetProperty("id").GetGuid();
+        using var initial = await client.PostAsJsonAsync("/api/meal-assistant/messages", new
+        { message = "Choose this food", requestId = Guid.NewGuid(), selection = new { foodId, quantity = 1m }, expectedDraftVersion = 0 });
+        Assert.Equal(HttpStatusCode.OK, initial.StatusCode);
+        using var answer = JsonDocument.Parse(await initial.Content.ReadAsStringAsync());
+        var conversationId = answer.RootElement.GetProperty("conversationId").GetGuid();
+        Assert.Equal(1, answer.RootElement.GetProperty("draftVersion").GetInt64());
+
+        using var stale = await client.PostAsJsonAsync("/api/meal-assistant/messages", new
+        { conversationId, message = "Add another food", requestId = Guid.NewGuid(), selection = new { foodId, quantity = 1m }, expectedDraftVersion = 0 });
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        using var problem = JsonDocument.Parse(await stale.Content.ReadAsStringAsync());
+        Assert.Equal(409, problem.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal("Assistant request conflict", problem.RootElement.GetProperty("title").GetString());
+        Assert.Equal("draft_version_conflict", problem.RootElement.GetProperty("code").GetString());
+        Assert.Equal(1, problem.RootElement.GetProperty("currentDraftVersion").GetInt64());
+        Assert.True(problem.RootElement.TryGetProperty("detail", out _));
+        Assert.True(problem.RootElement.TryGetProperty("traceId", out _));
+        using var state = JsonDocument.Parse(await client.GetStringAsync($"/api/meal-assistant/conversations/{conversationId}/draft-state"));
+        Assert.Equal(1, state.RootElement.GetProperty("draftVersion").GetInt64());
+        Assert.Equal(5m, state.RootElement.GetProperty("draft").GetProperty("totalCarbs").GetDecimal());
+    }
+
     private static async Task<string> LoginAsync(HttpClient client, string username, string password)
     {
         var response = await client.PostAsJsonAsync("/api/auth/login", new { username, password });
