@@ -151,7 +151,18 @@ app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();
 
-app.MapHealthChecks("/health").AllowAnonymous();
+var healthOptions = new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions();
+var writeHealthResponse = healthOptions.ResponseWriter;
+healthOptions.ResponseWriter = async (context, report) =>
+{
+    if (string.Equals(app.Configuration["IS_PULL_REQUEST"], "true", StringComparison.OrdinalIgnoreCase)
+        && app.Configuration["RENDER_GIT_COMMIT"] is { Length: 40 } commit
+        && commit.All(Uri.IsHexDigit))
+        context.Response.Headers["X-Preview-Commit"] = commit;
+
+    await writeHealthResponse(context, report);
+};
+app.MapHealthChecks("/health", healthOptions).AllowAnonymous();
 
 app.MapControllers();
 

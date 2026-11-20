@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Configuration;
 
 namespace InsulinAndCoffee.Application.Tests;
 
@@ -160,6 +161,25 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
         Assert.Empty(response.Headers.WwwAuthenticate);
+    }
+
+    [Theory]
+    [InlineData("true", true)]
+    [InlineData("false", false)]
+    public async Task Health_ReportsCommitOnlyForRenderPreview(string isPreview, bool expectCommit)
+    {
+        const string commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        using var previewFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+                new Dictionary<string, string?> { ["IS_PULL_REQUEST"] = isPreview, ["RENDER_GIT_COMMIT"] = commit })));
+        using var client = previewFactory.CreateClient();
+        using var response = await client.GetAsync("/health");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
+        Assert.Equal(expectCommit, response.Headers.Contains("X-Preview-Commit"));
+        if (expectCommit) Assert.Equal(commit, Assert.Single(response.Headers.GetValues("X-Preview-Commit")));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/foods")).StatusCode);
     }
 
     [Theory]
