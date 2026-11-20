@@ -1,11 +1,11 @@
 import { HttpClient, HttpContext, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { map } from 'rxjs';
+import { map, timeout } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { SKIP_GLOBAL_ERROR_NOTIFICATION } from './http-error-context';
 import { CalculatedMealItem, Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, FoodMeasurementType, LoginAttempt, LoginAttemptStats, MealCalculation, MealCarbPreview, MealDetail, MealItemInput, MealSummary, MealType, PaginatedResult, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
 
-import { AssistantConversation, AssistantFoodSelection, AssistantTurn, MealAssistantResponse } from './meal-assistant.models';
+import { AssistantConversation, AssistantDraftState, AssistantFoodSelection, AssistantTurn, MealAssistantResponse } from './meal-assistant.models';
 
 export interface UpsertFoodRequest {
   name: string;
@@ -83,8 +83,14 @@ export class ApiService {
 
   constructor(private readonly http: HttpClient) {}
 
-  sendMealAssistantMessage(conversationId: string | null, message: string, requestId: string, selection?: AssistantFoodSelection) {
-    return this.http.post<MealAssistantResponse>(`${this.apiUrl}/meal-assistant/messages`, { conversationId, message, requestId, ...(selection ? { selection } : {}) }, { context: this.localErrorContext });
+  sendMealAssistantMessage(conversationId: string | null, message: string, requestId: string, selection?: AssistantFoodSelection, expectedDraftVersion?: number) {
+    return this.http.post<MealAssistantResponse>(`${this.apiUrl}/meal-assistant/messages`, { conversationId, message, requestId,
+      ...(selection ? { selection } : {}), ...(expectedDraftVersion !== undefined ? { expectedDraftVersion } : {})
+    }, { context: this.localErrorContext }).pipe(timeout(90000));
+  }
+
+  getMealAssistantDraftState(id: string) {
+    return this.http.get<AssistantDraftState>(`${this.apiUrl}/meal-assistant/conversations/${id}/draft-state`, { context: this.localErrorContext });
   }
 
   getMealAssistantConversations() {

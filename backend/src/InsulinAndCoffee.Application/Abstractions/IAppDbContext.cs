@@ -7,6 +7,7 @@ public interface IAppDbContext
 {
     DbSet<AssistantConversation> AssistantConversations { get; }
     DbSet<AssistantMessage> AssistantMessages { get; }
+    DbSet<AssistantRequestReceipt> AssistantRequestReceipts { get; }
     DbSet<User> Users { get; }
     DbSet<DiabetesSettings> DiabetesSettings { get; }
     DbSet<FoodItem> FoodItems { get; }
@@ -18,4 +19,5 @@ public interface IAppDbContext
     DbSet<LoginAttempt> LoginAttempts { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+    void DiscardChanges();
 }

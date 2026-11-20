@@ -153,7 +153,7 @@ public class MealAssistantTests
         var service = new MealAssistantService(db, user, model, Search(db), TimeProvider.System,
             NullLogger<MealAssistantService>.Instance, builder);
 
-        var answer = await service.SendAsync(new(null, "I want borscht and pizza, plus salad and cake."), CancellationToken.None);
+        var answer = await service.SendAsync(new(null, "I want borscht and pizza, plus salad and cake.", Guid.NewGuid()), CancellationToken.None);
         var draft = Assert.IsType<AssistantDraft>(answer.Draft);
         Assert.Equal(60m, draft.TotalCarbs);
         Assert.Equal(2, draft.Items.Count);
@@ -270,16 +270,16 @@ public class MealAssistantTests
         var assistant = new MealAssistantService(db, user, model, Search(db), TimeProvider.System,
             NullLogger<MealAssistantService>.Instance, builder);
 
-        var first = await assistant.SendAsync(new(null, "Хочу борщ с кусочком хлеба"), CancellationToken.None);
+        var first = await assistant.SendAsync(new(null, "Хочу борщ с кусочком хлеба", Guid.NewGuid()), CancellationToken.None);
         Assert.Equal(35m, first.Draft?.TotalCarbs);
         model.Result = new([new("два кусочка хлеба", null, null)], "draft", "set", "хлеб");
-        var second = await assistant.SendAsync(new(first.ConversationId, "А если два кусочка хлеба?"), CancellationToken.None);
+        var second = await assistant.SendAsync(new(first.ConversationId, "А если два кусочка хлеба?", Guid.NewGuid(), ExpectedDraftVersion: first.DraftVersion), CancellationToken.None);
         Assert.Equal(50m, second.Draft?.TotalCarbs);
         model.Result = new([], "draft", "remove", "борщ");
-        var third = await assistant.SendAsync(new(first.ConversationId, "Убери борщ."), CancellationToken.None);
+        var third = await assistant.SendAsync(new(first.ConversationId, "Убери борщ.", Guid.NewGuid(), ExpectedDraftVersion: second.DraftVersion), CancellationToken.None);
         Assert.Equal(30m, third.Draft?.TotalCarbs);
         model.Result = new([new("шаурма", null, null, "Huli Huli")], "draft", "add");
-        var request = new MealAssistantRequest(first.ConversationId, "Добавь шаурму из Huli Huli.", Guid.NewGuid());
+        var request = new MealAssistantRequest(first.ConversationId, "Добавь шаурму из Huli Huli.", Guid.NewGuid(), ExpectedDraftVersion: third.DraftVersion);
         var fourth = await assistant.SendAsync(request, CancellationToken.None);
         Assert.Equal(125m, fourth.Draft?.TotalCarbs);
         Assert.Empty(fourth.Meals);
@@ -318,12 +318,14 @@ public class MealAssistantTests
             ("убери картошку", new([], "draft", "remove", "картошку"), 30m)
         };
         Guid? conversation = null;
+        long version = 0;
         foreach (var step in steps)
         {
             model.Result = step.Search;
-            var request = new MealAssistantRequest(conversation, step.Message, Guid.NewGuid());
+            var request = new MealAssistantRequest(conversation, step.Message, Guid.NewGuid(), ExpectedDraftVersion: version);
             var reply = await service.SendAsync(request, CancellationToken.None);
             conversation = reply.ConversationId;
+            version = reply.DraftVersion;
             Assert.Equal(step.Total, reply.Draft?.TotalCarbs);
             Assert.Equal(step.Total, (await service.SendAsync(request, CancellationToken.None)).Draft?.TotalCarbs);
         }

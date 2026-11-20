@@ -24,6 +24,10 @@ public class MealAssistantController(MealAssistantService assistant) : Controlle
     public async Task<ActionResult<IReadOnlyList<CalculatedMealItemDto>>> PrepareDraft(Guid id, CancellationToken cancellationToken) =>
         Ok(await assistant.PrepareDraftAsync(id, cancellationToken));
 
+    [HttpGet("conversations/{id:guid}/draft-state")]
+    public async Task<ActionResult<AssistantDraftState>> DraftState(Guid id, CancellationToken cancellationToken) =>
+        Ok(await assistant.GetDraftStateAsync(id, cancellationToken));
+
     [HttpDelete("conversations/{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
     {

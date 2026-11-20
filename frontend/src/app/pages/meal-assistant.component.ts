@@ -3,7 +3,7 @@ import { afterNextRender, Component, DestroyRef, ElementRef, Injector, ViewChild
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { finalize, firstValueFrom } from 'rxjs';
+import { finalize, firstValueFrom, map, switchMap, TimeoutError } from 'rxjs';
 import { getApiErrorMessage, isApiError } from '../core/api-error';
 import { ApiService } from '../core/api.service';
 import { AssistantConversation, AssistantDraft, AssistantFoodSelection, AssistantSavedFood, AssistantOrder, AssistantTurn, assistantFoodName } from '../core/meal-assistant.models';
@@ -149,6 +149,9 @@ import { AssistantConversation, AssistantDraft, AssistantFoodSelection, Assistan
             <h2>{{ sending || failedSend?.question }}</h2>
             @if (sending) { <p role="status">Searching your meal history…</p> }
             @else if (error) { <p role="alert">{{ error }}</p> }
+            @if (failedSend && !loading && !draftConflict && message.trim() !== failedSend.question) {
+              <button type="button" (click)="retryFailed()">Retry failed request</button>
+            }
           </article>
         }
         </div>
@@ -179,12 +182,13 @@ import { AssistantConversation, AssistantDraft, AssistantFoodSelection, Assistan
       }
       <form (ngSubmit)="send()" [attr.aria-busy]="loading">
         <div class="composer">
-        <textarea id="assistant-message" name="message" [(ngModel)]="message" [disabled]="loading"
+        <textarea id="assistant-message" name="message" [(ngModel)]="message"
           maxlength="1000" rows="1" aria-label="Ask about your meals" placeholder="Ask about your meals…" (keydown.enter)="handleEnter($event)"></textarea>
-        <button type="submit" [disabled]="loading || !message.trim() || sessionExpired">{{ loading ? 'Searching…' : failedSend?.question === message.trim() ? 'Retry' : 'Send' }}</button>
+        <button type="submit" [disabled]="loading || draftConflict || !message.trim() || sessionExpired">{{ loading ? 'Searching…' : failedSend?.question === message.trim() ? 'Retry' : 'Send' }}</button>
         </div>
         @if (error && !failedSend) { <p role="alert">{{ error }}</p> }
         @if (sessionExpired) { <a routerLink="/login">Sign in</a> }
+        @if (draftConflict && conversationId) { <button type="button" [disabled]="loading" (click)="refreshDraft()">Refresh latest draft</button> }
         @if (handoffError) { <p role="alert">{{ handoffError }}</p> }
       </form>
       </div>
@@ -279,7 +283,10 @@ export class MealAssistantComponent {
   turns: AssistantTurn[] = [];
   conversationId: string | null = null;
   message = '';
-  failedSend?: { question: string; conversationId: string | null; requestId: string; selection?: AssistantFoodSelection };
+  failedSend?: { question: string; conversationId: string | null; requestId: string; selection?: AssistantFoodSelection; expectedDraftVersion: number };
+  draftVersion = 0;
+  draftConflict = false;
+  private currentDraft?: AssistantDraft | null;
   candidateQuantities: Record<string, number | undefined> = {};
   private selectedFood?: AssistantFoodSelection;
   loading = false;
@@ -310,9 +317,13 @@ export class MealAssistantComponent {
       takeUntilDestroyed(this.destroyRef), finalize(() => this.loading = false)
     ).subscribe({
       next: turns => {
+        const failed = this.failedSend;
         this.newChat();
         this.conversationId = id;
         this.turns = turns;
+        if (failed && (failed.conversationId === id || turns.some(turn => turn.answer.requestId === failed.requestId)))
+          this.failedSend = failed;
+        this.draftVersion = Math.max(0, ...turns.map(turn => turn.answer.draftVersion ?? 0));
         this.scrollToLatest(this.chatScroll.get(id));
       },
       error: response => this.error = getApiErrorMessage(response, 'Could not open the conversation.')
@@ -357,7 +368,7 @@ export class MealAssistantComponent {
   }
 
   get activeDraft() {
-    return this.activeDraftTurn?.answer.draft;
+    return this.currentDraft !== undefined ? this.currentDraft : this.activeDraftTurn?.answer.draft;
   }
 
   isOrderItem(draft: AssistantDraft, name: string) {
@@ -386,7 +397,7 @@ export class MealAssistantComponent {
   }
 
   selectFood(food: AssistantSavedFood) {
-    if (this.loading || this.sessionExpired) return;
+    if (this.loading || this.sessionExpired || this.draftConflict) return;
     this.selectedFood = { foodId: food.id, quantity: this.candidateQuantities[food.id], unit: food.unit };
     this.message = 'Use ' + this.displayFoodName(food.name);
     this.send();
@@ -394,18 +405,17 @@ export class MealAssistantComponent {
 
   send() {
     const question = this.message.trim();
-    if (!question || this.loading || this.sessionExpired) return;
+    if (!question || this.loading || this.sessionExpired || this.draftConflict) return;
     const shouldScroll = this.nearBottom();
     this.sending = question;
     if (shouldScroll) this.scrollToLatest();
     this.loading = true;
     this.error = '';
-    const pending = this.failedSend?.question === question && this.failedSend.conversationId === this.conversationId
+    const pending = this.failedSend?.question === question
+      && (this.failedSend.conversationId === this.conversationId || this.turns.some(turn => turn.answer.requestId === this.failedSend?.requestId))
       && (!this.selectedFood || JSON.stringify(this.selectedFood) === JSON.stringify(this.failedSend.selection))
-      ? this.failedSend : { question, conversationId: this.conversationId, requestId: crypto.randomUUID(), selection: this.selectedFood };
-    const request = pending.selection
-      ? this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId, pending.selection)
-      : this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId);
+      ? this.failedSend : { question, conversationId: this.conversationId, requestId: crypto.randomUUID(), selection: this.selectedFood, expectedDraftVersion: this.draftVersion };
+    const request = this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId, pending.selection, pending.expectedDraftVersion);
     this.selectedFood = undefined;
     request.pipe(
       takeUntilDestroyed(this.destroyRef),
@@ -413,27 +423,47 @@ export class MealAssistantComponent {
     ).subscribe({
       next: answer => {
         const followReply = this.nearBottom();
+        if (answer.replayed && this.currentDraft === undefined) this.currentDraft = this.activeDraft ?? null;
         this.failedSend = undefined;
         this.conversationId = answer.conversationId;
         if (answer.draft && !answer.draft.editFeedback) this.mealSummaryOpen = false;
-        this.turns = [...this.turns, { question, answer }];
-        this.message = '';
+        const responseId = answer.requestId ?? pending.requestId;
+        if (!this.turns.some(turn => turn.answer.requestId === responseId))
+          this.turns = [...this.turns, { question, answer: { ...answer, requestId: responseId } }];
+        if (!answer.replayed && (answer.draftVersion ?? 0) >= this.draftVersion) {
+          if (answer.draft) this.currentDraft = answer.draft;
+          else if ((answer.draftVersion ?? 0) !== this.draftVersion) {
+            this.draftConflict = true;
+            this.error = 'Your draft changed elsewhere. Refresh the latest draft before editing.';
+          }
+          this.draftVersion = answer.draftVersion ?? this.draftVersion;
+        }
+        if (answer.replayed) {
+          this.draftConflict = true;
+          this.error = 'This request already completed. Refresh the latest draft before editing.';
+        }
+        if (this.message.trim() === question) this.message = '';
         if (followReply) this.scrollToLatest();
         this.refreshConversations();
       },
       error: response => {
         this.failedSend = pending;
         this.sessionExpired = isApiError(response) && response.status === 401;
+        this.draftConflict = isApiError(response) && response.status === 409;
         this.error = this.sendError(response);
       }
     });
   }
 
   private sendError(response: unknown): string {
+    if (response instanceof TimeoutError) return 'The request timed out. Retry safely using the same request ID.';
     if (!isApiError(response)) return 'Could not send your message. Try again.';
     if (response.status === 401) return 'Your session expired. Copy your message and sign in again to continue.';
     if (response.status === 403) return 'Your account cannot access this conversation.';
     if (response.status === 429) return 'A search is already running. Try again shortly.';
+    if (response.status === 409) return this.conversationId
+      ? 'The draft or request changed. Your message is kept. Refresh the latest draft, review it, then send again.'
+      : 'This request already has different content. Your message is kept. Open the latest conversation from history before editing.';
     if (response.status === 504) return 'Meal Assistant took too long to respond. Retry your message.';
     if (response.code === 'assistant_configuration') return 'Meal Assistant needs to be configured on the server.';
     if (response.code === 'assistant_provider_auth') return 'Meal Assistant could not connect to its provider. Check the server credentials.';
@@ -458,12 +488,46 @@ export class MealAssistantComponent {
     this.drawerOpen = false;
     this.conversationId = null;
     this.failedSend = undefined;
+    this.draftVersion = 0;
+    this.draftConflict = false;
+    this.currentDraft = undefined;
+    this.selectedFood = undefined;
     this.turns = [];
     this.mealSummaryOpen = false;
     this.expandedTurns.clear();
-    this.message = '';
     this.error = '';
     this.handoffError = '';
+  }
+
+  retryFailed() {
+    const failed = this.failedSend;
+    if (!failed || this.loading || this.draftConflict) return;
+    const unsent = this.message;
+    this.message = failed.question;
+    this.send();
+    if (unsent !== failed.question) this.message = unsent;
+  }
+
+  refreshDraft() {
+    const id = this.conversationId;
+    if (!id || this.loading) return;
+    this.loading = true;
+    this.api.getMealAssistantConversation(id).pipe(
+      switchMap(turns => this.api.getMealAssistantDraftState(id).pipe(map(state => ({ turns, state })))),
+      takeUntilDestroyed(this.destroyRef), finalize(() => this.loading = false)
+    ).subscribe({
+      next: ({ turns, state }) => {
+        if (this.failedSend?.selection && this.message.trim() === this.failedSend.question)
+          this.selectedFood = this.failedSend.selection;
+        this.turns = turns;
+        this.currentDraft = state.draft;
+        this.draftVersion = state.draftVersion;
+        this.failedSend = undefined;
+        this.draftConflict = false;
+        this.error = 'Latest draft loaded. Review it before sending your edit again.';
+      },
+      error: response => this.error = getApiErrorMessage(response, 'Could not refresh the latest draft. Your message is kept.')
+    });
   }
 
   useOrder(order: AssistantOrder) {

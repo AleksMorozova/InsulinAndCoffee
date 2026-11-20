@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
-import { of, Subject, throwError } from 'rxjs';
+import { of, Subject, throwError, TimeoutError } from 'rxjs';
 import { ApiService } from '../core/api.service';
 import { MealAssistantResponse } from '../core/meal-assistant.models';
 import { MealAssistantComponent } from './meal-assistant.component';
@@ -20,7 +20,7 @@ describe('MealAssistantComponent', () => {
   };
 
   beforeEach(async () => {
-    api = jasmine.createSpyObj<ApiService>('ApiService', ['sendMealAssistantMessage', 'getMeal', 'getMealAssistantConversations', 'getMealAssistantConversation', 'getMealAssistantCalculatorDraft']);
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['sendMealAssistantMessage', 'getMeal', 'getMealAssistantConversations', 'getMealAssistantConversation', 'getMealAssistantCalculatorDraft', 'getMealAssistantDraftState']);
     api.getMealAssistantConversations.and.returnValue(of([]));
     await TestBed.configureTestingModule({
       imports: [MealAssistantComponent],
@@ -43,6 +43,106 @@ describe('MealAssistantComponent', () => {
     component.send();
     expect(api.sendMealAssistantMessage.calls.mostRecent().args).toEqual(first);
     expect(component.turns.length).toBe(1);
+  });
+
+  it('preserves conflicting input and requires refresh plus explicit resubmission with a new version and request id', () => {
+    const component = fixture.componentInstance;
+    component.conversationId = 'conversation';
+    component.draftVersion = 1;
+    component.message = 'Add bread';
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => ({
+      status: 409, code: 'draft_version_conflict', message: 'Draft changed', isApiError: true
+    })));
+    component.send();
+    const first = api.sendMealAssistantMessage.calls.mostRecent().args;
+    expect(component.message).toBe('Add bread');
+    expect(component.draftConflict).toBeTrue();
+    component.send();
+    expect(api.sendMealAssistantMessage.calls.count()).toBe(1);
+
+    const latest = { items: [], issues: [], totalCarbs: 0 };
+    api.getMealAssistantConversation.and.returnValue(of([]));
+    api.getMealAssistantDraftState.and.returnValue(of({ draftVersion: 2, draft: latest }));
+    component.refreshDraft();
+    expect(component.message).toBe('Add bread');
+    expect(component.draftVersion).toBe(2);
+    expect(component.activeDraft).toEqual(latest);
+    expect(component.draftConflict).toBeFalse();
+    expect(api.sendMealAssistantMessage.calls.count()).toBe(1);
+
+    api.sendMealAssistantMessage.and.returnValue(of({ ...response, draft: latest, draftVersion: 3 }));
+    component.send();
+    const next = api.sendMealAssistantMessage.calls.mostRecent().args;
+    expect(next[2]).not.toBe(first[2]);
+    expect(next[4]).toBe(2);
+  });
+
+  it('keeps the pending input and conflict state if refreshing fails', () => {
+    const component = fixture.componentInstance;
+    component.conversationId = 'conversation';
+    component.message = 'Keep this edit';
+    component.draftConflict = true;
+    api.getMealAssistantConversation.and.returnValue(of([]));
+    api.getMealAssistantDraftState.and.returnValue(throwError(() => new Error('Offline')));
+    component.refreshDraft();
+    expect(component.message).toBe('Keep this edit');
+    expect(component.draftConflict).toBeTrue();
+  });
+
+  it('retries a timeout with the original envelope and recognizes a previously completed response', () => {
+    const component = fixture.componentInstance;
+    component.message = 'Add bread';
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => new TimeoutError()));
+    component.send();
+    const first = api.sendMealAssistantMessage.calls.mostRecent().args;
+    expect(component.error).toContain('timed out');
+    api.sendMealAssistantMessage.and.returnValue(of({ ...response, requestId: first[2], replayed: true, draftVersion: 1 }));
+    component.send();
+    expect(api.sendMealAssistantMessage.calls.mostRecent().args).toEqual(first);
+    expect(component.turns.length).toBe(1);
+    expect(component.draftConflict).toBeTrue();
+  });
+
+  it('does not append a second visible copy of an already displayed request result', () => {
+    const component = fixture.componentInstance;
+    component.conversationId = 'conversation';
+    component.turns = [{ question: 'Add bread', answer: { ...response, requestId: 'completed-request', draftVersion: 1 } }];
+    component.message = 'Add bread';
+    api.sendMealAssistantMessage.and.returnValue(of({ ...response, requestId: 'completed-request', draftVersion: 1, replayed: true }));
+    component.send();
+    expect(component.turns.length).toBe(1);
+  });
+
+  it('prevents duplicate submits and preserves text typed while an earlier request is pending', () => {
+    const pending = new Subject<MealAssistantResponse>();
+    api.sendMealAssistantMessage.and.returnValue(pending);
+    const component = fixture.componentInstance;
+    component.message = 'First message';
+    component.send();
+    component.send();
+    expect(api.sendMealAssistantMessage.calls.count()).toBe(1);
+    component.message = 'Unsent follow-up';
+    pending.next(response);
+    pending.complete();
+    expect(component.message).toBe('Unsent follow-up');
+    expect(component.turns.length).toBe(1);
+  });
+
+  it('keeps the original failed envelope when reopening the same conversation', () => {
+    const component = fixture.componentInstance;
+    component.conversationId = 'conversation';
+    component.draftVersion = 1;
+    component.message = 'Add bread';
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => new TimeoutError()));
+    component.send();
+    const first = api.sendMealAssistantMessage.calls.mostRecent().args;
+    api.getMealAssistantConversation.and.returnValue(of([{ question: 'Other edit', answer: { ...response, draftVersion: 2 } }]));
+    component.openChat('conversation');
+    expect(component.draftVersion).toBe(2);
+    expect(component.message).toBe('Add bread');
+    api.sendMealAssistantMessage.and.returnValue(of({ ...response, draftVersion: 2, requestId: first[2], replayed: true }));
+    component.send();
+    expect(api.sendMealAssistantMessage.calls.mostRecent().args).toEqual(first);
   });
 
   it('creates a new request when the user changes a failed candidate quantity', () => {
@@ -68,7 +168,7 @@ describe('MealAssistantComponent', () => {
     fixture.detectChanges();
 
     expect(fixture.nativeElement.querySelector('[role=status]').textContent).toContain('Searching');
-    expect(api.sendMealAssistantMessage).toHaveBeenCalledWith(null, 'Find porridge', jasmine.any(String));
+    expect(api.sendMealAssistantMessage).toHaveBeenCalledWith(null, 'Find porridge', jasmine.any(String), undefined, 0);
     pending.next(response);
     pending.complete();
     fixture.detectChanges();
@@ -79,7 +179,7 @@ describe('MealAssistantComponent', () => {
     api.sendMealAssistantMessage.and.returnValue(of(response));
     component.message = 'What about 180g?';
     component.send();
-    expect(api.sendMealAssistantMessage).toHaveBeenCalledWith('conversation', 'What about 180g?', jasmine.any(String));
+    expect(api.sendMealAssistantMessage).toHaveBeenCalledWith('conversation', 'What about 180g?', jasmine.any(String), undefined, 0);
   });
 
   it('restores a draft, requires acknowledgment, and sends every matched item to the calculator', async () => {
