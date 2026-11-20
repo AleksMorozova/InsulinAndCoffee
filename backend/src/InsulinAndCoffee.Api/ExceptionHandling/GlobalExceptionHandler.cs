@@ -1,4 +1,5 @@
 using InsulinAndCoffee.Application.Services;
+using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Domain.Exceptions;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
@@ -13,7 +14,21 @@ public class GlobalExceptionHandler(
     {
         var problemDetails = exception switch
         {
+            MealAssistantUnavailableException ex => new ProblemDetails
+            {
+                Status = ex.Code == "assistant_timeout" ? StatusCodes.Status504GatewayTimeout : StatusCodes.Status503ServiceUnavailable,
+                Title = "Meal Assistant unavailable",
+                Detail = ex.Message
+            },
+
             AppValidationException ex => new ValidationProblemDetails(ex.Errors)
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Validation failed",
+                Detail = ex.Message
+            },
+
+            CarbCalculationException ex => new ProblemDetails
             {
                 Status = StatusCodes.Status400BadRequest,
                 Title = "Validation failed",
@@ -55,6 +70,8 @@ public class GlobalExceptionHandler(
                 httpContext.Request.Path);
         }
 
+        if (exception is MealAssistantUnavailableException assistantError)
+            problemDetails.Extensions["code"] = assistantError.Code;
         problemDetails.Instance = httpContext.Request.Path;
         problemDetails.Extensions["traceId"] = httpContext.TraceIdentifier;
 

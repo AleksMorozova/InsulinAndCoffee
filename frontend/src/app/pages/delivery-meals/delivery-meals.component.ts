@@ -123,7 +123,7 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
 
         <p class="quick-meal-metrics">
           <strong>{{ meal.carbs | number:'1.0-1' }}g</strong> carbs
-          <span>{{ meal.usualInsulinUnits | number:'1.0-2' }}U recorded</span>
+          <span>{{ meal.usualInsulinUnits === null ? 'Insulin unrecorded' : (meal.usualInsulinUnits | number:'1.0-2') + ' U recorded' }}</span>
         </p>
 
         <div class="quick-meal-context">
@@ -160,7 +160,7 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
             <span>Carbs</span>
           </div>
           <div class="metric">
-            <strong>{{ meal.usualInsulinUnits | number:'1.0-2' }}U</strong>
+            <strong>{{ meal.usualInsulinUnits === null ? 'Unrecorded' : (meal.usualInsulinUnits | number:'1.0-2') + ' U' }}</strong>
             <span>Recorded</span>
           </div>
           <div class="metric">
@@ -201,7 +201,7 @@ export class DeliveryMealsComponent implements OnInit {
     dishName: ['', Validators.required],
     portionDescription: ['', Validators.required],
     carbs: [0, [Validators.required, Validators.min(0.1)]],
-    usualInsulinUnits: [0, [Validators.required, Validators.min(0)]],
+    usualInsulinUnits: this.fb.control<number | null>(null, Validators.min(0)),
     lastPreMealGlucose: [0],
     resultRating: ['Unknown', Validators.required],
     tags: [''],
@@ -292,7 +292,7 @@ export class DeliveryMealsComponent implements OnInit {
       dishName: '',
       portionDescription: '',
       carbs: 0,
-      usualInsulinUnits: 0,
+      usualInsulinUnits: null,
       lastPreMealGlucose: 0,
       resultRating: 'Unknown',
       tags: '',

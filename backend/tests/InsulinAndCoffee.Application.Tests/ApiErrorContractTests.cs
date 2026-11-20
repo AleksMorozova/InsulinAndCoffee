@@ -54,6 +54,37 @@ public class ApiErrorContractTests
         Assert.True(problem.RootElement.TryGetProperty("traceId", out _));
     }
 
+    [Fact]
+    public async Task PreviewCarbs_WhenLegacyFoodBasisIsMissing_ReturnsProblemDetails400()
+    {
+        await using var factory = new ApiFactory();
+        using var client = factory.CreateClient();
+        var foodId = Guid.NewGuid();
+        await using (var scope = factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.FoodItems.Add(new InsulinAndCoffee.Domain.Entities.FoodItem
+            {
+                Id = foodId, UserId = DefaultUser.Id, Name = "Legacy food",
+                MeasurementType = InsulinAndCoffee.Domain.Enums.FoodMeasurementType.Grams,
+                CarbsPer100g = null
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var response = await client.PostAsJsonAsync("/api/meals/preview-carbs", new
+        {
+            items = new[] { new { foodItemId = foodId, quantity = 150m } }, carbAdjustment = 0m
+        });
+        using var problem = await ReadProblemAsync(response);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(400, problem.RootElement.GetProperty("status").GetInt32());
+        Assert.Equal("Validation failed", problem.RootElement.GetProperty("title").GetString());
+        Assert.Contains("Carbs per 100 g must be provided", problem.RootElement.GetProperty("detail").GetString());
+        Assert.True(problem.RootElement.TryGetProperty("traceId", out _));
+    }
+
     private static async Task<JsonDocument> ReadProblemAsync(HttpResponseMessage response)
     {
         var content = await response.Content.ReadAsStringAsync();
@@ -64,6 +95,7 @@ public class ApiErrorContractTests
     {
         private const string DefaultConnectionEnvironmentVariable = "ConnectionStrings__DefaultConnection";
         private const string JwtKeyEnvironmentVariable = "Jwt__SigningKey";
+        private readonly string databaseName = $"api-error-contract-{Guid.NewGuid()}";
         private readonly string? originalDefaultConnection;
         private readonly string? originalJwtKey;
 
@@ -85,7 +117,7 @@ public class ApiErrorContractTests
                 services.RemoveAll<DbContextOptions<AppDbContext>>();
                 services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
                 services.AddDbContext<AppDbContext>(options =>
-                    options.UseInMemoryDatabase($"api-error-contract-{Guid.NewGuid()}"));
+                    options.UseInMemoryDatabase(databaseName));
                 services.RemoveAll<ICurrentUser>();
                 services.AddScoped<ICurrentUser>(_ => new TestCurrentUser());
                 services.PostConfigure<AuthorizationOptions>(options => options.FallbackPolicy = null);

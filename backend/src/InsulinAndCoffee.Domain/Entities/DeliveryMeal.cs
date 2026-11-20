@@ -10,7 +10,7 @@ public class DeliveryMeal
     public string DishName { get; set; } = string.Empty;
     public string PortionDescription { get; set; } = string.Empty;
     public decimal Carbs { get; set; }
-    public decimal UsualInsulinUnits { get; set; }
+    public decimal? UsualInsulinUnits { get; set; }
     public decimal? LastPreMealGlucose { get; set; }
     public ResultRating ResultRating { get; set; }
     public string Tags { get; set; } = string.Empty;

@@ -13,6 +13,10 @@ public static class DependencyInjection
         services.AddScoped<DeliveryMealService>();
         services.AddScoped<MealCalculationService>();
         services.AddScoped<MealService>();
+        services.AddScoped<MealHistorySearchService>();
+        services.AddScoped<MealAssistantService>();
+        services.AddScoped<AssistantDraftBuilder>();
+        services.AddScoped<FoodKnowledgeSearchService>();
         services.AddScoped<SettingsService>();
         services.AddScoped<SupplyService>();
         services.AddSingleton(TimeProvider.System);

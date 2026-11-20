@@ -1,13 +1,18 @@
 import { FormBuilder, Validators } from '@angular/forms';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
+import { TestBed } from '@angular/core/testing';
+import { Router } from '@angular/router';
+import { MealDetail } from '../../core/models';
+import { AuthService } from '../../core/auth.service';
 import { ApiService } from '../../core/api.service';
 import { FoodItem } from '../../core/models';
 import { CalculatorComponent } from './calculator.component';
 
 describe('CalculatorComponent', () => {
-  function createComponent() {
+  function createComponent(auth?: AuthService) {
     const api = {
       getFoods: () => of([]),
+      previewMealCarbs: jasmine.createSpy('previewMealCarbs').and.returnValue(of({ foodCarbs: 59.4, totalCarbs: 59.4, items: [] })),
       calculateMeal: jasmine.createSpy('calculateMeal').and.returnValue(of({
         foodCarbs: 0,
         carbAdjustment: 0,
@@ -22,8 +27,158 @@ describe('CalculatorComponent', () => {
     } as unknown as ApiService;
     const router = { navigate: jasmine.createSpy('navigate') };
 
-    return { component: new CalculatorComponent(new FormBuilder(), api, router as never), api };
+    return { component: new CalculatorComponent(new FormBuilder(), api, router as never, auth), api };
   }
+
+  it('loads the assistant draft with editable portions and calculates with the default without saving it', () => {
+    const { component, api } = createComponent();
+    const previous = history.state;
+    try {
+      history.replaceState({ assistantMealItems: [
+        { foodItemId: 'porridge', quantity: 180, measurementType: 'Grams', foodNameSnapshot: '[Meal Assistant] Porridge', carbsPer100gSnapshot: 23 },
+        { foodItemId: 'borscht', quantity: 1, measurementType: 'Portion', foodNameSnapshot: 'Borscht', carbsPerUnitSnapshot: 20, carbOverride: 18 }
+      ] }, '');
+      component.ngOnInit();
+      expect(component.items.length).toBe(2);
+      expect(component.form.controls.preMealGlucose.invalid).toBeFalse();
+      expect(component.form.controls.preMealGlucose.value).toBe(5.5);
+      expect(component.glucoseIsDefault).toBeTrue();
+      component.save();
+      expect(api.createMeal).not.toHaveBeenCalled();
+      expect(component.itemName(0)).toBe('Porridge');
+      expect(component.calculation).toBeDefined();
+      expect(component.glucoseDefaultHint).toContain('5.5 mmol/L');
+      expect(api.calculateMeal).toHaveBeenCalledWith(jasmine.objectContaining({ preMealGlucose: 5.5 }));
+      component.items.at(0).patchValue({ quantity: 200 });
+      component.form.controls.preMealGlucose.setValue(6.8);
+      component.recordEnteredGlucose();
+      expect(component.glucoseIsDefault).toBeFalse();
+      expect(api.calculateMeal).toHaveBeenCalledWith(jasmine.objectContaining({
+        preMealGlucose: 6.8, items: [
+          jasmine.objectContaining({ foodItemId: 'porridge', quantity: 200 }),
+          jasmine.objectContaining({ foodItemId: 'borscht', quantity: 1, carbOverride: 18 })
+        ]
+      }));
+      expect(api.createMeal).not.toHaveBeenCalled();
+    } finally {
+      history.replaceState(previous, '');
+    }
+  });
+
+  it('prefers entered calculator glucose over explicit assistant glucose and ignores historical glucose', () => {
+    const previous = history.state;
+    const key = 'insulin-and-coffee.calculator-glucose.test-user';
+    const auth = jasmine.createSpyObj<AuthService>('AuthService', ['user']);
+    auth.user.and.returnValue({ id: 'test-user', username: 'test', role: 'User', createdAt: '' });
+    try {
+      const state = { assistantMealItems: [{ foodItemId: 'bread', quantity: 1, measurementType: 'Piece',
+        foodNameSnapshot: 'Bread', carbsPerUnitSnapshot: 15 }], assistantCurrentGlucose: 7.2, preMealGlucose: 11 };
+      history.replaceState(state, '');
+      const first = createComponent(auth).component;
+      first.ngOnInit();
+      expect(first.form.controls.preMealGlucose.value).toBe(7.2);
+      first.form.controls.preMealGlucose.setValue(6.8);
+      first.recordEnteredGlucose();
+      const reopened = createComponent(auth).component;
+      reopened.ngOnInit();
+      expect(reopened.form.controls.preMealGlucose.value).toBe(6.8);
+      sessionStorage.removeItem(key);
+      history.replaceState({ ...state, assistantCurrentGlucose: undefined }, '');
+      const historical = createComponent(auth).component;
+      historical.ngOnInit();
+      expect(historical.form.controls.preMealGlucose.value).toBe(5.5);
+      expect(historical.glucoseIsDefault).toBeTrue();
+    } finally {
+      sessionStorage.removeItem(key);
+      history.replaceState(previous, '');
+    }
+  });
+
+  describe('historical repeat hydration', () => {
+    const snapshot = {
+      id: 'item', foodItemId: 'deleted-food', foodNameSnapshot: 'Original soup', quantity: 150,
+      measurementType: 'Grams' as const, weightGrams: 150, carbsPer100gSnapshot: 10,
+      carbsPerUnitSnapshot: null, calculatedCarbs: 15, carbOverride: 18, effectiveCarbs: 18
+    };
+    const meal: MealDetail = {
+      id: 'original', mealType: 'Lunch', mealTime: '2026-01-01T12:00:00Z', createdAt: '',
+      preMealGlucose: 11, suggestedBolus: 7, confirmedBolus: 6, carbAdjustment: -3,
+      totalCarbs: 15, foodNames: ['Original soup'], items: [snapshot]
+    };
+
+    for (const entry of ['assistant', 'previousMeal', 'delivery']) {
+      it('uses fresh glucose and leaves insulin empty from ' + entry, async () => {
+        const previous = history.state;
+        const api = jasmine.createSpyObj<ApiService>('ApiService', ['getFoods', 'calculateMeal', 'createMeal']);
+        api.getFoods.and.returnValue(of([]));
+        api.calculateMeal.and.returnValue(of({
+          foodCarbs: 18, carbAdjustment: -3, totalCarbs: 15, mealBolus: 1.5, correctionBolus: 0,
+          suggestedBolus: 1.5, items: []
+        }));
+        const auth = jasmine.createSpyObj<AuthService>('AuthService', ['user']);
+        auth.user.and.returnValue(null);
+        await TestBed.configureTestingModule({
+          imports: [CalculatorComponent],
+          providers: [
+            { provide: ApiService, useValue: api },
+            { provide: Router, useValue: jasmine.createSpyObj<Router>('Router', ['navigate']) },
+            { provide: AuthService, useValue: auth }
+          ]
+        }).compileComponents();
+        try {
+          if (entry === 'assistant') {
+            history.replaceState({ assistantMealItems: meal.items, assistantCarbAdjustment: meal.carbAdjustment,
+              assistantOriginalMealId: meal.id }, '');
+          } else if (entry === 'previousMeal') {
+            history.replaceState({ meal }, '');
+          } else {
+            history.replaceState({ deliveryMeal: { carbs: 15, placeName: 'Cafe', dishName: 'Soup',
+              usualInsulinUnits: 6, lastPreMealGlucose: 11, notes: 'Saved order' } }, '');
+          }
+          const fixture = TestBed.createComponent(CalculatorComponent);
+          fixture.detectChanges();
+          const component = fixture.componentInstance;
+          expect(component.form.controls.preMealGlucose.value).toBe(5.5);
+          expect(component.glucoseIsDefault).toBeTrue();
+          expect(component.form.controls.confirmedBolus.value).toBeNull();
+          expect(api.calculateMeal).toHaveBeenCalledTimes(1);
+          expect(api.createMeal).not.toHaveBeenCalled();
+
+          if (entry !== 'delivery') {
+            expect(api.calculateMeal).toHaveBeenCalledWith(jasmine.objectContaining({
+              preMealGlucose: 5.5, carbAdjustment: -3,
+              items: [jasmine.objectContaining({
+                foodItemId: 'deleted-food', foodNameSnapshot: 'Original soup', quantity: 150,
+                measurementType: 'Grams', carbsPer100gSnapshot: 10, carbOverride: 18
+              })]
+            }));
+            const page: HTMLElement = fixture.nativeElement;
+            expect(page.textContent).toContain('includes a meal-level carbohydrate adjustment (-3 g)');
+            expect(page.querySelector('[aria-label="Override carbs"]')).not.toBeNull();
+            component.items.at(0).patchValue({ quantity: 200 });
+            fixture.detectChanges();
+            expect(component.form.controls.carbAdjustment.value).toBe(-3);
+            expect(component.items.at(0).value.carbOverride).toBe(18);
+            expect(page.textContent).toContain('review and edit Adjust carbs');
+            component.adjustCarbAdjustment(1);
+            expect(api.calculateMeal).toHaveBeenCalledWith(jasmine.objectContaining({ carbAdjustment: -2 }));
+            api.calculateMeal.and.returnValue(throwError(() => ({
+              isApiError: true, status: 400, message: 'Saved carbs per 100 g must be zero or greater.'
+            })));
+            component.items.at(0).patchValue({ quantity: 250 });
+            fixture.detectChanges();
+            expect(page.querySelector('[role="alert"]')?.textContent).toContain('Saved carbs per 100 g');
+            expect(component.calculation).toBeUndefined();
+            expect(page.querySelector('[aria-label="Manual carb adjustment delta"]')).not.toBeNull();
+          }
+          fixture.destroy();
+        } finally {
+          history.replaceState(previous, '');
+          TestBed.resetTestingModule();
+        }
+      });
+    }
+  });
 
   it('quantitySuffix_ForSingularAndPluralQuantities_ReturnsNaturalCopy', () => {
     const { component } = createComponent();
