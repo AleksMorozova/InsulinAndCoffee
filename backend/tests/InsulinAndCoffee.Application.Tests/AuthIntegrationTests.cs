@@ -347,17 +347,6 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
 
     public sealed class ApiFactory : WebApplicationFactory<Program>
     {
-        private const string ConnectionVariable = "ConnectionStrings__DefaultConnection";
-        private const string JwtVariable = "Jwt__SigningKey";
-        private readonly string? originalConnection = Environment.GetEnvironmentVariable(ConnectionVariable);
-        private readonly string? originalJwt = Environment.GetEnvironmentVariable(JwtVariable);
-
-        public ApiFactory()
-        {
-            Environment.SetEnvironmentVariable(ConnectionVariable, "Host=localhost;Database=auth_tests;Username=test;Password=test");
-            Environment.SetEnvironmentVariable(JwtVariable, "authentication-integration-test-key-32-chars");
-        }
-
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
@@ -381,17 +370,16 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
 
         protected override Microsoft.Extensions.Hosting.IHost CreateHost(Microsoft.Extensions.Hosting.IHostBuilder builder)
         {
+            builder.ConfigureHostConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=auth_tests;Username=test;Password=test",
+                ["Jwt:SigningKey"] = "authentication-integration-test-key-32-chars"
+            }));
             var host = base.CreateHost(builder);
             using var scope = host.Services.CreateScope();
             scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.EnsureCreated();
             return host;
         }
 
-        protected override void Dispose(bool disposing)
-        {
-            Environment.SetEnvironmentVariable(ConnectionVariable, originalConnection);
-            Environment.SetEnvironmentVariable(JwtVariable, originalJwt);
-            base.Dispose(disposing);
-        }
     }
 }

@@ -275,24 +275,27 @@ public class AssistantPostgreSqlSafetyTests
     public async Task Startup_ProductionEnvironment_AppliesMigrationAndKeepsHealthPublic()
     {
         await using var database = await TestDatabase.CreateAsync(migrate: false);
-        var previousConnection = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
-        var previousKey = Environment.GetEnvironmentVariable("Jwt__SigningKey");
-        Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", database.ConnectionString);
-        Environment.SetEnvironmentVariable("Jwt__SigningKey", "isolated-postgresql-startup-test-key-32-characters");
-        try
+        await using var factory = new StartupFactory(database.ConnectionString);
+        using var client = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/foods")).StatusCode);
+        await using var verify = database.Open();
+        Assert.Empty(await verify.Database.GetPendingMigrationsAsync(CancellationToken.None));
+        Assert.Equal(0, await verify.AssistantRequestReceipts.CountAsync(CancellationToken.None));
+    }
+
+    private sealed class StartupFactory(string connectionString) : WebApplicationFactory<Program>
+    {
+        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Production");
+
+        protected override Microsoft.Extensions.Hosting.IHost CreateHost(Microsoft.Extensions.Hosting.IHostBuilder builder)
         {
-            await using var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder => builder.UseEnvironment("Production"));
-            using var client = factory.CreateClient();
-            Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/health")).StatusCode);
-            Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/foods")).StatusCode);
-            await using var verify = database.Open();
-            Assert.Empty(await verify.Database.GetPendingMigrationsAsync(CancellationToken.None));
-            Assert.Equal(0, await verify.AssistantRequestReceipts.CountAsync(CancellationToken.None));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("ConnectionStrings__DefaultConnection", previousConnection);
-            Environment.SetEnvironmentVariable("Jwt__SigningKey", previousKey);
+            builder.ConfigureHostConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = connectionString,
+                ["Jwt:SigningKey"] = "isolated-postgresql-startup-test-key-32-characters"
+            }));
+            return base.CreateHost(builder);
         }
     }
 

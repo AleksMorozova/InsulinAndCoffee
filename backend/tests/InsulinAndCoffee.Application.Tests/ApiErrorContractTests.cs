@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Services;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Configuration;
 
 namespace InsulinAndCoffee.Application.Tests;
 
@@ -93,21 +94,7 @@ public class ApiErrorContractTests
 
     private sealed class ApiFactory : WebApplicationFactory<Program>
     {
-        private const string DefaultConnectionEnvironmentVariable = "ConnectionStrings__DefaultConnection";
-        private const string JwtKeyEnvironmentVariable = "Jwt__SigningKey";
         private readonly string databaseName = $"api-error-contract-{Guid.NewGuid()}";
-        private readonly string? originalDefaultConnection;
-        private readonly string? originalJwtKey;
-
-        public ApiFactory()
-        {
-            originalDefaultConnection = Environment.GetEnvironmentVariable(DefaultConnectionEnvironmentVariable);
-            originalJwtKey = Environment.GetEnvironmentVariable(JwtKeyEnvironmentVariable);
-            Environment.SetEnvironmentVariable(
-                DefaultConnectionEnvironmentVariable,
-                "Host=localhost;Database=insulin_coffee_tests;Username=test;Password=test");
-            Environment.SetEnvironmentVariable(JwtKeyEnvironmentVariable, "api-error-contract-test-signing-key-32-chars");
-        }
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -129,11 +116,14 @@ public class ApiErrorContractTests
             public Guid UserId => DefaultUser.Id;
         }
 
-        protected override void Dispose(bool disposing)
+        protected override Microsoft.Extensions.Hosting.IHost CreateHost(Microsoft.Extensions.Hosting.IHostBuilder builder)
         {
-            Environment.SetEnvironmentVariable(DefaultConnectionEnvironmentVariable, originalDefaultConnection);
-            Environment.SetEnvironmentVariable(JwtKeyEnvironmentVariable, originalJwtKey);
-            base.Dispose(disposing);
+            builder.ConfigureHostConfiguration(configuration => configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:DefaultConnection"] = "Host=localhost;Database=insulin_coffee_tests;Username=test;Password=test",
+                ["Jwt:SigningKey"] = "api-error-contract-test-signing-key-32-chars"
+            }));
+            return base.CreateHost(builder);
         }
     }
 }
