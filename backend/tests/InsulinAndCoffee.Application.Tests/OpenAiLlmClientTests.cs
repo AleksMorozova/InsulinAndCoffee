@@ -51,11 +51,17 @@ public class OpenAiLlmClientTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task Interpret_DevelopmentConfiguration_UsesSecretOverrideOrReportsMissingKey(bool hasKey)
+    public async Task Interpret_ConfiguredClient_UsesSecretOverrideOrReportsMissingKey(bool hasKey)
     {
         var configuration = new ConfigurationBuilder()
-            .SetBasePath(AppContext.BaseDirectory)
-            .AddJsonFile("appsettings.Development.json")
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["MealAssistant:Provider"] = "OpenAI",
+                ["MealAssistant:Model"] = "gpt-4.1-mini",
+                ["MealAssistant:ApiKey"] = "",
+                ["MealAssistant:TimeoutSeconds"] = "15",
+                ["MealAssistant:MaxCompletionTokens"] = "500"
+            })
             .AddInMemoryCollection(hasKey
                 ? new Dictionary<string, string?> { ["MealAssistant:ApiKey"] = "test-secret" }
                 : new Dictionary<string, string?> { ["MealAssistant:ApiKey"] = "" })
