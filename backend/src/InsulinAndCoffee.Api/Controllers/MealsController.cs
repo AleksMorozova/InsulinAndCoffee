@@ -7,8 +7,12 @@ namespace InsulinAndCoffee.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class MealsController(MealService mealService) : ControllerBase
+public class MealsController(MealService mealService, MealCalculationService calculation) : ControllerBase
 {
+    [HttpPost("preview-carbs")]
+    public async Task<ActionResult<MealCarbPreview>> PreviewCarbs(MealCarbPreviewRequest request, CancellationToken cancellationToken) =>
+        Ok(await calculation.PreviewCarbsAsync(request, cancellationToken));
+
     [HttpPost("calculate")]
     public async Task<ActionResult<MealCalculationDto>> Calculate(CalculateMealRequest request, CancellationToken cancellationToken) =>
         Ok(await mealService.CalculateMealAsync(request, cancellationToken));

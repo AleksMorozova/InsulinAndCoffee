@@ -11,6 +11,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Configuration;
 
 namespace InsulinAndCoffee.Application.Tests;
 
@@ -127,6 +128,10 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
         using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         var token = json.RootElement.GetProperty("accessToken").GetString();
         Assert.False(string.IsNullOrWhiteSpace(token));
+        var userId = json.RootElement.GetProperty("user").GetProperty("id").GetGuid();
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Equal(1, await db.DiabetesSettings.CountAsync(item => item.UserId == userId));
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using var foods = JsonDocument.Parse(await client.GetStringAsync("/api/foods?pageSize=100"));
@@ -147,8 +152,37 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Health_WithoutToken_ReturnsHealthy()
+    {
+        using var client = factory.CreateClient();
+        using var response = await client.GetAsync("/health");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
+        Assert.Empty(response.Headers.WwwAuthenticate);
+    }
+
     [Theory]
-    [InlineData("/health")]
+    [InlineData("true", true)]
+    [InlineData("false", false)]
+    public async Task Health_ReportsCommitOnlyForRenderPreview(string isPreview, bool expectCommit)
+    {
+        const string commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        using var previewFactory = factory.WithWebHostBuilder(builder =>
+            builder.ConfigureAppConfiguration((_, configuration) => configuration.AddInMemoryCollection(
+                new Dictionary<string, string?> { ["IS_PULL_REQUEST"] = isPreview, ["RENDER_GIT_COMMIT"] = commit })));
+        using var client = previewFactory.CreateClient();
+        using var response = await client.GetAsync("/health");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("Healthy", await response.Content.ReadAsStringAsync());
+        Assert.Equal(expectCommit, response.Headers.Contains("X-Preview-Commit"));
+        if (expectCommit) Assert.Equal(commit, Assert.Single(response.Headers.GetValues("X-Preview-Commit")));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/foods")).StatusCode);
+    }
+
+    [Theory]
     [InlineData("/api/auth/me")]
     [InlineData("/api/dashboard/today")]
     [InlineData("/api/meals")]
@@ -160,6 +194,7 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
     {
         var response = await factory.CreateClient().GetAsync(path);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Contains(response.Headers.WwwAuthenticate, challenge => challenge.Scheme == "Bearer");
     }
 
     [Fact]
@@ -170,6 +205,21 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
         var registration = await client.PostAsJsonAsync("/api/auth/register", new { username, password = "test-password" });
         Assert.Equal(HttpStatusCode.Created, registration.StatusCode);
 
+        using var registered = JsonDocument.Parse(await registration.Content.ReadAsStringAsync());
+        var userId = registered.RootElement.GetProperty("id").GetGuid();
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var settings = await db.DiabetesSettings.AsNoTracking().SingleAsync(item => item.UserId == userId);
+        Assert.NotEqual(userId, settings.Id);
+        Assert.Equal(6.5m, settings.TargetGlucose);
+        Assert.Equal(10m, settings.CarbRatio);
+        Assert.Equal(3m, settings.CorrectionFactor);
+        Assert.Equal(4m, settings.InsulinDurationHours);
+
+        var duplicate = await client.PostAsJsonAsync("/api/auth/register", new { username, password = "another-password" });
+        Assert.Equal(HttpStatusCode.BadRequest, duplicate.StatusCode);
+        Assert.Equal(1, await db.DiabetesSettings.CountAsync(item => item.UserId == userId));
+
         var token = await LoginAsync(client, username, "test-password");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
         using var foods = JsonDocument.Parse(await client.GetStringAsync("/api/foods?pageSize=100"));
@@ -179,6 +229,11 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
             "/api/foods/33333333-3333-3333-3333-333333333301",
             new { name = "Not mine", measurementType = "Grams", carbsPer100g = 1m, proteinPer100g = 0m, fatPer100g = 0m, caloriesPer100g = 0m, isFavorite = false });
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        var calculated = await client.PostAsJsonAsync("/api/meals/calculate", new
+        {
+            mealType = "Lunch", preMealGlucose = 6.5m, directCarbs = 20m, items = Array.Empty<object>()
+        });
+        Assert.Equal(HttpStatusCode.OK, calculated.StatusCode);
     }
 
     [Fact]

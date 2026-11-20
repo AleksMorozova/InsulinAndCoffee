@@ -1,0 +1,143 @@
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter, Router } from '@angular/router';
+import { of, Subject, throwError } from 'rxjs';
+import { ApiService } from '../core/api.service';
+import { MealAssistantResponse } from '../core/meal-assistant.models';
+import { MealAssistantComponent } from './meal-assistant.component';
+
+describe('MealAssistantComponent', () => {
+  let fixture: ComponentFixture<MealAssistantComponent>;
+  let api: jasmine.SpyObj<ApiService>;
+
+  const response: MealAssistantResponse = {
+    conversationId: 'conversation',
+    message: 'Here are saved meals.',
+    meals: [{
+      id: 'saved-meal', mealTime: '2026-11-01T12:00:00Z', mealType: 'Lunch', totalCarbs: 20,
+      suggestedBolus: 2, confirmedBolus: null, preMealGlucose: 6, glucoseReadings: [], canUseInCalculator: true, match: 'Exact composition',
+      items: [{ name: 'Porridge', quantity: 100, unit: 'Grams', carbs: 20, requestedQuantity: 150, requestedUnit: 'Grams', estimatedCarbs: 30 }]
+    }]
+  };
+
+  beforeEach(async () => {
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['sendMealAssistantMessage', 'getMeal', 'getMealAssistantConversations', 'getMealAssistantConversation', 'getMealAssistantCalculatorDraft']);
+    api.getMealAssistantConversations.and.returnValue(of([]));
+    await TestBed.configureTestingModule({
+      imports: [MealAssistantComponent],
+      providers: [provideRouter([]), { provide: ApiService, useValue: api }]
+    }).compileComponents();
+    fixture = TestBed.createComponent(MealAssistantComponent);
+  });
+
+  it('shows progress, renders saved facts and submits follow-ups with the same conversation', () => {
+    const pending = new Subject<MealAssistantResponse>();
+    api.sendMealAssistantMessage.and.returnValue(pending);
+    const component = fixture.componentInstance;
+    component.message = 'Find porridge';
+    component.send();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[role=status]').textContent).toContain('Searching');
+    expect(api.sendMealAssistantMessage).toHaveBeenCalledWith(null, 'Find porridge', jasmine.any(String));
+    pending.next(response);
+    pending.complete();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Actual dose: Not confirmed');
+    expect(fixture.nativeElement.textContent).toContain('Estimated 30 g carbs');
+    expect(fixture.nativeElement.querySelector('a').getAttribute('href')).toBe('/meals/saved-meal');
+    api.sendMealAssistantMessage.and.returnValue(of(response));
+    component.message = 'What about 180g?';
+    component.send();
+    expect(api.sendMealAssistantMessage).toHaveBeenCalledWith('conversation', 'What about 180g?', jasmine.any(String));
+  });
+
+  it('restores a draft, requires acknowledgment, and sends every matched item to the calculator', async () => {
+    const items = ['Borscht', 'Pizza'].map((foodName, index) => ({
+      foodItemId: foodName, foodName, quantity: index + 1, measurementType: 'Portion' as const,
+      weightGrams: null, carbsPer100g: null, carbsPerUnit: 20, calculatedCarbs: 20,
+      carbOverride: index === 0 ? 10 : null, effectiveCarbs: 20
+    }));
+    const draft = { items, issues: ['Missing salad'], totalCarbs: 40 };
+    api.getMealAssistantConversation.and.returnValue(of([{ question: 'Borscht and pizza', answer: { ...response, draft } }]));
+    api.getMealAssistantCalculatorDraft.and.returnValue(of(items));
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+    const component = fixture.componentInstance;
+    component.openChat('conversation');
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.textContent).toContain('Matched carbs: 40 g');
+    await component.useDraft(draft);
+    expect(navigate).not.toHaveBeenCalled();
+    await component.useDraft(draft, true);
+    expect(navigate).toHaveBeenCalledWith(['/calculator'], { state: { assistantLocale: 'en', assistantMealItems: [
+      { foodItemId: 'Borscht', quantity: 1, measurementType: 'Portion', foodNameSnapshot: 'Borscht', carbsPer100gSnapshot: null, carbsPerUnitSnapshot: 20, carbOverride: 10 },
+      { foodItemId: 'Pizza', quantity: 2, measurementType: 'Portion', foodNameSnapshot: 'Pizza', carbsPer100gSnapshot: null, carbsPerUnitSnapshot: 20, carbOverride: null }
+    ] } });
+  });
+
+  it('renders five historical totals and one live summary across a lookup and clarification', () => {
+    const component = fixture.componentInstance;
+    const item = {
+      foodItemId: 'pizza', foodName: 'Pizza', quantity: 1, measurementType: 'Piece' as const,
+      weightGrams: null, carbsPer100g: null, carbsPerUnit: 30, calculatedCarbs: 30,
+      carbOverride: null, effectiveCarbs: 30
+    };
+    const question = 'Change my meal';
+    const edits = [50, 80, 60, 123, 130].map(totalCarbs => ({
+      question, answer: { ...response, meals: [], draft: { items: [item], issues: [], totalCarbs } }
+    }));
+    const latest = edits[4].answer.draft;
+    api.getMealAssistantConversation.and.returnValue(of([
+      ...edits,
+      { question, answer: { ...response, meals: [], draft: { ...latest, editFeedback: 'Which item?' }, message: 'Which item?' } },
+      { question: 'Find history', answer: response }
+    ]));
+    component.openChat('conversation');
+    fixture.detectChanges();
+
+    const page: HTMLElement = fixture.nativeElement;
+    expect(page.querySelectorAll('.live-meal').length).toBe(1);
+    expect(page.querySelector('.live-meal summary')?.textContent).toContain('130 g');
+    const transcript = page.querySelector('.transcript');
+    for (const total of [50, 80, 60, 123, 130]) {
+      expect(transcript?.textContent).toContain('Total carbohydrates: ' + total + ' g');
+    }
+    expect(transcript?.textContent).toContain('Which item?');
+    expect(transcript?.querySelector('.food-line')).toBeNull();
+    expect(page.querySelector('.live-meal')?.nextElementSibling?.tagName).toBe('FORM');
+  });
+
+  it('keeps failed questions available for retry', () => {
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => new Error('Offline')));
+    fixture.componentInstance.message = 'Find porridge';
+    fixture.componentInstance.send();
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[role=alert]').textContent).toContain('Try again');
+    expect(fixture.componentInstance.message).toBe('Find porridge');
+    expect(fixture.componentInstance.loading).toBeFalse();
+  });
+
+  it('loads the original and transfers snapshots and adjustment without historical medical values', () => {
+    const items = [{
+      id: 'historical-item', foodItemId: 'deleted-food', foodNameSnapshot: 'Original soup',
+      quantity: 150, measurementType: 'Grams' as const, weightGrams: 150,
+      carbsPer100gSnapshot: 10, carbsPerUnitSnapshot: null, calculatedCarbs: 15,
+      carbOverride: 18, effectiveCarbs: 18
+    }];
+    api.getMeal.and.returnValue(of({
+      id: 'saved-meal', mealType: 'Lunch', mealTime: '', createdAt: '', foodNames: [],
+      preMealGlucose: 10, totalCarbs: 20, carbAdjustment: 1, suggestedBolus: 3, confirmedBolus: 2,
+      items
+    }));
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+
+    fixture.componentInstance.useMeal('saved-meal');
+
+    expect(api.getMeal).toHaveBeenCalledWith('saved-meal');
+    expect(navigate).toHaveBeenCalledWith(['/calculator'], { state: {
+      assistantMealItems: items, assistantCarbAdjustment: 1, assistantOriginalMealId: 'saved-meal'
+    } });
+  });
+});

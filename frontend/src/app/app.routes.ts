@@ -23,6 +23,7 @@ export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
   { path: 'dashboard', component: DashboardComponent, title: 'Dashboard', canActivate: [authGuard] },
   { path: 'calculator', component: CalculatorComponent, title: 'Current Meal', canActivate: [authGuard] },
+  { path: 'meal-assistant', loadComponent: () => import('./pages/meal-assistant.component').then(module => module.MealAssistantComponent), title: 'Meal Assistant', canActivate: [authGuard] },
   { path: 'history', component: HistoryComponent, title: 'Meal History', canActivate: [authGuard] },
   { path: 'meals/:id', component: MealDetailsComponent, title: 'Meal Details', canActivate: [authGuard] },
   { path: 'delivery-meals', component: DeliveryMealsComponent, title: 'Ask Past Me', canActivate: [authGuard] },

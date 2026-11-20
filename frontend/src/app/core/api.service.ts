@@ -3,7 +3,9 @@ import { Injectable } from '@angular/core';
 import { map } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { SKIP_GLOBAL_ERROR_NOTIFICATION } from './http-error-context';
-import { Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, FoodMeasurementType, LoginAttempt, LoginAttemptStats, MealCalculation, MealDetail, MealItemInput, MealSummary, MealType, PaginatedResult, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
+import { CalculatedMealItem, Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, FoodMeasurementType, LoginAttempt, LoginAttemptStats, MealCalculation, MealCarbPreview, MealDetail, MealItemInput, MealSummary, MealType, PaginatedResult, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
+
+import { AssistantConversation, AssistantTurn, MealAssistantResponse } from './meal-assistant.models';
 
 export interface UpsertFoodRequest {
   name: string;
@@ -49,7 +51,7 @@ export interface UpsertDeliveryMealRequest {
   dishName: string;
   portionDescription: string;
   carbs: number;
-  usualInsulinUnits: number;
+  usualInsulinUnits: number | null;
   lastPreMealGlucose?: number;
   resultRating: ResultRating;
   tags: string;
@@ -81,6 +83,26 @@ export class ApiService {
 
   constructor(private readonly http: HttpClient) {}
 
+  sendMealAssistantMessage(conversationId: string | null, message: string, requestId: string) {
+    return this.http.post<MealAssistantResponse>(`${this.apiUrl}/meal-assistant/messages`, { conversationId, message, requestId }, { context: this.localErrorContext });
+  }
+
+  getMealAssistantConversations() {
+    return this.http.get<AssistantConversation[]>(`${this.apiUrl}/meal-assistant/conversations`, { context: this.localErrorContext });
+  }
+
+  getMealAssistantConversation(id: string) {
+    return this.http.get<AssistantTurn[]>(`${this.apiUrl}/meal-assistant/conversations/${id}`, { context: this.localErrorContext });
+  }
+
+  getMealAssistantCalculatorDraft(id: string) {
+    return this.http.get<CalculatedMealItem[]>(`${this.apiUrl}/meal-assistant/conversations/${id}/calculator-draft`, { context: this.localErrorContext });
+  }
+
+  deleteMealAssistantConversation(id: string) {
+    return this.http.delete<void>(`${this.apiUrl}/meal-assistant/conversations/${id}`, { context: this.localErrorContext });
+  }
+
   getDashboard() {
     return this.http.get<Dashboard>(`${this.apiUrl}/dashboard/today`, { context: this.localErrorContext });
   }
@@ -103,6 +125,10 @@ export class ApiService {
 
   deleteFood(id: string) {
     return this.http.delete<void>(`${this.apiUrl}/foods/${id}`);
+  }
+
+  previewMealCarbs(items: MealItemInput[], carbAdjustment: number) {
+    return this.http.post<MealCarbPreview>(`${this.apiUrl}/meals/preview-carbs`, { items, carbAdjustment }, { context: this.localErrorContext });
   }
 
   calculateMeal(request: CalculateMealRequest) {

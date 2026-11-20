@@ -13,7 +13,7 @@ export const authInterceptor: HttpInterceptorFn = (request, next) => {
   return next(authenticatedRequest).pipe(
     catchError((error: unknown) => {
       if (error instanceof HttpErrorResponse && error.status === 401 && !request.url.endsWith('/auth/login')) {
-        auth.logout();
+        auth.logout(!request.url.endsWith('/meal-assistant/messages'));
       }
       return throwError(() => error);
     })

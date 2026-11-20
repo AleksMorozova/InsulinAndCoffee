@@ -1,8 +1,8 @@
-import { DOCUMENT } from '@angular/common';
-import { AfterViewInit, Component, ElementRef, Inject, NgZone, ViewChild } from '@angular/core';
+import { AfterViewInit, Component, ElementRef, NgZone, ViewChild } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { finalize } from 'rxjs';
+import { loginDestination } from '../../core/login-destination';
 import { AuthService } from '../../core/auth.service';
 import { GoogleCredentialResponse, GoogleIdentityService } from '../../core/google-identity.service';
 import { environment } from '../../../environments/environment';
@@ -45,7 +45,7 @@ export class LoginComponent implements AfterViewInit {
     private readonly router: Router,
     private readonly googleIdentity: GoogleIdentityService,
     private readonly zone: NgZone,
-    @Inject(DOCUMENT) private readonly document: Document) {}
+    private readonly route: ActivatedRoute) {}
 
   ngAfterViewInit(): void {
     if (!this.googleEnabled || !this.googleButton) return;
@@ -56,22 +56,28 @@ export class LoginComponent implements AfterViewInit {
   }
 
   submit(): void {
-    if (this.form.invalid) return;
+    if (this.form.invalid || this.loading) return;
     this.loading = true;
     this.error = '';
     const { username, password } = this.form.getRawValue();
     this.auth.login(username, password).pipe(finalize(() => this.loading = false)).subscribe({
-      next: () => void this.router.navigateByUrl('/dashboard'),
-      error: () => this.error = 'Invalid username or password.'
+      next: () => this.redirect(),
+      error: () => { this.form.controls.password.reset(); this.error = 'Could not sign in. Check your username and password and try again.'; }
     });
+  }
+
+  private redirect() {
+    const destination = loginDestination(this.router, this.route.snapshot.queryParamMap.get('returnUrl'));
+    void this.router.navigateByUrl(destination, { replaceUrl: true });
   }
 
   private handleGoogle(response: GoogleCredentialResponse): void {
     this.zone.run(() => {
+      if (this.loading) return;
       this.loading = true;
       this.error = '';
       this.auth.loginWithGoogle(response.credential).pipe(finalize(() => this.loading = false)).subscribe({
-        next: () => this.document.location.replace('/dashboard'),
+        next: () => this.redirect(),
         error: () => this.error = 'Google sign-in failed. Please try again.'
       });
     });

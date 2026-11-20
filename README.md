@@ -6,6 +6,9 @@ This application is not a medical device. All insulin calculations are informati
 
 ## Stack
 
+For Render/Vercel pull-request deployment setup, health verification, and database
+isolation, see [PR previews](docs/pr-previews.md).
+
 - Angular 18 standalone components
 - ASP.NET Core Web API on .NET 9
 - Entity Framework Core

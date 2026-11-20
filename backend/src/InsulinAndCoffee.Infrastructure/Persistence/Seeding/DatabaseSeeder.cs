@@ -43,16 +43,7 @@ public static class DatabaseSeeder
                 CreatedAt = createdAt
             });
 
-        modelBuilder.Entity<DiabetesSettings>().HasData(new DiabetesSettings
-        {
-            Id = settingsId,
-            UserId = DefaultUser.Id,
-            TargetGlucose = 6.5m,
-            CarbRatio = 10m,
-            CorrectionFactor = 3m,
-            InsulinDurationHours = 4m,
-            UpdatedAt = createdAt
-        });
+        modelBuilder.Entity<DiabetesSettings>().HasData(DiabetesSettings.CreateDefaults(settingsId, DefaultUser.Id, createdAt));
 
         modelBuilder.Entity<FoodItem>().HasData(
             Food("33333333-3333-3333-3333-333333333301", "Philadelphia Roll", 25m, true, createdAt),

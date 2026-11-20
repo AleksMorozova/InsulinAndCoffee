@@ -8,6 +8,8 @@ namespace InsulinAndCoffee.Infrastructure;
 
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext
 {
+    public DbSet<AssistantConversation> AssistantConversations => Set<AssistantConversation>();
+    public DbSet<AssistantMessage> AssistantMessages => Set<AssistantMessage>();
     public DbSet<User> Users => Set<User>();
     public DbSet<DiabetesSettings> DiabetesSettings => Set<DiabetesSettings>();
     public DbSet<FoodItem> FoodItems => Set<FoodItem>();

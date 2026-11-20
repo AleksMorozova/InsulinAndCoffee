@@ -26,6 +26,57 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "result_rating", new[] { "perfect", "good", "high_glucose", "low_glucose", "unknown" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.AssistantConversation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("AssistantConversations");
+                });
+
+            modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.AssistantMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ResponseJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId", "CreatedAt");
+
+                    b.ToTable("AssistantMessages");
+                });
+
             modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.DeliveryMeal", b =>
                 {
                     b.Property<Guid>("Id")
@@ -82,7 +133,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                     b.Property<Guid>("UserId")
                         .HasColumnType("uuid");
 
-                    b.Property<decimal>("UsualInsulinUnits")
+                    b.Property<decimal?>("UsualInsulinUnits")
                         .HasPrecision(6, 2)
                         .HasColumnType("numeric(6,2)");
 
@@ -668,6 +719,24 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.AssistantConversation", b =>
+                {
+                    b.HasOne("InsulinAndCoffee.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.AssistantMessage", b =>
+                {
+                    b.HasOne("InsulinAndCoffee.Domain.Entities.AssistantConversation", null)
+                        .WithMany("Messages")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.DeliveryMeal", b =>
                 {
                     b.HasOne("InsulinAndCoffee.Domain.Entities.User", "User")
@@ -760,6 +829,11 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.AssistantConversation", b =>
+                {
+                    b.Navigation("Messages");
                 });
 
             modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.Meal", b =>

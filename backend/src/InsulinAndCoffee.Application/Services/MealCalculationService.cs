@@ -12,6 +12,15 @@ namespace InsulinAndCoffee.Application.Services;
 public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser = null)
 {
     private Guid UserId => currentUser?.UserId ?? DefaultUser.Id;
+    public async Task<MealCarbPreview> PreviewCarbsAsync(MealCarbPreviewRequest request, CancellationToken cancellationToken)
+    {
+        if (request.Items.Count is < 1 or > 100 || request.Items.Any(item => ResolveQuantity(item) <= 0))
+            throw new ValidationException("Enter a positive quantity for each selected food.");
+        var items = await CalculateItemsAsync(request.Items, null, null, cancellationToken);
+        var foodCarbs = Math.Round(items.Sum(item => item.EffectiveCarbs), 2);
+        return new MealCarbPreview(foodCarbs, CalculateFinalCarbs(foodCarbs, request.CarbAdjustment), items);
+    }
+
     public async Task<MealCalculationDto> CalculateMealAsync(CalculateMealRequest request, CancellationToken cancellationToken)
     {
         ValidateMealInputs(request.PreMealGlucose, request.Items, request.DirectCarbs, request.CarbAdjustment);

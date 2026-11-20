@@ -69,7 +69,7 @@ public record DeliveryMealDto(
     string DishName,
     string PortionDescription,
     decimal Carbs,
-    decimal UsualInsulinUnits,
+    decimal? UsualInsulinUnits,
     decimal? LastPreMealGlucose,
     ResultRating ResultRating,
     string Tags,
@@ -84,7 +84,7 @@ public record UpsertDeliveryMealRequest(
     string DishName,
     string PortionDescription,
     decimal Carbs,
-    decimal UsualInsulinUnits,
+    decimal? UsualInsulinUnits,
     decimal? LastPreMealGlucose,
     ResultRating ResultRating,
     string Tags,
@@ -105,7 +105,7 @@ public record DeliveryMealSectionsDto(
     IReadOnlyList<DeliveryMealDto> RecentlyUsed,
     IReadOnlyList<DeliveryMealDto> SearchResults);
 
-public record UseDeliveryMealDto(Guid Id, decimal Carbs, decimal UsualInsulinUnits, string Notes);
+public record UseDeliveryMealDto(Guid Id, decimal Carbs, decimal? UsualInsulinUnits, string Notes);
 
 public record SupplyItemDto(
     Guid Id,
@@ -143,3 +143,6 @@ public record SupplyCheckResultDto(
     DateOnly? EstimatedRunOutDate,
     string Status);
 
+
+public record MealCarbPreviewRequest(IReadOnlyList<MealItemInputDto> Items, decimal CarbAdjustment);
+public record MealCarbPreview(decimal FoodCarbs, decimal TotalCarbs, IReadOnlyList<CalculatedMealItemDto> Items);

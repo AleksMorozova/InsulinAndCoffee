@@ -1,0 +1,35 @@
+name: Render Preview
+
+on:
+  pull_request:
+    branches: [stage]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  deployments: read
+  pull-requests: read
+
+concurrency:
+  group: render-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  health:
+    name: Render Preview / Health Check
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Test preview verification
+        run: node --test scripts/render-preview-health.test.mjs frontend/scripts/resolve-api-url.test.mjs
+      - name: Wait for native Render deployment and verify health
+        run: node scripts/render-preview-health.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREVIEW_TIMEOUT_SECONDS: ${{ vars.RENDER_PREVIEW_TIMEOUT_SECONDS || '1200' }}
+          RENDER_SERVICE_SLUG: ${{ vars.RENDER_SERVICE_SLUG || 'insulinandcoffee' }}

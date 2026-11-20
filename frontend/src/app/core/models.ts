@@ -141,7 +141,7 @@ export interface DeliveryMeal {
   dishName: string;
   portionDescription: string;
   carbs: number;
-  usualInsulinUnits: number;
+  usualInsulinUnits: number | null;
   lastPreMealGlucose?: number;
   resultRating: ResultRating;
   tags: string;
@@ -162,7 +162,7 @@ export interface DeliveryMealSections {
 export interface UseDeliveryMeal {
   id: string;
   carbs: number;
-  usualInsulinUnits: number;
+  usualInsulinUnits: number | null;
   notes: string;
 }
 
@@ -192,3 +192,9 @@ export interface SupplyCheckResult {
   status: SupplyStatus;
 }
 
+
+export interface MealCarbPreview {
+  foodCarbs: number;
+  totalCarbs: number;
+  items: CalculatedMealItem[];
+}

@@ -10,9 +10,15 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System.Text;
+using System.Threading.RateLimiting;
 using System.Text.Json.Serialization;
 
-var builder = WebApplication.CreateBuilder(args);
+var seedMealAssistant = args is ["--seed-meal-assistant"];
+var repairTestSettings = args is ["--repair-local-test-settings"];
+var seedAskPastMe = args is ["--seed-ask-past-me"];
+var builder = WebApplication.CreateBuilder(seedMealAssistant || repairTestSettings || seedAskPastMe ? [] : args);
+if ((seedMealAssistant || repairTestSettings || seedAskPastMe) && !builder.Environment.IsDevelopment())
+    throw new InvalidOperationException("Local maintenance commands require Development.");
 
 builder.Logging.ClearProviders();
 builder.Logging.AddConsole();
@@ -65,6 +71,14 @@ builder.Services.AddAuthorization(options =>
 
 builder.Services.AddHealthChecks();
 
+builder.Services.AddHttpClient<ILlmClient, OpenAiLlmClient>();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("meal-assistant", context => RateLimitPartition.GetConcurrencyLimiter(
+        context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "",
+        _ => new ConcurrencyLimiterOptions { PermitLimit = 1, QueueLimit = 0 }));
+});
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 
@@ -98,6 +112,34 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+if (seedMealAssistant)
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    await InsulinAndCoffee.Infrastructure.Persistence.Seeding.MealAssistantDevelopmentSeed.RunAsync(
+        scope.ServiceProvider.GetRequiredService<AppDbContext>(),
+        scope.ServiceProvider.GetRequiredService<TimeProvider>(), CancellationToken.None);
+    return;
+}
+
+if (repairTestSettings)
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    await InsulinAndCoffee.Infrastructure.Persistence.Seeding.LocalTestSettingsRepair.RunAsync(
+        scope.ServiceProvider.GetRequiredService<AppDbContext>(),
+        scope.ServiceProvider.GetRequiredService<TimeProvider>(), CancellationToken.None);
+    return;
+}
+
+if (seedAskPastMe)
+{
+    await using var scope = app.Services.CreateAsyncScope();
+    await InsulinAndCoffee.Infrastructure.Persistence.Seeding.AskPastMeDevelopmentSeed.RunAsync(
+        scope.ServiceProvider.GetRequiredService<AppDbContext>(),
+        scope.ServiceProvider.GetRequiredService<TimeProvider>(), CancellationToken.None);
+    return;
+}
+
+app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseExceptionHandler();
 
 app.UseSwagger();
@@ -107,12 +149,22 @@ app.UseCors("Angular");
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
-app.MapHealthChecks("/health");
+var healthOptions = new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions();
+var writeHealthResponse = healthOptions.ResponseWriter;
+healthOptions.ResponseWriter = async (context, report) =>
+{
+    if (string.Equals(app.Configuration["IS_PULL_REQUEST"], "true", StringComparison.OrdinalIgnoreCase)
+        && app.Configuration["RENDER_GIT_COMMIT"] is { Length: 40 } commit
+        && commit.All(Uri.IsHexDigit))
+        context.Response.Headers["X-Preview-Commit"] = commit;
+
+    await writeHealthResponse(context, report);
+};
+app.MapHealthChecks("/health", healthOptions).AllowAnonymous();
 
 app.MapControllers();
-
-app.UseMiddleware<CorrelationIdMiddleware>();
 
 if (!app.Environment.IsEnvironment("Testing"))
 {

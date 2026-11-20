@@ -35,7 +35,7 @@ public sealed class AuthService(
             CreatedAt = timeProvider.GetUtcNow()
         };
         user.PasswordHash = passwords.HashPassword(request.Password);
-        db.Users.Add(user);
+        AddNewUser(user);
         await db.SaveChangesAsync(cancellationToken);
         return ToDto(user);
     }
@@ -88,7 +88,7 @@ public sealed class AuthService(
                 Role = UserRole.User,
                 CreatedAt = timeProvider.GetUtcNow()
             };
-            db.Users.Add(user);
+            AddNewUser(user);
             await db.SaveChangesAsync(cancellationToken);
         }
 
@@ -102,6 +102,12 @@ public sealed class AuthService(
         var user = await db.Users.AsNoTracking()
             .FirstAsync(user => user.Id == currentUser.UserId, cancellationToken);
         return ToDto(user);
+    }
+
+    private void AddNewUser(User user)
+    {
+        user.DiabetesSettings = DiabetesSettings.CreateDefaults(Guid.NewGuid(), user.Id, user.CreatedAt);
+        db.Users.Add(user);
     }
 
     private static string ValidateCredentials(string usernameValue, string password)
