@@ -4,6 +4,8 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ApiService, UpsertDeliveryMealRequest } from '../../core/api.service';
 import { CarbProvenanceComponent } from '../../shared/carb-provenance.component';
+import { getApiErrorMessage } from '../../core/api-error';
+import { finalize } from 'rxjs';
 import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/models';
 
 @Component({
@@ -30,6 +32,8 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
     </section>
 
     <section class="memory-section">
+      @if (loading) { <p role="status">Loading saved orders...</p> }
+      @if (loadError) { <p role="alert">{{ loadError }}</p><button type="button" (click)="load()">Try again</button> }
       <div class="section-head">
         <div>
           <h2>⭐ Favorites ({{ sections.favorites.length }})</h2>
@@ -40,10 +44,12 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
         @for (meal of sections.favorites; track meal.id) {
           <ng-container [ngTemplateOutlet]="quickMealCard" [ngTemplateOutletContext]="{ meal: meal }" />
         } @empty {
+          @if (!loading && !loadError) {
           <div class="empty-state wide">
             <strong>No favorites yet.</strong>
             <p>Favorite the meals you trust most and they will stay close.</p>
           </div>
+          }
         }
       </div>
     </section>
@@ -60,6 +66,7 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
         @for (meal of sections.searchResults; track meal.id) {
           <ng-container [ngTemplateOutlet]="mealCard" [ngTemplateOutletContext]="{ meal: meal }" />
         } @empty {
+          @if (!loading && !loadError) {
           <div class="empty-state wide">
             <strong>{{ search ? 'Nothing matched that search.' : 'No counted meals yet.' }}</strong>
             <p>{{ search ? 'Try a restaurant, dish, tag, or note from the meal.' : 'Add your first counted meal so this page can help you remember it later.' }}</p>
@@ -67,6 +74,7 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
               <button type="button" (click)="openCreate()">Add counted meal</button>
             }
           </div>
+          }
         }
       </div>
     </section>
@@ -193,6 +201,8 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
 })
 export class DeliveryMealsComponent implements OnInit {
   resultRatings = resultRatings;
+  loading = true;
+  loadError = '';
   search = '';
   editingId = '';
   isEditorOpen = false;
@@ -218,7 +228,12 @@ export class DeliveryMealsComponent implements OnInit {
   }
 
   load() {
-    this.api.getDeliveryMeals(this.search).subscribe((sections) => this.sections = sections);
+    this.loading = true;
+    this.loadError = '';
+    this.api.getDeliveryMeals(this.search).pipe(finalize(() => this.loading = false)).subscribe({
+      next: sections => this.sections = sections,
+      error: error => this.loadError = getApiErrorMessage(error, 'Could not load saved orders. Please try again.')
+    });
   }
 
   openCreate() {

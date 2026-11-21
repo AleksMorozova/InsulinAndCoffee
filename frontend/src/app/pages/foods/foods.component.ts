@@ -3,6 +3,8 @@ import { Component, HostListener, OnInit } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiService, UpsertFoodRequest } from '../../core/api.service';
 import { CarbProvenanceComponent } from '../../shared/carb-provenance.component';
+import { getApiErrorMessage } from '../../core/api-error';
+import { finalize } from 'rxjs';
 import { FoodItem, FoodMeasurementType } from '../../core/models';
 
 type FoodFilter = 'all' | 'favorites';
@@ -32,6 +34,8 @@ type FoodSort = 'newest' | 'alphabetical' | 'highestCarbs' | 'lowestCarbs' | 'fa
     </section>
 
     <section class="food-toolbar">
+      @if (loading) { <p role="status">Loading foods...</p> }
+      @if (loadError) { <p role="alert">{{ loadError }}</p><button type="button" (click)="loadFoods()">Try again</button> }
       <div class="segmented-control" aria-label="Food filter">
         <button type="button" [class.active]="filter === 'all'" (click)="setFilter('all')">All</button>
         <button type="button" [class.active]="filter === 'favorites'" (click)="setFilter('favorites')">Favorites</button>
@@ -82,12 +86,14 @@ type FoodSort = 'newest' | 'alphabetical' | 'highestCarbs' | 'lowestCarbs' | 'fa
           </details>
         </article>
       } @empty {
+        @if (!loading && !loadError) {
         <div class="food-empty-state">
           <div class="food-empty-icon" aria-hidden="true">☕</div>
           <strong>{{ filter === 'favorites' ? 'No favorite foods yet.' : 'Your food library is empty.' }}</strong>
           <p>{{ filter === 'favorites' ? 'Mark foods as favorites to keep them close.' : 'Start building your personal food database.' }}</p>
           <button type="button" (click)="openCreate()">Add food</button>
         </div>
+        }
       }
     </section>
 
@@ -144,6 +150,8 @@ type FoodSort = 'newest' | 'alphabetical' | 'highestCarbs' | 'lowestCarbs' | 'fa
 })
 export class FoodsComponent implements OnInit {
   foods: FoodItem[] = [];
+  loading = true;
+  loadError = '';
   measurementTypes: FoodMeasurementType[] = ['Grams', 'Portion', 'Piece'];
   search = '';
   editingId = '';
@@ -175,7 +183,12 @@ export class FoodsComponent implements OnInit {
   }
 
   loadFoods() {
-    this.api.getFoods(this.search).subscribe((foods) => this.foods = foods);
+    this.loading = true;
+    this.loadError = '';
+    this.api.getFoods(this.search).pipe(finalize(() => this.loading = false)).subscribe({
+      next: foods => this.foods = foods,
+      error: error => this.loadError = getApiErrorMessage(error, 'Could not load foods. Please try again.')
+    });
   }
 
   visibleFoods() {
