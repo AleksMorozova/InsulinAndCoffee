@@ -1,5 +1,5 @@
 import { DatePipe, DecimalPipe, NgTemplateOutlet } from '@angular/common';
-import { Component, DestroyRef, OnInit, inject } from '@angular/core';
+import { afterNextRender, Component, DestroyRef, ElementRef, Injector, OnInit, ViewChild, inject } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -13,13 +13,7 @@ import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPr
   selector: 'app-delivery-meals',
   standalone: true,
   imports: [DatePipe, DecimalPipe, NgTemplateOutlet, ReactiveFormsModule, CarbProvenanceComponent],
-  styles: [`
-    .order-item-editor { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr)); gap:12px; padding:12px 0; border-bottom:1px solid var(--border); }
-    .order-item-editor p { grid-column:1 / -1; margin:0; }
-    .order-items-editor,.order-item-list { display:grid; gap:12px; min-width:0; }
-    .order-item-summary { overflow-wrap:anywhere; padding:8px 0; }
-    .order-item-summary input[type=checkbox] { width:auto; }
-  `],
+  styleUrl: './delivery-meals.component.css',
   template: `
     <section class="memory-hero">
       <div class="memory-hero-copy">
@@ -89,29 +83,33 @@ import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPr
 
     @if (isEditorOpen) {
       <div class="modal-backdrop" (click)="closeEditor()">
-        <article class="delivery-modal" (click)="$event.stopPropagation()">
+        <article #orderDialog class="delivery-modal" role="dialog" aria-modal="true" aria-labelledby="counted-meal-title" (keydown)="onDialogKey($event)" (click)="$event.stopPropagation()">
           <div class="modal-head">
             <div>
               <p>{{ editingId ? 'Update memory' : 'New memory' }}</p>
-              <h2>{{ editingId ? 'Edit counted meal' : 'Add counted meal' }}</h2>
+              <h2 id="counted-meal-title">{{ editingId ? 'Edit counted meal' : 'Add counted meal' }}</h2>
             </div>
-            <button type="button" class="subtle icon-button" (click)="closeEditor()" title="Close">x</button>
+            <button type="button" class="subtle dialog-close" (click)="closeEditor()" aria-label="Close counted meal editor">×</button>
           </div>
 
-          <form [formGroup]="form" class="grid" (ngSubmit)="save()">
-            <div class="grid two">
+          <form [formGroup]="form" class="counted-meal-form" (ngSubmit)="save()">
+            <div class="modal-content">
+            <div class="order-metadata-row">
               <label>Restaurant or place <input formControlName="placeName"></label>
               <label>Dish name <input formControlName="dishName"></label>
             </div>
-            <label>Portion or short note <input formControlName="portionDescription" placeholder="Large set, 350g bowl, 1 medium cup"></label>
+            <label><span>Portion or short note <span class="optional-label">(optional)</span></span><input formControlName="portionDescription" placeholder="Large set, 350g bowl, 1 medium cup"></label>
             @if (!structuredMode) {
               <button type="button" class="subtle" (click)="enableItems()">Add structured items</button>
             } @else {
               <section class="order-items-editor" aria-label="Order items">
+                <div class="order-items-heading"><h3>Items</h3><button type="button" class="subtle compact-button" (click)="addOrderItem()">+ Add item</button></div>
                 @for (item of editorItems.controls; track item; let i = $index) {
                   <div [formGroup]="item" class="order-item-editor">
-                    <strong>Item {{ i + 1 }}</strong>
-                    <label>Name <input formControlName="name"></label>
+                    <div class="order-item-name-row"><label>Item {{ i + 1 }} <input formControlName="name" placeholder="Food name"></label>
+                      <button type="button" class="subtle item-delete" [attr.aria-label]="'Remove item ' + (i + 1)" title="Remove item" (click)="removeItem(i)">×</button>
+                    </div>
+                    <div class="order-item-fields">
                     <label>Unit <select formControlName="measurementType"><option value="Grams">Grams</option><option value="Portion">Portion</option><option value="Piece">Piece</option></select></label>
                     <label>Quantity <input type="number" min="0.01" [step]="item.controls.measurementType.value === 'Piece' ? 1 : 0.01" formControlName="quantity"></label>
                     @if (item.controls.measurementType.value === 'Grams') {
@@ -119,25 +117,34 @@ import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPr
                     } @else {
                       <label>Carbs per unit <input type="number" min="0" step="0.01" formControlName="carbsPerUnit"></label>
                     }
-                    <label>Carb override (optional) <input type="number" min="0" step="0.01" formControlName="carbOverride"></label>
-                    @if (preview?.items?.[i]; as value) { <p>Calculated {{ value.calculatedCarbs | number:'1.0-2' }} g · Effective {{ value.effectiveCarbs | number:'1.0-2' }} g</p> }
-                    <button type="button" class="subtle" (click)="removeItem(i)">Remove item</button>
+                    <label><span>Override <span class="optional-label">(optional)</span></span><input type="number" min="0" step="0.01" formControlName="carbOverride" placeholder="Auto"></label>
+                    </div>
+                    @if (preview?.items?.[i]; as value) {
+                      <p class="order-item-result">
+                        @if (value.calculatedCarbs !== value.effectiveCarbs) {
+                          Calculated {{ value.calculatedCarbs | number:'1.0-2' }} g <span>→ Used <strong>{{ value.effectiveCarbs | number:'1.0-2' }} g</strong></span>
+                        } @else {
+                          <strong>{{ value.effectiveCarbs | number:'1.0-2' }} g carbs</strong>
+                          @if (value.carbOverride !== null) { <span>Saved override · same as calculated</span> }
+                        }
+                      </p>
+                    }
                   </div>
                 }
-                <button type="button" class="subtle" (click)="addOrderItem()">Add item</button>
                 @if (previewing) { <p role="status">Calculating items...</p> }
                 @if (preview) {
-                  <p>Item total: <strong>{{ preview.totalCarbs | number:'1.0-2' }} g</strong></p>
+                  <div class="order-effective-total"><span>Total effective carbs</span><strong>{{ preview.totalCarbs | number:'1.0-2' }} g</strong></div>
                   @if (savedTotal !== undefined && preview.difference !== 0) {
                     <p>Saved total: {{ savedTotal | number:'1.0-2' }} g · Difference: {{ preview.difference | number:'1.0-2' }} g. No difference is distributed across items.</p>
-                    <button type="button" class="subtle" (click)="acceptTotal()">Use calculated item total</button>
+                    @if (acceptedTotal) { <p class="order-item-result">Calculated total selected for this edit.</p> }
+                    @else { <button type="button" class="subtle compact-button" (click)="acceptTotal()">Use calculated item total</button> }
                   }
                 }
               </section>
             }
             @if (editError) { <p role="alert">{{ editError }}</p> }
-            <div class="grid three">
-              <label>{{ structuredMode ? 'Accepted order total' : 'Carbs' }} <input type="number" min="0" step="0.01" [readOnly]="structuredMode" formControlName="carbs"></label>
+            <div class="order-history-fields" [class.structured-history]="structuredMode">
+              @if (!structuredMode) { <label>Carbs <input type="number" min="0" step="0.01" formControlName="carbs"></label> }
               <label>Recorded insulin <input type="number" min="0" step="0.1" formControlName="usualInsulinUnits"></label>
               <label>Pre-meal glucose <input type="number" min="0" step="0.1" formControlName="lastPreMealGlucose"></label>
             </div>
@@ -154,6 +161,7 @@ import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPr
               <input type="checkbox" formControlName="isFavorite">
               Favorite
             </label>
+            </div>
             <div class="actions modal-actions">
               <button type="submit" [disabled]="form.invalid || saving || (structuredMode && (!itemsReady || previewing))">{{ editingId ? 'Update meal' : 'Save meal' }}</button>
               <button type="button" class="subtle" (click)="closeEditor()">Cancel</button>
@@ -253,6 +261,13 @@ import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPr
 })
 export class DeliveryMealsComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
+  private dialogElement?: HTMLElement;
+  private returnFocus: HTMLElement | null = null;
+  @ViewChild('orderDialog') set orderDialog(ref: ElementRef<HTMLElement> | undefined) {
+    this.dialogElement = ref?.nativeElement;
+    if (ref) afterNextRender(() => ref.nativeElement.querySelector('input')?.focus(), { injector: this.injector });
+  }
   private previewRequest?: Subscription;
   structuredMode = false;
   savedTotal?: number;
@@ -275,7 +290,7 @@ export class DeliveryMealsComponent implements OnInit {
   form = this.fb.nonNullable.group({
     placeName: ['', Validators.required],
     dishName: ['', Validators.required],
-    portionDescription: ['', Validators.required],
+    portionDescription: [''],
     carbs: [0, [Validators.required, Validators.min(0)]],
     usualInsulinUnits: this.fb.control<number | null>(null, Validators.min(0)),
     lastPreMealGlucose: [0],
@@ -304,11 +319,13 @@ export class DeliveryMealsComponent implements OnInit {
   }
 
   openCreate() {
+    this.returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.reset();
     this.isEditorOpen = true;
   }
 
   openEdit(meal: DeliveryMeal) {
+    this.returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     this.reset();
     this.editingId = meal.id;
     this.expectedRevision = meal.revision ?? 0;
@@ -335,6 +352,7 @@ export class DeliveryMealsComponent implements OnInit {
   closeEditor() {
     this.isEditorOpen = false;
     this.reset();
+    this.returnFocus?.focus();
   }
 
   save() {
@@ -342,6 +360,7 @@ export class DeliveryMealsComponent implements OnInit {
     const raw = this.form.getRawValue();
     const request: UpsertDeliveryMealRequest = {
       ...raw,
+      portionDescription: raw.portionDescription.trim() || null,
       ...(this.structuredMode ? { items: this.itemInputs(), acceptCalculatedTotal: this.acceptedTotal } : {}),
       ...(this.editingId ? { expectedRevision: this.expectedRevision } : {}),
       lastPreMealGlucose: raw.lastPreMealGlucose > 0 ? raw.lastPreMealGlucose : undefined
@@ -463,6 +482,15 @@ export class DeliveryMealsComponent implements OnInit {
 
   labelRating(rating: string) {
     return this.resultLabel(rating);
+  }
+
+  onDialogKey(event: KeyboardEvent) {
+    if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.closeEditor(); return; }
+    if (event.key !== 'Tab' || !this.dialogElement) return;
+    const controls = Array.from(this.dialogElement.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]'));
+    const first = controls[0]; const last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
   }
 
   resultLabel(rating: string) {

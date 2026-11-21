@@ -158,6 +158,7 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
                       }
                     </datalist>
                     @if (assistantDraft && !item.value.foodItemId) { <small>Unresolved · choose a saved food or remove this row.</small> }
+                    @if (itemCalculatedCarbs(i) !== null) { <app-carb-provenance [compact]="true" [provenance]="(calculation ?? carbPreview)?.items?.[i]?.provenance" [overridden]="hasItemOverride(i)" /> }
                   </div>
                   <div class="meal-weight">
                     <input type="number" [min]="quantityMin(selectedMeasurementType(i))" [step]="quantityStep(selectedMeasurementType(i))" formControlName="quantity" [attr.aria-label]="quantityLabel(selectedMeasurementType(i))">
@@ -165,9 +166,12 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
                   </div>
                   <div class="meal-item-carbs" aria-label="Calculated carbs">
                     <strong>@if (itemCalculatedCarbs(i); as carbs) { {{ carbs | number:'1.0-2' }} g } @else if (itemCalculatedCarbs(i) === 0) { 0 g } @else { — }</strong>
-                    @if (itemCalculatedCarbs(i) !== null) { <app-carb-provenance [provenance]="(calculation ?? carbPreview)?.items?.[i]?.provenance" [overridden]="hasItemOverride(i)" /> }
+                    @if (hasItemOverride(i) && !equalItemOverride(i)) { <small>Calculated</small> }
                   </div>
                   <div class="item-carb-override">
+                    @if (equalItemOverride(i) && !expandedOverrideItems.has(item)) {
+                      <button type="button" class="saved-override-toggle" title="The explicitly saved override equals calculated carbs. Its value is kept unchanged." aria-label="Edit saved carb override" (click)="expandedOverrideItems.add(item)">Saved override</button>
+                    } @else {
                     <div class="override-input-wrap">
                       <input
                         [id]="'item-carb-override-' + i"
@@ -175,11 +179,13 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
                         min="0"
                         step="0.1"
                         formControlName="carbOverride"
+                        (focus)="expandedOverrideItems.add(item)"
                         placeholder="Auto"
                         aria-label="Override carbs"
                         [class.active]="hasItemOverride(i)">
                       <span>g</span>
                     </div>
+                    }
                     @if (hasItemOverride(i)) {
                       <button type="button" class="reset-carb-button" aria-label="Reset to calculated carbs" title="Reset to calculated carbs" (click)="resetItemOverride(i)">↺</button>
                     }
@@ -301,6 +307,11 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
   `
 })
 export class CalculatorComponent implements OnInit {
+  readonly expandedOverrideItems = new WeakSet<object>();
+  equalItemOverride(index: number) {
+    const value = this.items.at(index).value.carbOverride;
+    return value !== null && value !== undefined && value === this.itemCalculatedCarbs(index);
+  }
   mealTypes = mealTypes;
   measurementTypes: FoodMeasurementType[] = ['Grams', 'Portion', 'Piece'];
   foods: FoodItem[] = [];

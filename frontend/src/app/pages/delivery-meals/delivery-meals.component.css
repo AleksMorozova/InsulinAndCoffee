@@ -1,0 +1,51 @@
+.delivery-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(940px, 100%);
+  max-height: min(92dvh, 900px);
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.modal-head { flex: none; padding: 16px 20px; margin: 0; border-bottom: 1px solid var(--line); }
+.modal-head h2 { margin: 0; font-size: 1.2rem; }
+.dialog-close, .item-delete { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; font-size: 1.35rem; flex: none; }
+.counted-meal-form { display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.modal-content { display: grid; gap: 14px; padding: 16px 20px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.modal-actions { flex: none; margin: 0; padding: 12px 20px; background: var(--surface); border-top: 1px solid var(--line); }
+.modal-actions button { padding: .65rem 1rem; }
+.order-metadata-row { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+.order-history-fields { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.order-history-fields.structured-history { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.modal-content label { min-width: 0; gap: 5px; font-size: .85rem; }
+.modal-content input, .modal-content select { min-width: 0; height: 38px; padding: .45rem .65rem; }
+.modal-content textarea { padding: .55rem .65rem; }
+.optional-label { display: inline; color: var(--muted); font-size: .75rem; font-weight: 400; }
+.order-items-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.order-items-heading h3 { margin: 0; font-size: 1rem; }
+.compact-button { padding: .45rem .7rem; font-size: .82rem; }
+.order-items-editor,.order-item-list { display: grid; gap: 10px; min-width: 0; }
+.order-items-editor { container-type: inline-size; container-name: order-editor; }
+.order-item-editor { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); min-width: 0; }
+.order-item-name-row { display: flex; align-items: end; gap: 10px; }
+.order-item-name-row label { flex: 1; }
+.order-item-fields { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
+.order-item-result { display: flex; flex-wrap: wrap; gap: 5px 10px; margin: 0; font-size: .8rem; color: var(--muted); }
+.order-item-result strong { color: var(--coffee-dark); }
+.order-effective-total { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: .9rem; }
+.order-effective-total strong { white-space: nowrap; color: var(--coffee-dark); }
+.order-item-summary { overflow-wrap: break-word; padding: 8px 0; }
+.order-item-summary input[type=checkbox] { width: auto; }
+@media (max-width: 600px) {
+  .modal-head { padding: 12px; }
+  .modal-content { padding: 12px; }
+  .modal-actions { padding: 10px 12px; }
+  .order-item-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .order-history-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 390px) {
+  .order-metadata-row { grid-template-columns: minmax(0,1fr); }
+}
+@container order-editor (max-width: 560px) {
+  .order-item-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
