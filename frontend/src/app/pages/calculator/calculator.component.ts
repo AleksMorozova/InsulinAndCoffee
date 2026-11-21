@@ -7,7 +7,7 @@ import { assistantFoodName } from '../../core/meal-assistant.models';
 import { getApiErrorMessage } from '../../core/api-error';
 import { AuthService } from '../../core/auth.service';
 import { ApiService } from '../../core/api.service';
-import { FoodItem, FoodMeasurementType, MealCalculation, MealCarbPreview, MealDetail, MealItemInput, mealTypes } from '../../core/models';
+import { FoodItem, FoodMeasurementType, MealCalculation, MealCarbPreview, MealDetail, MealItemInput, UseDeliveryMeal, mealTypes } from '../../core/models';
 import { CarbProvenanceComponent } from '../../shared/carb-provenance.component';
 import { DisclaimerComponent } from '../../shared/disclaimer.component';
 
@@ -354,7 +354,7 @@ export class CalculatorComponent implements OnInit {
         carbsPer100gSnapshot: this.fb.control<number | null>(null),
         carbsPerUnitSnapshot: this.fb.control<number | null>(null),
         carbOverride: this.fb.control<number | null>(null, [Validators.min(0)]),
-        sourceMealItemId: this.fb.control<string | null>(null), sourceDeliveryMealId: this.fb.control<string | null>(null)
+        sourceMealItemId: this.fb.control<string | null>(null), sourceDeliveryMealItemId: this.fb.control<string | null>(null), sourceDeliveryMealId: this.fb.control<string | null>(null)
       })
     ])
   });
@@ -369,8 +369,8 @@ export class CalculatorComponent implements OnInit {
     this.loadFoods();
     this.form.valueChanges.subscribe(() => this.calculate());
     const previousMeal: MealDetail | undefined = history.state?.meal;
-    const deliveryMeal = history.state?.deliveryMeal;
-    if (deliveryMeal) {
+    const deliveryMeal: (UseDeliveryMeal & { placeName: string; dishName: string }) | undefined = history.state?.deliveryMeal;
+    if (deliveryMeal && !deliveryMeal.items?.length) {
       this.directMode = true;
       this.directCarbs = deliveryMeal.carbs;
       this.sourceDeliveryMealId = deliveryMeal.id;
@@ -383,7 +383,10 @@ export class CalculatorComponent implements OnInit {
       this.initializeRepeatGlucose();
     }
     const assistantItems: MealItemInput[] | undefined = history.state?.assistantMealItems
-      ?? previousMeal?.items.map(item => ({ ...item, sourceMealItemId: item.id }));
+      ?? previousMeal?.items.map(item => ({ ...item, sourceMealItemId: item.id }))
+      ?? deliveryMeal?.items?.map(item => ({ foodItemId: item.foodItemId, quantity: item.quantity, measurementType: item.measurementType,
+        foodNameSnapshot: item.foodName, carbsPer100gSnapshot: item.carbsPer100g, carbsPerUnitSnapshot: item.carbsPerUnit,
+        carbOverride: item.carbOverride, sourceDeliveryMealItemId: item.sourceDeliveryMealItemId }));
     if (assistantItems?.length) {
       this.assistantDraft = true;
       this.initializeRepeatGlucose();
@@ -401,7 +404,7 @@ export class CalculatorComponent implements OnInit {
           carbsPer100gSnapshot: this.fb.control<number | null>(item.carbsPer100gSnapshot ?? null),
           carbsPerUnitSnapshot: this.fb.control<number | null>(item.carbsPerUnitSnapshot ?? null),
           carbOverride: this.fb.control<number | null>(item.carbOverride ?? null, [Validators.min(0)]),
-          sourceMealItemId: this.fb.control<string | null>(item.sourceMealItemId ?? null), sourceDeliveryMealId: this.fb.control<string | null>(item.sourceDeliveryMealId ?? null)
+          sourceMealItemId: this.fb.control<string | null>(item.sourceMealItemId ?? null), sourceDeliveryMealItemId: this.fb.control<string | null>(item.sourceDeliveryMealItemId ?? null), sourceDeliveryMealId: this.fb.control<string | null>(item.sourceDeliveryMealId ?? null)
         }), { emitEvent: false });
         this.applyItemQuantityValidators(this.items.length - 1, item.measurementType ?? 'Grams');
       }
@@ -430,7 +433,7 @@ export class CalculatorComponent implements OnInit {
       carbsPer100gSnapshot: this.fb.control<number | null>(null),
       carbsPerUnitSnapshot: this.fb.control<number | null>(null),
       carbOverride: this.fb.control<number | null>(null, [Validators.min(0)]),
-      sourceMealItemId: this.fb.control<string | null>(null), sourceDeliveryMealId: this.fb.control<string | null>(null)
+      sourceMealItemId: this.fb.control<string | null>(null), sourceDeliveryMealItemId: this.fb.control<string | null>(null), sourceDeliveryMealId: this.fb.control<string | null>(null)
     }));
     this.foodQueries.push('');
   }
@@ -545,7 +548,7 @@ export class CalculatorComponent implements OnInit {
       carbsPer100gSnapshot: null,
       carbsPerUnitSnapshot: null,
       carbOverride: null,
-      sourceMealItemId: null, sourceDeliveryMealId: null
+      sourceMealItemId: null, sourceDeliveryMealId: null, sourceDeliveryMealItemId: null
     });
     this.applyItemQuantityValidators(index, food?.measurementType ?? 'Grams');
   }
@@ -750,7 +753,7 @@ export class CalculatorComponent implements OnInit {
       carbsPer100gSnapshot: this.fb.control<number | null>(null),
       carbsPerUnitSnapshot: this.fb.control<number | null>(null),
       carbOverride: this.fb.control<number | null>(null, [Validators.min(0)]),
-      sourceMealItemId: this.fb.control<string | null>(null), sourceDeliveryMealId: this.fb.control<string | null>(null)
+      sourceMealItemId: this.fb.control<string | null>(null), sourceDeliveryMealItemId: this.fb.control<string | null>(null), sourceDeliveryMealId: this.fb.control<string | null>(null)
     }));
     this.form.reset({
       mealType: this.form.controls.mealType.value,
@@ -781,9 +784,9 @@ export class CalculatorComponent implements OnInit {
 
   private mealInputs(): MealItemInput[] {
     return this.form.getRawValue().items.map(item => {
-      if (this.assistantDraft && !this.historicalRepeat && !item.sourceMealItemId && !item.sourceDeliveryMealId)
+      if (this.assistantDraft && !this.historicalRepeat && !item.sourceMealItemId && !item.sourceDeliveryMealId && !item.sourceDeliveryMealItemId)
         return { foodItemId: item.foodItemId, quantity: item.quantity, carbOverride: item.carbOverride };
-      return { ...item, ...(item.sourceMealItemId ? { clearCarbOverride: item.carbOverride === null } : {}) };
+      return { ...item, ...(item.sourceMealItemId || item.sourceDeliveryMealItemId ? { clearCarbOverride: item.carbOverride === null } : {}) };
     });
   }
 

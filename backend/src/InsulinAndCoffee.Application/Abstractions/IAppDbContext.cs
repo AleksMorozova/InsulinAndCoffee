@@ -15,6 +15,7 @@ public interface IAppDbContext
     DbSet<MealItem> MealItems { get; }
     DbSet<GlucoseReading> GlucoseReadings { get; }
     DbSet<DeliveryMeal> DeliveryMeals { get; }
+    DbSet<DeliveryMealItem> DeliveryMealItems { get; }
     DbSet<SupplyItem> SupplyItems { get; }
     DbSet<LoginAttempt> LoginAttempts { get; }
 

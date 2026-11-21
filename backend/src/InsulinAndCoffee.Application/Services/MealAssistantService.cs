@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Domain.Entities;
@@ -108,8 +109,9 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         var payloadHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
         {
             request.ConversationId, Message = message, request.ExpectedDraftVersion,
-            Selection = request.Selection is null ? null : new
+            Selection = request.Selection is null ? null : request.Selection.Kind == "Food" ? (object)new
             { request.Selection.FoodId, Quantity = request.Selection.Quantity?.ToString("G29", CultureInfo.InvariantCulture), request.Selection.Unit }
+                : new { request.Selection.FoodId, Quantity = request.Selection.Quantity?.ToString("G29", CultureInfo.InvariantCulture), request.Selection.Unit, request.Selection.Kind }
         }))));
         var requestMessageId = request.RequestId is Guid requestId
             ? new Guid(SHA256.HashData(Encoding.UTF8.GetBytes($"{userId:D}/{requestId:D}"))[..16])
@@ -172,8 +174,49 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             || FoodKnowledgeSearchService.IsKnownTerm(lookup.Name));
         var namedLookup = standalone && (FoodKnowledgeSearchService.IsKnownTerm(lookupName) || exactFood || restaurantLookup);
         AssistantSearch? selectedSearch = null;
-        if (request.Selection is { } selection)
+        var ordinalUnresolved = false;
+        var ordinal = Regex.Match(message, @"(?i)\b(first|second|third|1st|2nd|3rd)\s+item\b|\b(перв\w*|втор\w*|трет\w*)\s+(?:позици\w*|блюд\w*)");
+        if (request.Selection is null && ordinal.Success && Regex.IsMatch(message, @"(?i)order|заказ|замовлен"))
         {
+            var positionText = ordinal.Groups[1].Success ? ordinal.Groups[1].Value.ToLowerInvariant() : ordinal.Groups[2].Value.ToLowerInvariant();
+            var position = positionText is "first" or "1st" || positionText.StartsWith("перв") ? 0
+                : positionText is "second" or "2nd" || positionText.StartsWith("втор") ? 1 : 2;
+            var remembered = recent.Where(turn => turn.Role == "assistant" && turn.ResponseJson is not null)
+                .Select(turn => JsonSerializer.Deserialize<MealAssistantResponse>(turn.ResponseJson!, StoredJson)?.Knowledge)
+                .FirstOrDefault(result => result is not null && (result.Orders.Count > 0 || result.Items?.Count > 0));
+            var referenced = (remembered?.Orders.Select(order => order.Id) ?? []).Concat(remembered?.Items?.Select(item => item.OrderId) ?? []).Distinct().ToArray();
+            var possible = db.DeliveryMeals.AsNoTracking().Where(order => order.UserId == userId);
+            if (referenced.Length > 0) possible = possible.Where(order => referenced.Contains(order.Id));
+            var knownOrders = await possible.Select(order => order.Id).Take(2).ToListAsync(cancellationToken);
+            if (knownOrders.Count == 1)
+            {
+                var source = await db.DeliveryMealItems.AsNoTracking().Where(item => item.DeliveryMealId == knownOrders[0])
+                    .OrderBy(item => item.DisplayOrder).Skip(position).FirstOrDefaultAsync(cancellationToken);
+                if (source is not null)
+                    selectedSearch = new([new(source.Name, source.Quantity, source.MeasurementType, DeliveryMealItemId: source.Id)], "draft",
+                        active.Draft is not null ? "add" : "create");
+            }
+            if (selectedSearch is null) { ordinalUnresolved = true; selectedSearch = new([], "lookup"); }
+        }
+        if (request.Selection is { Kind: "DeliveryMealItem" or "DeliveryMeal" } orderSelection)
+        {
+            if (orderSelection.Quantity is <= 0 or > 10000 || orderSelection.Unit is { } orderUnit && !Enum.IsDefined(orderUnit))
+                throw new ValidationException("Specify a valid quantity and measurement unit.");
+            string selectedName;
+            if (orderSelection.Kind == "DeliveryMealItem")
+                selectedName = await db.DeliveryMealItems.AsNoTracking().Where(item => item.Id == orderSelection.FoodId && item.DeliveryMeal!.UserId == userId)
+                    .Select(item => item.Name).SingleOrDefaultAsync(cancellationToken) ?? throw new ValidationException("The selected order item is unavailable.");
+            else
+                selectedName = await db.DeliveryMeals.AsNoTracking().Where(order => order.Id == orderSelection.FoodId && order.UserId == userId)
+                    .Select(order => order.DishName).SingleOrDefaultAsync(cancellationToken) ?? throw new ValidationException("The selected order is unavailable.");
+            selectedSearch = new([new(selectedName, orderSelection.Quantity, orderSelection.Unit,
+                DeliveryMealItemId: orderSelection.Kind == "DeliveryMealItem" ? orderSelection.FoodId : null,
+                DeliveryMealId: orderSelection.Kind == "DeliveryMeal" ? orderSelection.FoodId : null)], "draft",
+                active.Draft?.Pending is not null ? "clarify" : active.Draft is not null ? "add" : "create");
+        }
+        else if (request.Selection is { } selection)
+        {
+            if (selection.Kind != "Food") throw new ValidationException("Unknown saved source kind.");
             if (selection.Quantity is <= 0 or > 10000 || selection.Unit is { } selectedUnit && !Enum.IsDefined(selectedUnit))
                 throw new ValidationException("Specify a valid quantity and measurement unit.");
             if (active.Draft?.Issues.Count > 1)
@@ -193,10 +236,13 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             : await llm.InterpretAsync(context, cancellationToken));
         if (recentMeals) logger.LogInformation("Meal assistant recent history handled with {LlmCalls} provider calls", 0);
         if (search.Intent is not ("history" or "recent" or "draft" or "lookup") || search.Foods is null || search.Foods.Length > 6 || search.Foods.Any(food =>
-                food is null || string.IsNullOrWhiteSpace(food.Name) || (food.FoodItemId is null && food.Name.Length > 80) ||
+                food is null || string.IsNullOrWhiteSpace(food.Name) || (food.FoodItemId is null && food.DeliveryMealId is null && food.DeliveryMealItemId is null && food.Name.Length > 80) ||
                 !food.Name.Any(char.IsLetterOrDigit) || food.Quantity is <= 0 or > 10000 ||
                 (food.Unit is { } unit && !Enum.IsDefined(unit))))
             throw new MealAssistantUnavailableException("The assistant could not interpret the search. Try rephrasing your question.");
+
+        if (selectedSearch is null)
+            search = search with { Foods = search.Foods.Select(food => food with { FoodItemId = null, DeliveryMealId = null, DeliveryMealItemId = null }).ToArray() };
 
         search = search with
         {
@@ -230,6 +276,7 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             ? "I couldn't find matching meals in your saved history."
             : "Here are saved meals from your history. Suggested and confirmed doses are shown separately as historical values.";
         if (search.Foods.Length == 0 && search.Intent != "recent") reply = "Which food, order, or recorded meal do you mean?";
+        if (ordinalUnresolved) reply = "Choose one saved order and an available structured item first. Legacy orders can only be reused as a whole.";
         var draftStarted = Stopwatch.GetTimestamp();
         var draft = search.Intent == "draft" && drafts is not null
             ? await drafts.UpdateAsync(search, active.Draft, cancellationToken) : null;
@@ -240,7 +287,7 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
                 : draft.Issues.Count > 0 ? "Review the matched foods and clarify any missing items."
                 : "Here is your draft using your saved foods.";
         }
-        if (sources is not null && (sources.Foods.Count > 0 || sources.Orders.Count > 0) && draft?.Items.Count is not > 0)
+        if (sources is not null && (sources.Foods.Count > 0 || sources.Orders.Count > 0 || sources.Items?.Count > 0) && draft?.Items.Count is not > 0)
             reply = "Here’s what I found in your saved records.";
         if (draft is { Issues.Count: > 0, EditFeedback: null } && knowledge is not null && search.Foods.Length > 0)
             sources = await knowledge.SearchAsync(search.Foods, cancellationToken);

@@ -9,6 +9,7 @@ public class DeliveryMealConfiguration : IEntityTypeConfiguration<DeliveryMeal>
     public void Configure(EntityTypeBuilder<DeliveryMeal> entity)
     {
         entity.HasKey(k => k.Id);
+        entity.Property(k => k.Revision).IsConcurrencyToken().HasDefaultValue(0L);
         entity.HasIndex(k => new { k.UserId, k.PlaceName, k.DishName });
         entity.HasIndex(k => new { k.UserId, k.IsFavorite });
         entity.HasIndex(k => new { k.UserId, k.UsageCount });

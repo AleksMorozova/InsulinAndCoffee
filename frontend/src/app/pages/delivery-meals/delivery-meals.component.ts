@@ -1,17 +1,25 @@
 import { DatePipe, DecimalPipe, NgTemplateOutlet } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
+import { Component, DestroyRef, OnInit, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ApiService, UpsertDeliveryMealRequest } from '../../core/api.service';
 import { CarbProvenanceComponent } from '../../shared/carb-provenance.component';
 import { getApiErrorMessage } from '../../core/api-error';
-import { finalize } from 'rxjs';
-import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/models';
+import { debounceTime, finalize, Subscription, tap } from 'rxjs';
+import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPreview, DeliveryMealSections, FoodMeasurementType, ResultRating, resultRatings } from '../../core/models';
 
 @Component({
   selector: 'app-delivery-meals',
   standalone: true,
   imports: [DatePipe, DecimalPipe, NgTemplateOutlet, ReactiveFormsModule, CarbProvenanceComponent],
+  styles: [`
+    .order-item-editor { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,145px),1fr)); gap:12px; padding:12px 0; border-bottom:1px solid var(--border); }
+    .order-item-editor p { grid-column:1 / -1; margin:0; }
+    .order-items-editor,.order-item-list { display:grid; gap:12px; min-width:0; }
+    .order-item-summary { overflow-wrap:anywhere; padding:8px 0; }
+    .order-item-summary input[type=checkbox] { width:auto; }
+  `],
   template: `
     <section class="memory-hero">
       <div class="memory-hero-copy">
@@ -96,8 +104,40 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
               <label>Dish name <input formControlName="dishName"></label>
             </div>
             <label>Portion or short note <input formControlName="portionDescription" placeholder="Large set, 350g bowl, 1 medium cup"></label>
+            @if (!structuredMode) {
+              <button type="button" class="subtle" (click)="enableItems()">Add structured items</button>
+            } @else {
+              <section class="order-items-editor" aria-label="Order items">
+                @for (item of editorItems.controls; track item; let i = $index) {
+                  <div [formGroup]="item" class="order-item-editor">
+                    <strong>Item {{ i + 1 }}</strong>
+                    <label>Name <input formControlName="name"></label>
+                    <label>Unit <select formControlName="measurementType"><option value="Grams">Grams</option><option value="Portion">Portion</option><option value="Piece">Piece</option></select></label>
+                    <label>Quantity <input type="number" min="0.01" [step]="item.controls.measurementType.value === 'Piece' ? 1 : 0.01" formControlName="quantity"></label>
+                    @if (item.controls.measurementType.value === 'Grams') {
+                      <label>Carbs per 100 g <input type="number" min="0" step="0.01" formControlName="carbsPer100g"></label>
+                    } @else {
+                      <label>Carbs per unit <input type="number" min="0" step="0.01" formControlName="carbsPerUnit"></label>
+                    }
+                    <label>Carb override (optional) <input type="number" min="0" step="0.01" formControlName="carbOverride"></label>
+                    @if (preview?.items?.[i]; as value) { <p>Calculated {{ value.calculatedCarbs | number:'1.0-2' }} g · Effective {{ value.effectiveCarbs | number:'1.0-2' }} g</p> }
+                    <button type="button" class="subtle" (click)="removeItem(i)">Remove item</button>
+                  </div>
+                }
+                <button type="button" class="subtle" (click)="addOrderItem()">Add item</button>
+                @if (previewing) { <p role="status">Calculating items...</p> }
+                @if (preview) {
+                  <p>Item total: <strong>{{ preview.totalCarbs | number:'1.0-2' }} g</strong></p>
+                  @if (savedTotal !== undefined && preview.difference !== 0) {
+                    <p>Saved total: {{ savedTotal | number:'1.0-2' }} g · Difference: {{ preview.difference | number:'1.0-2' }} g. No difference is distributed across items.</p>
+                    <button type="button" class="subtle" (click)="acceptTotal()">Use calculated item total</button>
+                  }
+                }
+              </section>
+            }
+            @if (editError) { <p role="alert">{{ editError }}</p> }
             <div class="grid three">
-              <label>Carbs <input type="number" min="0.1" step="0.1" formControlName="carbs"></label>
+              <label>{{ structuredMode ? 'Accepted order total' : 'Carbs' }} <input type="number" min="0" step="0.01" [readOnly]="structuredMode" formControlName="carbs"></label>
               <label>Recorded insulin <input type="number" min="0" step="0.1" formControlName="usualInsulinUnits"></label>
               <label>Pre-meal glucose <input type="number" min="0" step="0.1" formControlName="lastPreMealGlucose"></label>
             </div>
@@ -115,7 +155,7 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
               Favorite
             </label>
             <div class="actions modal-actions">
-              <button type="submit" [disabled]="form.invalid">{{ editingId ? 'Update meal' : 'Save meal' }}</button>
+              <button type="submit" [disabled]="form.invalid || saving || (structuredMode && (!itemsReady || previewing))">{{ editingId ? 'Update meal' : 'Save meal' }}</button>
               <button type="button" class="subtle" (click)="closeEditor()">Cancel</button>
             </div>
           </form>
@@ -163,6 +203,18 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
         </div>
 
         <p class="meal-note">{{ meal.portionDescription }}</p>
+        @if (meal.items?.length) {
+          <div class="order-item-list">
+            @for (item of meal.items; track item.id) {
+              <div class="order-item-summary">
+                <label><input type="checkbox" [checked]="isSelected(meal.id, item.id)" (change)="toggleItem(meal.id, item.id)"> {{ item.name }} · {{ item.quantity }} {{ item.measurementType }} · {{ item.effectiveCarbs | number:'1.0-2' }} g</label>
+                <app-carb-provenance [provenance]="item.provenance" [overridden]="item.carbOverride !== null && item.carbOverride !== undefined" />
+                <button type="button" class="subtle" (click)="reuseItems(meal, [item.id])">Use this item</button>
+              </div>
+            }
+            <button type="button" [disabled]="!selectedItems[meal.id]?.length" (click)="reuseItems(meal, selectedItems[meal.id] || [])">Use selected items</button>
+          </div>
+        }
 
         <div class="metric-row">
           <div class="metric">
@@ -200,6 +252,18 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
   `
 })
 export class DeliveryMealsComponent implements OnInit {
+  private readonly destroyRef = inject(DestroyRef);
+  private previewRequest?: Subscription;
+  structuredMode = false;
+  savedTotal?: number;
+  expectedRevision?: number;
+  acceptedTotal = false;
+  preview?: DeliveryMealPreview;
+  previewing = false;
+  saving = false;
+  editError = '';
+  selectedItems: Partial<Record<string, string[]>> = {};
+  editorItems = this.fb.array([this.itemForm()]);
   resultRatings = resultRatings;
   loading = true;
   loadError = '';
@@ -212,10 +276,10 @@ export class DeliveryMealsComponent implements OnInit {
     placeName: ['', Validators.required],
     dishName: ['', Validators.required],
     portionDescription: ['', Validators.required],
-    carbs: [0, [Validators.required, Validators.min(0.1)]],
+    carbs: [0, [Validators.required, Validators.min(0)]],
     usualInsulinUnits: this.fb.control<number | null>(null, Validators.min(0)),
     lastPreMealGlucose: [0],
-    resultRating: ['Unknown', Validators.required],
+    resultRating: ['Unknown' as ResultRating, Validators.required],
     tags: [''],
     notes: [''],
     isFavorite: [false]
@@ -225,6 +289,9 @@ export class DeliveryMealsComponent implements OnInit {
 
   ngOnInit() {
     this.load();
+    this.editorItems.valueChanges.pipe(takeUntilDestroyed(this.destroyRef), tap(() => {
+      this.previewRequest?.unsubscribe(); this.preview = undefined; this.acceptedTotal = false;
+    }), debounceTime(150)).subscribe(() => this.previewItems());
   }
 
   load() {
@@ -242,7 +309,13 @@ export class DeliveryMealsComponent implements OnInit {
   }
 
   openEdit(meal: DeliveryMeal) {
+    this.reset();
     this.editingId = meal.id;
+    this.expectedRevision = meal.revision ?? 0;
+    this.savedTotal = meal.carbs;
+    this.structuredMode = !!meal.items?.length;
+    this.editorItems.clear({ emitEvent: false });
+    for (const item of meal.items ?? []) this.editorItems.push(this.itemForm(item), { emitEvent: false });
     this.form.patchValue({
       placeName: meal.placeName,
       dishName: meal.dishName,
@@ -256,6 +329,7 @@ export class DeliveryMealsComponent implements OnInit {
       isFavorite: meal.isFavorite
     });
     this.isEditorOpen = true;
+    if (this.structuredMode) this.previewItems();
   }
 
   closeEditor() {
@@ -264,17 +338,19 @@ export class DeliveryMealsComponent implements OnInit {
   }
 
   save() {
-    if (this.form.invalid) return;
+    if (this.form.invalid || this.saving || this.structuredMode && (!this.itemsReady || this.previewing)) return;
     const raw = this.form.getRawValue();
     const request: UpsertDeliveryMealRequest = {
       ...raw,
-      resultRating: raw.resultRating as any,
+      ...(this.structuredMode ? { items: this.itemInputs(), acceptCalculatedTotal: this.acceptedTotal } : {}),
+      ...(this.editingId ? { expectedRevision: this.expectedRevision } : {}),
       lastPreMealGlucose: raw.lastPreMealGlucose > 0 ? raw.lastPreMealGlucose : undefined
     };
     const save$ = this.editingId ? this.api.updateDeliveryMeal(this.editingId, request) : this.api.createDeliveryMeal(request);
-    save$.subscribe(() => {
-      this.closeEditor();
-      this.load();
+    this.saving = true;
+    save$.pipe(finalize(() => this.saving = false)).subscribe({
+      next: () => { this.closeEditor(); this.load(); },
+      error: error => this.editError = getApiErrorMessage(error, 'Could not save this order. Please try again.')
     });
   }
 
@@ -283,7 +359,8 @@ export class DeliveryMealsComponent implements OnInit {
   }
 
   createMealDraft(meal: DeliveryMeal) {
-    this.api.createMealDraftFromDeliveryMeal(meal.id).subscribe((prefill) => {
+    this.api.createMealDraftFromDeliveryMeal(meal.id).subscribe({ next: prefill => {
+      if (prefill.items?.length) { this.navigateItems(prefill.items); return; }
       this.router.navigate(['/calculator'], {
         state: {
           deliveryMeal: {
@@ -294,7 +371,7 @@ export class DeliveryMealsComponent implements OnInit {
           }
         }
       });
-    });
+    }, error: error => this.loadError = getApiErrorMessage(error, 'Could not reuse this order. Reload it and try again.') });
   }
 
   delete(id: string) {
@@ -303,6 +380,10 @@ export class DeliveryMealsComponent implements OnInit {
   }
 
   reset() {
+    this.previewRequest?.unsubscribe();
+    this.structuredMode = false; this.savedTotal = undefined; this.expectedRevision = undefined;
+    this.preview = undefined; this.editError = ''; this.previewing = false; this.acceptedTotal = false;
+    this.editorItems.clear({ emitEvent: false });
     this.editingId = '';
     this.form.reset({
       placeName: '',
@@ -316,6 +397,68 @@ export class DeliveryMealsComponent implements OnInit {
       notes: '',
       isFavorite: false
     });
+  }
+
+  private itemForm(item?: DeliveryMealItemInput) {
+    return this.fb.group({
+      id: this.fb.control<string | null>(item?.id ?? null), foodItemId: this.fb.control<string | null>(item?.foodItemId ?? null),
+      name: this.fb.nonNullable.control(item?.name ?? '', Validators.required),
+      quantity: this.fb.nonNullable.control(item?.quantity ?? 1, [Validators.required, Validators.min(0.01)]),
+      measurementType: this.fb.nonNullable.control<FoodMeasurementType>(item?.measurementType ?? 'Portion'),
+      carbsPer100g: this.fb.control<number | null>(item?.carbsPer100g ?? null),
+      carbsPerUnit: this.fb.control<number | null>(item?.carbsPerUnit ?? null),
+      carbOverride: this.fb.control<number | null>(item?.carbOverride ?? null, Validators.min(0))
+    });
+  }
+
+  enableItems() { this.structuredMode = true; this.addOrderItem(); }
+  addOrderItem() { this.editorItems.push(this.itemForm()); }
+  removeItem(index: number) { this.editorItems.removeAt(index); }
+  private itemInputs(): DeliveryMealItemInput[] {
+    return this.editorItems.getRawValue().map(item => ({ ...item,
+      carbsPer100g: item.measurementType === 'Grams' ? item.carbsPer100g : null,
+      carbsPerUnit: item.measurementType === 'Grams' ? null : item.carbsPerUnit }));
+  }
+  previewItems() {
+    if (!this.structuredMode) return;
+    this.previewRequest?.unsubscribe(); this.preview = undefined; this.editError = ''; this.acceptedTotal = false;
+    if (this.editorItems.invalid || !this.editorItems.length) return;
+    this.previewing = true;
+    this.previewRequest = this.api.previewDeliveryMealItems(this.itemInputs(), this.savedTotal)
+      .pipe(finalize(() => this.previewing = false)).subscribe({
+        next: preview => {
+          this.preview = preview;
+          if (this.savedTotal === undefined || preview.totalCarbs === this.savedTotal)
+            this.form.controls.carbs.setValue(preview.totalCarbs);
+        },
+        error: error => this.editError = getApiErrorMessage(error, 'Could not calculate order items.')
+      });
+  }
+  acceptTotal() {
+    if (!this.preview) return;
+    this.form.controls.carbs.setValue(this.preview.totalCarbs); this.acceptedTotal = true; this.editError = '';
+  }
+  get itemsReady() {
+    return !!this.preview && this.form.controls.carbs.value === this.preview.totalCarbs
+      && (this.savedTotal === undefined || this.savedTotal === this.preview.totalCarbs || this.acceptedTotal);
+  }
+  isSelected(orderId: string, itemId: string) { return this.selectedItems[orderId]?.includes(itemId) ?? false; }
+  toggleItem(orderId: string, itemId: string) {
+    this.selectedItems[orderId] = this.isSelected(orderId, itemId)
+      ? (this.selectedItems[orderId] ?? []).filter(id => id !== itemId) : [...(this.selectedItems[orderId] ?? []), itemId];
+  }
+  reuseItems(meal: DeliveryMeal, ids: string[]) {
+    this.api.reuseDeliveryMealItems(meal.id, ids, meal.revision ?? 0).subscribe({
+      next: items => this.navigateItems(items),
+      error: error => this.loadError = getApiErrorMessage(error, 'Could not reuse saved items. Reload this order.')
+    });
+  }
+  private navigateItems(items: CalculatedMealItem[]) {
+    this.router.navigate(['/calculator'], { state: { assistantMealItems: items.map(item => ({
+      foodItemId: item.foodItemId, quantity: item.quantity, measurementType: item.measurementType,
+      foodNameSnapshot: item.foodName, carbsPer100gSnapshot: item.carbsPer100g, carbsPerUnitSnapshot: item.carbsPerUnit,
+      carbOverride: item.carbOverride, sourceDeliveryMealItemId: item.sourceDeliveryMealItemId
+    })) } });
   }
 
   labelRating(rating: string) {

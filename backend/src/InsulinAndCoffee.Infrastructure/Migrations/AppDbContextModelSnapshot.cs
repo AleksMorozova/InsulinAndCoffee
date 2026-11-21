@@ -173,6 +173,12 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                     b.Property<int>("ResultRating")
                         .HasColumnType("integer");
 
+                    b.Property<long>("Revision")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
                     b.Property<DateTimeOffset?>("SourceMealVerifiedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -215,6 +221,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                             PlaceName = "Sushi Master",
                             PortionDescription = "standard set",
                             ResultRating = 2,
+                            Revision = 0L,
                             Tags = "sushi, delivery, dinner",
                             UsageCount = 0,
                             UserId = new Guid("11111111-1111-1111-1111-111111111111"),
@@ -233,6 +240,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                             PlaceName = "Local Cafe",
                             PortionDescription = "one slice",
                             ResultRating = 2,
+                            Revision = 0L,
                             Tags = "cafe, dessert, breakfast",
                             UsageCount = 0,
                             UserId = new Guid("11111111-1111-1111-1111-111111111111"),
@@ -251,11 +259,73 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                             PlaceName = "Delivery",
                             PortionDescription = "standard",
                             ResultRating = 5,
+                            Revision = 0L,
                             Tags = "delivery, lunch",
                             UsageCount = 0,
                             UserId = new Guid("11111111-1111-1111-1111-111111111111"),
                             UsualInsulinUnits = 8m
                         });
+                });
+
+            modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.DeliveryMealItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("CalculatedCarbs")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("numeric(8,2)");
+
+                    b.Property<decimal?>("CarbOverride")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("numeric(8,2)");
+
+                    b.Property<int>("CarbReferenceSource")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CarbTransformation")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("CarbsPer100gSnapshot")
+                        .HasPrecision(7, 2)
+                        .HasColumnType("numeric(7,2)");
+
+                    b.Property<decimal?>("CarbsPerUnitSnapshot")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("numeric(8,2)");
+
+                    b.Property<Guid>("DeliveryMealId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("DisplayOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("FoodItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("MeasurementType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(8, 2)
+                        .HasColumnType("numeric(8,2)");
+
+                    b.Property<DateTimeOffset?>("SourceMealVerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FoodItemId");
+
+                    b.HasIndex("DeliveryMealId", "DisplayOrder");
+
+                    b.ToTable("DeliveryMealItems");
                 });
 
             modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.DiabetesSettings", b =>
@@ -847,6 +917,24 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.DeliveryMealItem", b =>
+                {
+                    b.HasOne("InsulinAndCoffee.Domain.Entities.DeliveryMeal", "DeliveryMeal")
+                        .WithMany("Items")
+                        .HasForeignKey("DeliveryMealId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("InsulinAndCoffee.Domain.Entities.FoodItem", "FoodItem")
+                        .WithMany()
+                        .HasForeignKey("FoodItemId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("DeliveryMeal");
+
+                    b.Navigation("FoodItem");
+                });
+
             modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.DiabetesSettings", b =>
                 {
                     b.HasOne("InsulinAndCoffee.Domain.Entities.User", "User")
@@ -933,6 +1021,11 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
             modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.AssistantConversation", b =>
                 {
                     b.Navigation("Messages");
+                });
+
+            modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.DeliveryMeal", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.Meal", b =>

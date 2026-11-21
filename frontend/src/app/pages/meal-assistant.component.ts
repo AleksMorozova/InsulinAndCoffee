@@ -7,7 +7,7 @@ import { finalize, firstValueFrom, map, switchMap, TimeoutError } from 'rxjs';
 import { getApiErrorMessage, isApiError } from '../core/api-error';
 import { ApiService } from '../core/api.service';
 import { CarbProvenanceComponent } from '../shared/carb-provenance.component';
-import { AssistantConversation, AssistantDraft, AssistantFoodSelection, AssistantSavedFood, AssistantOrder, AssistantTurn, assistantFoodName } from '../core/meal-assistant.models';
+import { AssistantConversation, AssistantDraft, AssistantFoodSelection, AssistantSavedFood, AssistantOrder, AssistantOrderItem, AssistantTurn, assistantFoodName } from '../core/meal-assistant.models';
 
 @Component({
   standalone: true,
@@ -60,7 +60,7 @@ import { AssistantConversation, AssistantDraft, AssistantFoodSelection, Assistan
       @for (turn of turns; track $index) {
         <article class="turn">
           <h2>{{ turn.question }}</h2>
-          <div class="assistant-reply" [class.has-results]="turn.answer.meals.length || turn.answer.knowledge?.foods?.length || turn.answer.knowledge?.orders?.length">
+          <div class="assistant-reply" [class.has-results]="turn.answer.meals.length || turn.answer.knowledge?.foods?.length || turn.answer.knowledge?.orders?.length || turn.answer.knowledge?.items?.length">
           <div class="reply-text">
             <span class="assistant-avatar" aria-hidden="true">✦</span>
             <p>{{ responseText(turn, $index) }}</p>
@@ -72,7 +72,7 @@ import { AssistantConversation, AssistantDraft, AssistantFoodSelection, Assistan
               <label>Quantity ({{ unitLabel(food.unit) }}) <input type="number" min="0.1" [step]="food.unit === 'Piece' ? 1 : 0.1" [(ngModel)]="candidateQuantities[food.id]"></label>
               <button type="button" [disabled]="loading" (click)="selectFood(food)">Choose this food</button>
             }
-            @for (order of alternatives.orders; track order.id) { <p>{{ order.placeName }} · {{ order.dishName }}</p> }
+            @for (order of alternatives.orders; track order.id) { <p>{{ order.placeName }} · {{ order.dishName }}</p><button type="button" [disabled]="loading" (click)="selectOrder(order)">Add entire order</button> }
             </details>
           }
           @for (food of (!turn.answer.draft?.items?.length ? turn.answer.knowledge?.foods : null) ?? []; track food.id) {
@@ -89,18 +89,29 @@ import { AssistantConversation, AssistantDraft, AssistantFoodSelection, Assistan
               <button type="button" [disabled]="loading" (click)="selectFood(food)">Choose this food</button>
             </section>
           }
+          @for (item of turn.answer.knowledge?.items ?? []; track item.id) {
+            <section class="card meal">
+              <p class="result-meta">Ask Past Me item · {{ item.placeName }} · {{ item.orderName }}</p>
+              <h3>{{ item.name }}</h3>
+              <p>Saved: {{ item.quantity }} {{ unitLabel(item.unit) }} · {{ item.effectiveCarbs | number }} g carbs</p>
+              <app-carb-provenance [provenance]="item.provenance" />
+              <label>Quantity ({{ unitLabel(item.unit) }}) <input type="number" min="0.01" [step]="item.unit === 'Piece' ? 1 : 0.01" [(ngModel)]="candidateQuantities[item.id]"></label>
+              <button type="button" [disabled]="loading" (click)="selectOrderItem(item)">Add this item</button>
+            </section>
+          }
           @for (order of (!turn.answer.draft?.items?.length ? turn.answer.knowledge?.orders : null) ?? []; track order.id) {
             <section class="card meal">
               <p class="result-meta">Ask Past Me</p>
               <h3>{{ order.placeName }} · {{ order.dishName }}</h3>
               <p>{{ order.portionDescription }}</p>
               <p><strong>{{ order.carbs | number }} g total carbs</strong></p>
+              <button type="button" [disabled]="loading" (click)="selectOrder(order)">Add entire order</button>
               <app-carb-provenance [provenance]="order.provenance" />
               @if (order.lastUsedAt) { <p>Last reused {{ order.lastUsedAt | date:'mediumDate' }}</p> }
               <button type="button" [disabled]="loading" (click)="useOrder(order)">Reuse whole order</button>
             </section>
           }
-          @if ((turn.answer.draft || turn.answer.knowledge?.foods?.length || turn.answer.knowledge?.orders?.length) && turn.answer.meals.length) {
+          @if ((turn.answer.draft || turn.answer.knowledge?.foods?.length || turn.answer.knowledge?.orders?.length || turn.answer.knowledge?.items?.length) && turn.answer.meals.length) {
             <h3 class="history-heading">From your history</h3>
           }
           @for (meal of turn.answer.meals.slice(0, expandedTurns.has(turn) ? undefined : 3); track meal.id) {
@@ -392,7 +403,8 @@ export class MealAssistantComponent {
         foodNameSnapshot: assistantFoodName(item.foodName), carbsPer100gSnapshot: item.carbsPer100g,
         carbsPerUnitSnapshot: item.carbsPerUnit, carbOverride: item.carbOverride,
         ...(item.sourceMealItemId ? { sourceMealItemId: item.sourceMealItemId } : {}),
-        ...(item.sourceDeliveryMealId ? { sourceDeliveryMealId: item.sourceDeliveryMealId } : {})
+        ...(item.sourceDeliveryMealId ? { sourceDeliveryMealId: item.sourceDeliveryMealId } : {}),
+        ...(item.sourceDeliveryMealItemId ? { sourceDeliveryMealItemId: item.sourceDeliveryMealItemId } : {})
       })) } });
       if (opened) return;
       this.handoffError = 'Could not open the calculator. Try again.';
@@ -407,6 +419,19 @@ export class MealAssistantComponent {
     if (this.loading || this.sessionExpired || this.draftConflict) return;
     this.selectedFood = { foodId: food.id, quantity: this.candidateQuantities[food.id], unit: food.unit };
     this.message = 'Use ' + this.displayFoodName(food.name);
+    this.send();
+  }
+
+  selectOrderItem(item: AssistantOrderItem) {
+    if (this.loading || this.sessionExpired || this.draftConflict) return;
+    this.selectedFood = { foodId: item.id, quantity: this.candidateQuantities[item.id] ?? item.quantity, unit: item.unit, kind: 'DeliveryMealItem' };
+    this.message = `Add ${item.name} from ${item.placeName}`;
+    this.send();
+  }
+  selectOrder(order: AssistantOrder) {
+    if (this.loading || this.sessionExpired || this.draftConflict) return;
+    this.selectedFood = { foodId: order.id, kind: 'DeliveryMeal' };
+    this.message = `Add ${order.dishName} from ${order.placeName}`;
     this.send();
   }
 
@@ -629,7 +654,7 @@ export class MealAssistantComponent {
     }
     if (!draft.issues.length) return turn.answer.message;
     if (!draft.items.length) {
-      const hasOptions = !!(turn.answer.knowledge?.foods.length || turn.answer.knowledge?.orders.length);
+      const hasOptions = !!(turn.answer.knowledge?.foods.length || turn.answer.knowledge?.orders.length || turn.answer.knowledge?.items?.length);
       return hasOptions ? {
         en: 'I found saved options below. Choose a whole order or tell me which food you mean.',
         ru: 'Ниже есть сохранённые варианты. Выбери целый заказ или уточни, какой продукт ты имеешь в виду.',

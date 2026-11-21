@@ -21,6 +21,37 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
     public AuthIntegrationTests(ApiFactory factory) => this.factory = factory;
 
     [Fact]
+    public async Task StructuredOrders_HttpContracts_PreviewReuseAndOwnershipAreValidated()
+    {
+        using var client = factory.CreateClient();
+        var username = "items-" + Guid.NewGuid().ToString("N")[..12];
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/auth/register", new { username, password = "structured-test-password" })).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(client, username, "structured-test-password"));
+        var items = new[] { new { name = "Sushi", quantity = 5m, measurementType = "Piece", carbsPerUnit = 15m } };
+        var preview = await client.PostAsJsonAsync("/api/delivery-meals/preview-items", new { items, savedTotal = 135m });
+        Assert.Equal(HttpStatusCode.OK, preview.StatusCode);
+        using var previewJson = JsonDocument.Parse(await preview.Content.ReadAsStringAsync());
+        Assert.Equal(75m, previewJson.RootElement.GetProperty("totalCarbs").GetDecimal());
+        Assert.Equal(-60m, previewJson.RootElement.GetProperty("difference").GetDecimal());
+        var created = await client.PostAsJsonAsync("/api/delivery-meals", new { placeName = "Le Grill", dishName = "Test order", portionDescription = "Five pieces",
+            carbs = 75m, resultRating = "Unknown", tags = "", isFavorite = false, items });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var json = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var orderId = json.RootElement.GetProperty("id").GetGuid();
+        var itemId = json.RootElement.GetProperty("items")[0].GetProperty("id").GetGuid();
+        var draft = await client.PostAsJsonAsync($"/api/delivery-meals/{orderId}/items-draft", new { itemIds = new[] { itemId }, expectedRevision = 0 });
+        Assert.Equal(HttpStatusCode.OK, draft.StatusCode);
+        using var draftJson = JsonDocument.Parse(await draft.Content.ReadAsStringAsync());
+        Assert.Equal(itemId, draftJson.RootElement[0].GetProperty("sourceDeliveryMealItemId").GetGuid());
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync($"/api/delivery-meals/{orderId}/items-draft", new { itemIds = new[] { itemId }, expectedRevision = 10 })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/delivery-meals/preview-items", new { items = new[] {
+            new { name = "Forged", quantity = 1m, measurementType = "Piece", carbsPerUnit = 15m, provenance = new { sourceMealVerifiedAt = "2099-01-01T00:00:00Z" } } } })).StatusCode);
+        using var other = factory.CreateClient();
+        other.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(other, "admin", "admin"));
+        Assert.Equal(HttpStatusCode.NotFound, (await other.PostAsJsonAsync($"/api/delivery-meals/{orderId}/items-draft", new { itemIds = new[] { itemId }, expectedRevision = 0 })).StatusCode);
+    }
+
+    [Fact]
     public async Task CarbVerification_UsesServerState_RejectsSpoofingAndStaleRevision()
     {
         using var client = factory.CreateClient();

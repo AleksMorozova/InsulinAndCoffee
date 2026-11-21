@@ -8,6 +8,13 @@ namespace InsulinAndCoffee.Api.Controllers;
 [Route("api/delivery-meals")]
 public class DeliveryMealsController(DeliveryMealService deliveryMealService) : ControllerBase
 {
+    [HttpPost("preview-items")]
+    public async Task<ActionResult<DeliveryMealPreview>> Preview(DeliveryMealPreviewRequest request, CancellationToken cancellationToken) =>
+        Ok(await deliveryMealService.PreviewAsync(request, cancellationToken));
+
+    [HttpPost("{id:guid}/items-draft")]
+    public async Task<ActionResult<IReadOnlyList<CalculatedMealItemDto>>> ItemsDraft(Guid id, ReuseDeliveryMealRequest request, CancellationToken cancellationToken) =>
+        Ok(await deliveryMealService.ReuseItemsAsync(id, request, cancellationToken));
     [HttpGet]
     public async Task<ActionResult<DeliveryMealSectionsDto>> Get([FromQuery] string? search, CancellationToken cancellationToken) =>
         Ok(await deliveryMealService.GetSectionsAsync(search, cancellationToken));

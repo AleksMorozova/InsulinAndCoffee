@@ -36,6 +36,65 @@ public class AssistantPostgresCollection;
 public class AssistantPostgreSqlSafetyTests
 {
     [AssistantPostgresFact]
+    public async Task StructuredOrders_MigrationRelationsAndConcurrentEdits_PreserveLegacyAndAtomicChildren()
+    {
+        await using var database = await TestDatabase.CreateAsync("20261121132517_AddCarbProvenanceAndVerification");
+        var owner = Guid.NewGuid();
+        var legacyId = Guid.NewGuid();
+        var now = TimeProvider.System.GetUtcNow();
+        await using (var old = database.Open())
+        {
+            old.Users.Add(User(owner)); await old.SaveChangesAsync(CancellationToken.None);
+            await old.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO \"DeliveryMeals\" (\"Id\", \"UserId\", \"PlaceName\", \"DishName\", \"PortionDescription\", \"Carbs\", \"UsualInsulinUnits\", \"ResultRating\", \"Tags\", \"IsFavorite\", \"UsageCount\", \"CreatedAt\", \"CarbReferenceSource\", \"CarbTransformation\") VALUES ({legacyId}, {owner}, {"Legacy cafe"}, {"Untouched description"}, {"Five pieces, unknown composition"}, {135m}, {8m}, {0}, {""}, {false}, {3}, {now}, {0}, {0})", CancellationToken.None);
+            await old.Database.MigrateAsync(CancellationToken.None);
+        }
+        Guid itemId;
+        Guid foodId;
+        Guid orderId;
+        await using (var setup = database.Open())
+        {
+            var legacy = await setup.DeliveryMeals.Include(order => order.Items).SingleAsync(order => order.Id == legacyId);
+            Assert.Empty(legacy.Items); Assert.Equal(135m, legacy.Carbs); Assert.Equal(8m, legacy.UsualInsulinUnits);
+            Assert.Equal("Untouched description", legacy.DishName); Assert.Equal(3, legacy.UsageCount);
+            var converted = await Orders(setup).UpdateAsync(legacy.Id, Request(135m,
+                [new("California", 1m, FoodMeasurementType.Portion, CarbsPerUnit: 60m), new("Sushi", 5m, FoodMeasurementType.Piece, CarbsPerUnit: 15m)]) with {
+                    ExpectedRevision = 0, PlaceName = legacy.PlaceName, DishName = legacy.DishName, PortionDescription = legacy.PortionDescription,
+                    UsualInsulinUnits = legacy.UsualInsulinUnits }, CancellationToken.None);
+            Assert.Equal(2, converted.Items?.Count);
+            Assert.Equal(135m, converted.Carbs);
+            Assert.Equal(legacy.PortionDescription, converted.PortionDescription);
+            var food = Food(owner, "Linked sushi", 15m); foodId = food.Id;
+            setup.FoodItems.Add(food); await setup.SaveChangesAsync(CancellationToken.None);
+            var created = await Orders(setup).CreateAsync(Request(75m, [new("Sushi", 5m, FoodMeasurementType.Piece, CarbsPerUnit: 15m, FoodItemId: food.Id)]), CancellationToken.None);
+            orderId = created.Id; itemId = created.Items![0].Id;
+            Assert.False(setup.Database.HasPendingModelChanges());
+        }
+        await using var first = database.Open();
+        await using var stale = database.Open();
+        await first.DeliveryMeals.Include(order => order.Items).SingleAsync(order => order.Id == orderId);
+        await stale.DeliveryMeals.Include(order => order.Items).SingleAsync(order => order.Id == orderId);
+        await Orders(first).UpdateAsync(orderId, Request(45m, [new("Sushi", 3m, FoodMeasurementType.Piece, CarbsPerUnit: 15m, Id: itemId, FoodItemId: foodId)]) with
+            { ExpectedRevision = 0, AcceptCalculatedTotal = true }, CancellationToken.None);
+        await Assert.ThrowsAsync<DeliveryMealConflictException>(() => Orders(stale).UpdateAsync(orderId, Request(30m,
+            [new("Sushi", 2m, FoodMeasurementType.Piece, CarbsPerUnit: 15m, Id: itemId, FoodItemId: foodId)]) with
+            { ExpectedRevision = 0, AcceptCalculatedTotal = true }, CancellationToken.None));
+        await using var check = database.Open();
+        var saved = await check.DeliveryMeals.Include(order => order.Items).SingleAsync(order => order.Id == orderId);
+        Assert.Equal(45m, saved.Carbs); Assert.Equal(3m, saved.Items.Single().Quantity); Assert.Equal(1, saved.Revision);
+        check.FoodItems.Remove(await check.FoodItems.SingleAsync(food => food.Id == foodId));
+        await check.SaveChangesAsync(CancellationToken.None);
+        check.DiscardChanges();
+        var detachedFood = await check.DeliveryMealItems.SingleAsync(item => item.Id == itemId);
+        Assert.Null(detachedFood.FoodItemId); Assert.Equal(15m, detachedFood.CarbsPerUnitSnapshot);
+        check.DeliveryMeals.Remove(await check.DeliveryMeals.SingleAsync(order => order.Id == orderId));
+        await check.SaveChangesAsync(CancellationToken.None);
+        Assert.False(await check.DeliveryMealItems.AnyAsync(item => item.DeliveryMealId == orderId));
+
+        DeliveryMealService Orders(AppDbContext db) => new(db, TimeProvider.System, new CurrentUser(owner));
+        UpsertDeliveryMealRequest Request(decimal carbs, IReadOnlyList<DeliveryMealItemInput> items) => new("Le Grill", "Structured order", "Original description", carbs, null, null, ResultRating.Unknown, "", null, false, items);
+    }
+
+    [AssistantPostgresFact]
     public async Task NewAccount_EmptyCollections_ReturnSuccessfulResponsesOnPostgreSql()
     {
         await using var database = await TestDatabase.CreateAsync();

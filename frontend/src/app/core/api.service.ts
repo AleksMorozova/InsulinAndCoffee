@@ -6,6 +6,7 @@ import { SKIP_GLOBAL_ERROR_NOTIFICATION } from './http-error-context';
 import { CalculatedMealItem, Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, FoodMeasurementType, LoginAttempt, LoginAttemptStats, MealCalculation, MealCarbPreview, MealDetail, MealItemInput, MealSummary, MealType, PaginatedResult, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
 
 import { AssistantConversation, AssistantDraftState, AssistantFoodSelection, AssistantTurn, MealAssistantResponse } from './meal-assistant.models';
+import { DeliveryMealItemInput, DeliveryMealPreview } from './models';
 
 export interface UpsertFoodRequest {
   name: string;
@@ -48,6 +49,9 @@ export interface UpdateMealItemRequest {
 }
 
 export interface UpsertDeliveryMealRequest {
+  items?: DeliveryMealItemInput[];
+  expectedRevision?: number;
+  acceptCalculatedTotal?: boolean;
   placeName: string;
   dishName: string;
   portionDescription: string;
@@ -79,6 +83,13 @@ export interface UpsertSupplyRequest {
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
+  previewDeliveryMealItems(items: DeliveryMealItemInput[], savedTotal?: number) {
+    return this.http.post<DeliveryMealPreview>(`${this.apiUrl}/delivery-meals/preview-items`, { items, savedTotal }, { context: this.localErrorContext });
+  }
+
+  reuseDeliveryMealItems(id: string, itemIds: string[], expectedRevision: number) {
+    return this.http.post<CalculatedMealItem[]>(`${this.apiUrl}/delivery-meals/${id}/items-draft`, { itemIds, expectedRevision }, { context: this.localErrorContext });
+  }
   private readonly apiUrl = environment.apiUrl;
   private readonly localErrorContext = new HttpContext().set(SKIP_GLOBAL_ERROR_NOTIFICATION, true);
 

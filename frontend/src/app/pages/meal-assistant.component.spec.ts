@@ -42,6 +42,20 @@ describe('MealAssistantComponent', () => {
     expect(fixture.componentInstance.turns.length).toBe(1);
   });
 
+  it('keeps a selected order item identity, unit and quantity on retry', () => {
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => new Error('Offline')));
+    const item = { id: 'order-item', orderId: 'order', placeName: 'Le Grill', orderName: 'Set', name: 'Sushi', quantity: 5,
+      unit: 'Piece' as const, carbsPer100g: null, carbsPerUnit: 15, effectiveCarbs: 75 };
+    fixture.componentInstance.candidateQuantities[item.id] = 3;
+    fixture.componentInstance.selectOrderItem(item);
+    const envelope = api.sendMealAssistantMessage.calls.mostRecent().args;
+    expect(envelope[3]).toEqual({ foodId: item.id, quantity: 3, unit: 'Piece', kind: 'DeliveryMealItem' });
+    api.sendMealAssistantMessage.and.returnValue(of(response));
+    fixture.componentInstance.send();
+    expect(api.sendMealAssistantMessage.calls.mostRecent().args).toEqual(envelope);
+    expect(fixture.componentInstance.turns.length).toBe(1);
+  });
+
   it('selects a saved candidate by id and retries only that selection with the same request id', () => {
     const food = { id: 'chosen-food', name: 'Salad', unit: 'Portion' as const, carbsPer100g: null, carbsPerUnit: 20 };
     api.sendMealAssistantMessage.and.returnValue(throwError(() => new Error('Offline')));
