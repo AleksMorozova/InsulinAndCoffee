@@ -36,6 +36,10 @@ public class MealsController(MealService mealService, MealCalculationService cal
     public async Task<ActionResult<MealDetailDto>> ConfirmBolus(Guid id, ConfirmMealBolusRequest request, CancellationToken cancellationToken) =>
         Ok(await mealService.ConfirmMealBolusAsync(id, request, cancellationToken));
 
+    [HttpPost("{id:guid}/carb-verification")]
+    public async Task<ActionResult<MealDetailDto>> VerifyCarbs(Guid id, VerifyMealCarbsRequest request, CancellationToken cancellationToken) =>
+        Ok(await mealService.VerifyCarbsAsync(id, request, cancellationToken));
+
     [HttpDelete("{id:guid}/confirmed-bolus")]
     public async Task<ActionResult<MealDetailDto>> ClearConfirmedBolus(Guid id, CancellationToken cancellationToken) =>
         Ok(await mealService.ClearConfirmedBolusAsync(id, cancellationToken));

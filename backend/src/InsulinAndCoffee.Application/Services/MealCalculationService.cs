@@ -26,7 +26,7 @@ public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser 
         ValidateMealInputs(request.PreMealGlucose, request.Items, request.DirectCarbs, request.CarbAdjustment);
 
         var settings = await GetSettingsAsync(cancellationToken);
-        var calculatedItems = await CalculateItemsAsync(request.Items, request.DirectCarbs, request.DirectFoodName, cancellationToken);
+        var calculatedItems = await CalculateItemsAsync(request.Items, request.DirectCarbs, request.DirectFoodName, cancellationToken, request.SourceDeliveryMealId);
         var foodCarbs = Math.Round(calculatedItems.Sum(i => i.EffectiveCarbs), 2);
         var totalCarbs = CalculateFinalCarbs(foodCarbs, request.CarbAdjustment);
         var mealBolus = BolusCalculator.CalculateFoodBolus(totalCarbs, settings.CarbRatio);
@@ -36,10 +36,17 @@ public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser 
         return new MealCalculationDto(foodCarbs, Math.Round(request.CarbAdjustment, 2), totalCarbs, mealBolus, correctionBolus, suggestedBolus, calculatedItems);
     }
 
-    public async Task<IReadOnlyList<CalculatedMealItemDto>> CalculateItemsAsync(IReadOnlyList<MealItemInputDto> inputItems, decimal? directCarbs, string? directFoodName, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<CalculatedMealItemDto>> CalculateItemsAsync(IReadOnlyList<MealItemInputDto> inputItems, decimal? directCarbs, string? directFoodName, CancellationToken cancellationToken, Guid? sourceDeliveryMealId = null)
     {
         if (directCarbs.HasValue)
         {
+            var provenance = new CarbProvenanceDto(CarbReferenceSource.Manual, CarbTransformation.None);
+            if (sourceDeliveryMealId is Guid orderId)
+            {
+                var order = await db.DeliveryMeals.AsNoTracking().SingleOrDefaultAsync(order => order.Id == orderId && order.UserId == UserId, cancellationToken)
+                    ?? throw new ValidationException("The saved order reference is unavailable.");
+                if (directCarbs.Value == order.Carbs) provenance = CarbProvenance.Of(order) with { Transformation = order.CarbTransformation | CarbTransformation.HistoricalReuse };
+            }
             return
             [
                 CreateCalculatedItem(
@@ -49,13 +56,36 @@ public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser 
                     FoodMeasurementType.Portion,
                     null,
                     null,
-                    null,
                     Math.Round(directCarbs.Value, 2),
-                    null)
+                    Math.Round(directCarbs.Value, 2),
+                    null) with { Provenance = provenance, SourceDeliveryMealId = sourceDeliveryMealId }
             ];
         }
 
-        var currentFoodInputs = inputItems.Where(input => input.MeasurementType is null).ToList();
+        if (inputItems.Any(input => input.SourceMealItemId.HasValue && input.SourceDeliveryMealId.HasValue))
+            throw new ValidationException("Choose a single saved source for each food value.");
+        var historicalIds = inputItems.Where(input => input.SourceMealItemId.HasValue).Select(input => input.SourceMealItemId.GetValueOrDefault()).Distinct().ToArray();
+        var historical = await db.MealItems.AsNoTracking().Include(item => item.Meal)
+            .Where(item => historicalIds.Contains(item.Id) && db.Meals.Any(meal => meal.Id == item.MealId && meal.UserId == UserId))
+            .ToDictionaryAsync(item => item.Id, cancellationToken);
+        var orderIds = inputItems.Where(input => input.SourceDeliveryMealId.HasValue).Select(input => input.SourceDeliveryMealId.GetValueOrDefault()).Distinct().ToArray();
+        var orders = await db.DeliveryMeals.AsNoTracking().Where(order => orderIds.Contains(order.Id) && order.UserId == UserId)
+            .ToDictionaryAsync(order => order.Id, cancellationToken);
+        if (historical.Count != historicalIds.Length || orders.Count != orderIds.Length)
+            throw new ValidationException("One or more saved source records are unavailable.");
+        if (inputItems.Any(input => input.MeasurementType.HasValue &&
+                (input.SourceMealItemId is Guid id && input.MeasurementType != historical[id].MeasurementType
+                 || input.SourceDeliveryMealId.HasValue && input.MeasurementType != FoodMeasurementType.Portion)))
+            throw new ValidationException("The requested unit does not match the saved source.");
+        var resolved = inputItems.Select(input => input.SourceMealItemId is Guid itemId
+            ? input with { FoodItemId = historical[itemId].FoodItemId, FoodNameSnapshot = historical[itemId].FoodNameSnapshot,
+                MeasurementType = historical[itemId].MeasurementType, CarbsPer100gSnapshot = historical[itemId].CarbsPer100gSnapshot,
+                CarbsPerUnitSnapshot = historical[itemId].CarbsPerUnitSnapshot,
+                CarbOverride = input.ClearCarbOverride ? null : input.CarbOverride ?? historical[itemId].CarbOverride }
+            : input.SourceDeliveryMealId is Guid id ? input with { FoodItemId = Guid.Empty, MeasurementType = FoodMeasurementType.Portion,
+                FoodNameSnapshot = $"{orders[id].PlaceName} · {orders[id].DishName}", CarbsPer100gSnapshot = null, CarbsPerUnitSnapshot = orders[id].Carbs }
+            : input).ToArray();
+        var currentFoodInputs = resolved.Where(input => input.MeasurementType is null).ToList();
         var foodIds = currentFoodInputs.Select(i => i.FoodItemId).Distinct().ToList();
         var foods = await db.FoodItems
             .AsNoTracking()
@@ -67,7 +97,7 @@ public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser 
             throw new ValidationException("One or more selected foods were not found.");
         }
 
-        return inputItems.Select(input =>
+        return resolved.Select(input =>
         {
             ValidateCarbOverride(input.CarbOverride);
 
@@ -81,6 +111,14 @@ public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser 
                     input.CarbsPer100gSnapshot,
                     input.CarbsPerUnitSnapshot);
 
+                if (input.SourceDeliveryMealId.HasValue && snapshotQuantity != 1m)
+                    throw new ValidationException("Reuse a complete saved order as one portion.");
+                var source = input.SourceMealItemId is Guid sourceId ? CarbProvenance.Of(historical[sourceId]) with
+                    { Transformation = historical[sourceId].CarbTransformation | CarbTransformation.Calculated | CarbTransformation.HistoricalReuse,
+                      SourceMealVerifiedAt = historical[sourceId].Meal?.CarbsVerifiedAt ?? historical[sourceId].SourceMealVerifiedAt }
+                    : input.SourceDeliveryMealId is Guid savedOrderId ? CarbProvenance.Of(orders[savedOrderId]) with
+                    { Transformation = orders[savedOrderId].CarbTransformation | CarbTransformation.Calculated | CarbTransformation.HistoricalReuse }
+                    : new CarbProvenanceDto(CarbReferenceSource.Unknown, CarbTransformation.Calculated);
                 return CreateCalculatedItem(
                     input.FoodItemId,
                     string.IsNullOrWhiteSpace(input.FoodNameSnapshot) ? "Saved food" : input.FoodNameSnapshot.Trim(),
@@ -90,7 +128,7 @@ public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser 
                     input.CarbsPer100gSnapshot,
                     input.CarbsPerUnitSnapshot,
                     snapshotCalculatedCarbs,
-                    input.CarbOverride);
+                    input.CarbOverride) with { Provenance = source, SourceMealItemId = input.SourceMealItemId, SourceDeliveryMealId = input.SourceDeliveryMealId };
             }
 
             var food = foods[input.FoodItemId];
@@ -106,7 +144,7 @@ public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser 
                 food.CarbsPer100g,
                 food.CarbsPerUnit,
                 calculatedCarbs,
-                input.CarbOverride);
+                input.CarbOverride) with { Provenance = new(food.CarbReferenceSource, CarbTransformation.Calculated) };
         }).ToList();
     }
 

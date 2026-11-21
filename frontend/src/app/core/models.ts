@@ -1,6 +1,13 @@
 export type MealType = 'Breakfast' | 'Lunch' | 'Dinner' | 'Snack';
 export type ResultRating = 'Perfect' | 'Good' | 'HighGlucose' | 'LowGlucose' | 'Unknown';
 export type FoodMeasurementType = 'Grams' | 'Portion' | 'Piece';
+export type CarbReferenceSource = 'Unknown' | 'Manual' | 'AiEstimate' | 'Mixed';
+export type CarbTransformation = 'None' | 'Calculated' | 'HistoricalReuse' | 'Calculated, HistoricalReuse';
+export interface CarbProvenance {
+  referenceSource: CarbReferenceSource;
+  transformation: CarbTransformation;
+  sourceMealVerifiedAt?: string | null;
+}
 
 export const mealTypes: MealType[] = ['Breakfast', 'Lunch', 'Dinner', 'Snack'];
 export const resultRatings: ResultRating[] = ['Perfect', 'Good', 'HighGlucose', 'LowGlucose', 'Unknown'];
@@ -15,6 +22,7 @@ export interface DiabetesSettings {
 }
 
 export interface FoodItem {
+  provenance?: CarbProvenance | null;
   id: string;
   name: string;
   measurementType: FoodMeasurementType;
@@ -54,6 +62,9 @@ export interface LoginAttemptStats {
 }
 
 export interface MealItemInput {
+  sourceMealItemId?: string | null;
+  sourceDeliveryMealId?: string | null;
+  clearCarbOverride?: boolean;
   foodItemId: string;
   quantity: number;
   weightGrams?: number;
@@ -65,6 +76,9 @@ export interface MealItemInput {
 }
 
 export interface CalculatedMealItem {
+  provenance?: CarbProvenance | null;
+  sourceMealItemId?: string | null;
+  sourceDeliveryMealId?: string | null;
   foodItemId: string;
   foodName: string;
   quantity: number;
@@ -101,8 +115,12 @@ export interface MealSummary {
 }
 
 export interface MealDetail extends MealSummary {
+  provenance?: CarbProvenance | null;
+  carbsVerifiedAt?: string | null;
+  carbRevision?: number;
   createdAt: string;
   items: {
+    provenance?: CarbProvenance | null;
     id: string;
     foodItemId: string;
     foodNameSnapshot: string;
@@ -136,6 +154,7 @@ export interface Dashboard {
 }
 
 export interface DeliveryMeal {
+  provenance?: CarbProvenance | null;
   id: string;
   placeName: string;
   dishName: string;
@@ -160,6 +179,7 @@ export interface DeliveryMealSections {
 }
 
 export interface UseDeliveryMeal {
+  provenance?: CarbProvenance | null;
   id: string;
   carbs: number;
   usualInsulinUnits: number | null;

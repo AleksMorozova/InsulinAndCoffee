@@ -6,12 +6,13 @@ import { Router, RouterLink } from '@angular/router';
 import { finalize, firstValueFrom, map, switchMap, TimeoutError } from 'rxjs';
 import { getApiErrorMessage, isApiError } from '../core/api-error';
 import { ApiService } from '../core/api.service';
+import { CarbProvenanceComponent } from '../shared/carb-provenance.component';
 import { AssistantConversation, AssistantDraft, AssistantFoodSelection, AssistantSavedFood, AssistantOrder, AssistantTurn, assistantFoodName } from '../core/meal-assistant.models';
 
 @Component({
   standalone: true,
   host: { class: 'meal-assistant-page' },
-  imports: [FormsModule, RouterLink, DatePipe, DecimalPipe],
+  imports: [FormsModule, RouterLink, DatePipe, DecimalPipe, CarbProvenanceComponent],
   template: `
     <section class="assistant">
       <aside class="conversation-sidebar">
@@ -78,6 +79,7 @@ import { AssistantConversation, AssistantDraft, AssistantFoodSelection, Assistan
             <section class="card meal">
               <p class="result-meta">Saved Food</p>
               <h3>{{ displayFoodName(food.name) }}</h3>
+              <app-carb-provenance [provenance]="food.provenance" />
               @if ((food.unit === 'Grams' ? food.carbsPer100g : food.carbsPerUnit); as carbs) {
                 <p>{{ carbs | number }} g carbs per {{ food.unit === 'Grams' ? '100 g' : unitLabel(food.unit) }}</p>
               } @else if ((food.unit === 'Grams' ? food.carbsPer100g : food.carbsPerUnit) === 0) {
@@ -93,6 +95,7 @@ import { AssistantConversation, AssistantDraft, AssistantFoodSelection, Assistan
               <h3>{{ order.placeName }} · {{ order.dishName }}</h3>
               <p>{{ order.portionDescription }}</p>
               <p><strong>{{ order.carbs | number }} g total carbs</strong></p>
+              <app-carb-provenance [provenance]="order.provenance" />
               @if (order.lastUsedAt) { <p>Last reused {{ order.lastUsedAt | date:'mediumDate' }}</p> }
               <button type="button" [disabled]="loading" (click)="useOrder(order)">Reuse whole order</button>
             </section>
@@ -103,6 +106,7 @@ import { AssistantConversation, AssistantDraft, AssistantFoodSelection, Assistan
           @for (meal of turn.answer.meals.slice(0, expandedTurns.has(turn) ? undefined : 3); track meal.id) {
             <section class="card meal">
               <h3>{{ meal.mealType }} · {{ meal.mealTime | date:'mediumDate' }}</h3>
+              @if (meal.carbsVerifiedAt) { <small>Meal carbs verified by you</small> }
               <p class="result-meta">{{ meal.match }}</p>
               <ul>
                 @for (item of meal.items; track $index) {
@@ -168,7 +172,8 @@ import { AssistantConversation, AssistantDraft, AssistantFoodSelection, Assistan
                 <div class="food-line">
                   <span><strong>{{ displayFoodName(item.foodName) }}</strong><small>{{ item.quantity | number }}
                     {{ draftUnit(activeDraftTurn?.question ?? '', item.measurementType, item.quantity) }}
-                    @if (isOrderItem(draft, item.foodName)) { · Ask Past Me }</small></span>
+                    @if (isOrderItem(draft, item.foodName)) { · Ask Past Me }</small>
+                    <app-carb-provenance [provenance]="item.provenance" [overridden]="item.carbOverride !== null" /></span>
                   <strong>{{ item.effectiveCarbs | number }} {{ draftUnit(activeDraftTurn?.question ?? '', 'Grams', item.effectiveCarbs) }}</strong>
                 </div>
               }
@@ -385,7 +390,9 @@ export class MealAssistantComponent {
       const opened = await this.router.navigate(['/calculator'], { state: { assistantLocale: this.draftLocale(this.turns.find(turn => turn.answer.draft === draft)?.question ?? ''), assistantMealItems: items.map(item => ({
         foodItemId: item.foodItemId, quantity: item.quantity, measurementType: item.measurementType,
         foodNameSnapshot: assistantFoodName(item.foodName), carbsPer100gSnapshot: item.carbsPer100g,
-        carbsPerUnitSnapshot: item.carbsPerUnit, carbOverride: item.carbOverride
+        carbsPerUnitSnapshot: item.carbsPerUnit, carbOverride: item.carbOverride,
+        ...(item.sourceMealItemId ? { sourceMealItemId: item.sourceMealItemId } : {}),
+        ...(item.sourceDeliveryMealId ? { sourceDeliveryMealId: item.sourceDeliveryMealId } : {})
       })) } });
       if (opened) return;
       this.handoffError = 'Could not open the calculator. Try again.';
@@ -553,7 +560,7 @@ export class MealAssistantComponent {
           const basis = item.measurementType === 'Grams' ? item.carbsPer100gSnapshot : item.carbsPerUnitSnapshot;
           const valid = item.quantity > 0 && basis !== null && basis >= 0 &&
             (item.measurementType !== 'Piece' || Number.isInteger(item.quantity));
-          return { ...item, foodItemId: valid ? item.foodItemId : '' };
+          return { ...item, foodItemId: valid ? item.foodItemId : '', sourceMealItemId: item.id };
         });
         void this.router.navigate(['/calculator'], { state: {
           assistantMealItems: items,

@@ -1,6 +1,7 @@
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Domain.Entities;
+using InsulinAndCoffee.Domain.Enums;
 using InsulinAndCoffee.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
 
@@ -89,7 +90,8 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
             Notes = request.Notes,
             IsFavorite = request.IsFavorite,
             UsageCount = 0,
-            CreatedAt = now
+            CreatedAt = now,
+            CarbReferenceSource = CarbReferenceSource.Manual
         };
 
         db.DeliveryMeals.Add(deliveryMeal);
@@ -137,7 +139,10 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
             Notes = notes,
             IsFavorite = request.IsFavorite,
             UsageCount = 0,
-            CreatedAt = now
+            CreatedAt = now,
+            CarbReferenceSource = CarbProvenance.Of(meal).ReferenceSource,
+            CarbTransformation = CarbProvenance.Of(meal).Transformation | CarbTransformation.HistoricalReuse,
+            SourceMealVerifiedAt = meal.CarbsVerifiedAt
         };
 
         db.DeliveryMeals.Add(deliveryMeal);
@@ -152,6 +157,13 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
         var deliveryMeal = await db.DeliveryMeals.FirstOrDefaultAsync(k => k.Id == id && k.UserId == UserId, cancellationToken)
             ?? throw new NotFoundException("Delivery meal", id);
 
+        if (deliveryMeal.Carbs != request.Carbs || deliveryMeal.PortionDescription != request.PortionDescription.Trim()
+            || deliveryMeal.DishName != request.DishName.Trim() || deliveryMeal.PlaceName != request.PlaceName.Trim())
+        {
+            deliveryMeal.CarbReferenceSource = CarbReferenceSource.Manual;
+            deliveryMeal.CarbTransformation = CarbTransformation.None;
+            deliveryMeal.SourceMealVerifiedAt = null;
+        }
         deliveryMeal.PlaceName = request.PlaceName.Trim();
         deliveryMeal.DishName = request.DishName.Trim();
         deliveryMeal.PortionDescription = request.PortionDescription.Trim();
@@ -202,7 +214,8 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
             notes += $"{Environment.NewLine}{deliveryMeal.Notes}";
         }
 
-        return new UseDeliveryMealDto(deliveryMeal.Id, deliveryMeal.Carbs, deliveryMeal.UsualInsulinUnits, notes);
+        return new UseDeliveryMealDto(deliveryMeal.Id, deliveryMeal.Carbs, deliveryMeal.UsualInsulinUnits, notes,
+            CarbProvenance.Of(deliveryMeal) with { Transformation = deliveryMeal.CarbTransformation | CarbTransformation.HistoricalReuse });
     }
 
     private static void Validate(UpsertDeliveryMealRequest request)
@@ -251,5 +264,5 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
             deliveryMeal.IsFavorite,
             deliveryMeal.UsageCount,
             deliveryMeal.LastUsedAt,
-            deliveryMeal.CreatedAt);
+            deliveryMeal.CreatedAt, CarbProvenance.Of(deliveryMeal));
 }

@@ -1,7 +1,7 @@
-import { CalculatedMealItem, FoodMeasurementType, MealType } from './models';
+import { CalculatedMealItem, CarbProvenance, FoodMeasurementType, MealType } from './models';
 
 export interface AssistantFoodSelection { foodId: string; quantity?: number; unit?: FoodMeasurementType; }
-export interface AssistantSavedFood { id: string; name: string; unit: FoodMeasurementType; carbsPer100g: number | null; carbsPerUnit: number | null; }
+export interface AssistantSavedFood { id: string; name: string; unit: FoodMeasurementType; carbsPer100g: number | null; carbsPerUnit: number | null; provenance?: CarbProvenance | null; }
 
 export interface MealAssistantResponse {
   draftVersion?: number;
@@ -15,6 +15,7 @@ export interface MealAssistantResponse {
     orders: AssistantOrder[];
   } | null;
   meals: {
+    carbsVerifiedAt?: string | null;
     id: string;
     mealTime: string;
     mealType: MealType;
@@ -26,6 +27,7 @@ export interface MealAssistantResponse {
     glucoseReadings: { value: number; readingTime: string; readingType: string }[];
     canUseInCalculator: boolean;
     items: {
+      provenance?: CarbProvenance | null;
       name: string;
       quantity: number;
       unit: FoodMeasurementType;
@@ -62,6 +64,7 @@ export function assistantFoodName(name: string): string {
 }
 
 export interface AssistantOrder {
+  provenance?: CarbProvenance | null;
   id: string;
   placeName: string;
   dishName: string;

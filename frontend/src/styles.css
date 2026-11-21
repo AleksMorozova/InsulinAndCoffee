@@ -15,6 +15,10 @@
   --shadow: 0 16px 35px rgba(76, 47, 36, 0.11);
 }
 
+.carb-review { display:flex; flex-wrap:wrap; align-items:center; gap:.65rem 1rem; padding:1rem; margin-block:1rem; border:1px solid var(--line); border-radius:8px; background:var(--surface); }
+.carb-review > small, .carb-review > p { flex-basis:100%; margin:0; color:var(--muted); }
+.carb-review button { min-height:44px; }
+
 * { box-sizing: border-box; }
 
 body {

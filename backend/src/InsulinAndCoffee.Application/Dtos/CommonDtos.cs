@@ -13,10 +13,14 @@ public record DiabetesSettingsDto(Guid Id, decimal TargetGlucose, decimal CarbRa
 
 public record UpdateDiabetesSettingsRequest(decimal TargetGlucose, decimal CarbRatio, decimal CorrectionFactor, decimal InsulinDurationHours);
 
-public record FoodItemDto(Guid Id, string Name, FoodMeasurementType MeasurementType, decimal? CarbsPer100g, decimal? CarbsPerUnit, decimal ProteinPer100g, decimal FatPer100g, decimal CaloriesPer100g, bool IsFavorite, DateTimeOffset CreatedAt);
+public record CarbProvenanceDto(CarbReferenceSource ReferenceSource, CarbTransformation Transformation, DateTimeOffset? SourceMealVerifiedAt = null);
 
+public record FoodItemDto(Guid Id, string Name, FoodMeasurementType MeasurementType, decimal? CarbsPer100g, decimal? CarbsPerUnit, decimal ProteinPer100g, decimal FatPer100g, decimal CaloriesPer100g, bool IsFavorite, DateTimeOffset CreatedAt, CarbProvenanceDto? Provenance = null);
+
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public record UpsertFoodItemRequest(string Name, FoodMeasurementType MeasurementType, decimal? CarbsPer100g, decimal? CarbsPerUnit, decimal ProteinPer100g, decimal FatPer100g, decimal CaloriesPer100g, bool IsFavorite);
 
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public record MealItemInputDto(
     Guid FoodItemId,
     decimal? Quantity = null,
@@ -25,17 +29,22 @@ public record MealItemInputDto(
     string? FoodNameSnapshot = null,
     decimal? CarbsPer100gSnapshot = null,
     decimal? CarbsPerUnitSnapshot = null,
-    decimal? CarbOverride = null);
+    decimal? CarbOverride = null,
+    Guid? SourceMealItemId = null,
+    Guid? SourceDeliveryMealId = null,
+    bool ClearCarbOverride = false);
 
-public record MealItemDto(Guid Id, Guid FoodItemId, string FoodNameSnapshot, decimal Quantity, FoodMeasurementType MeasurementType, decimal? WeightGrams, decimal? CarbsPer100gSnapshot, decimal? CarbsPerUnitSnapshot, decimal CalculatedCarbs, decimal? CarbOverride, decimal EffectiveCarbs);
+public record MealItemDto(Guid Id, Guid FoodItemId, string FoodNameSnapshot, decimal Quantity, FoodMeasurementType MeasurementType, decimal? WeightGrams, decimal? CarbsPer100gSnapshot, decimal? CarbsPerUnitSnapshot, decimal CalculatedCarbs, decimal? CarbOverride, decimal EffectiveCarbs, CarbProvenanceDto? Provenance = null);
 
 public record MealCalculationDto(decimal FoodCarbs, decimal CarbAdjustment, decimal TotalCarbs, decimal MealBolus, decimal CorrectionBolus, decimal SuggestedBolus, IReadOnlyList<CalculatedMealItemDto> Items);
 
-public record CalculatedMealItemDto(Guid FoodItemId, string FoodName, decimal Quantity, FoodMeasurementType MeasurementType, decimal? WeightGrams, decimal? CarbsPer100g, decimal? CarbsPerUnit, decimal CalculatedCarbs, decimal? CarbOverride, decimal EffectiveCarbs);
+public record CalculatedMealItemDto(Guid FoodItemId, string FoodName, decimal Quantity, FoodMeasurementType MeasurementType, decimal? WeightGrams, decimal? CarbsPer100g, decimal? CarbsPerUnit, decimal CalculatedCarbs, decimal? CarbOverride, decimal EffectiveCarbs, CarbProvenanceDto? Provenance = null, Guid? SourceMealItemId = null, Guid? SourceDeliveryMealId = null);
 
-public record CalculateMealRequest(MealType MealType, decimal PreMealGlucose, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null, decimal CarbAdjustment = 0);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public record CalculateMealRequest(MealType MealType, decimal PreMealGlucose, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null, decimal CarbAdjustment = 0, Guid? SourceDeliveryMealId = null);
 
-public record CreateMealRequest(MealType MealType, DateTimeOffset? MealTime, decimal PreMealGlucose, decimal? ConfirmedBolus, string? Notes, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null, decimal CarbAdjustment = 0);
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public record CreateMealRequest(MealType MealType, DateTimeOffset? MealTime, decimal PreMealGlucose, decimal? ConfirmedBolus, string? Notes, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null, decimal CarbAdjustment = 0, Guid? SourceDeliveryMealId = null);
 
 public record ConfirmMealBolusRequest(decimal ConfirmedBolus);
 
@@ -45,7 +54,10 @@ public record UpdateMealItemRequest(decimal? Quantity = null, decimal? WeightGra
 
 public record MealSummaryDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal CarbAdjustment, decimal SuggestedBolus, decimal? ConfirmedBolus, string? Notes, IReadOnlyList<string> FoodNames);
 
-public record MealDetailDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal CarbAdjustment, decimal SuggestedBolus, decimal? ConfirmedBolus, string? Notes, DateTimeOffset CreatedAt, IReadOnlyList<MealItemDto> Items);
+public record MealDetailDto(Guid Id, MealType MealType, DateTimeOffset MealTime, decimal PreMealGlucose, decimal TotalCarbs, decimal CarbAdjustment, decimal SuggestedBolus, decimal? ConfirmedBolus, string? Notes, DateTimeOffset CreatedAt, IReadOnlyList<MealItemDto> Items, CarbProvenanceDto? Provenance = null, DateTimeOffset? CarbsVerifiedAt = null, long CarbRevision = 0);
+
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
+public record VerifyMealCarbsRequest(long ExpectedCarbRevision);
 
 public record DashboardDto(
     DateOnly Date,
@@ -77,8 +89,10 @@ public record DeliveryMealDto(
     bool IsFavorite,
     int UsageCount,
     DateTimeOffset? LastUsedAt,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    CarbProvenanceDto? Provenance = null);
 
+[System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public record UpsertDeliveryMealRequest(
     string PlaceName,
     string DishName,
@@ -105,7 +119,7 @@ public record DeliveryMealSectionsDto(
     IReadOnlyList<DeliveryMealDto> RecentlyUsed,
     IReadOnlyList<DeliveryMealDto> SearchResults);
 
-public record UseDeliveryMealDto(Guid Id, decimal Carbs, decimal? UsualInsulinUnits, string Notes);
+public record UseDeliveryMealDto(Guid Id, decimal Carbs, decimal? UsualInsulinUnits, string Notes, CarbProvenanceDto? Provenance = null);
 
 public record SupplyItemDto(
     Guid Id,

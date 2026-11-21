@@ -267,7 +267,7 @@ describe('MealAssistantComponent', () => {
 
     expect(api.getMeal).toHaveBeenCalledWith('saved-meal');
     expect(navigate).toHaveBeenCalledWith(['/calculator'], { state: {
-      assistantMealItems: items, assistantCarbAdjustment: 1, assistantOriginalMealId: 'saved-meal'
+      assistantMealItems: items.map(item => ({ ...item, sourceMealItemId: item.id })), assistantCarbAdjustment: 1, assistantOriginalMealId: 'saved-meal'
     } });
   });
 });

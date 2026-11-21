@@ -9,6 +9,24 @@ import { FoodItem } from '../../core/models';
 import { CalculatorComponent } from './calculator.component';
 
 describe('CalculatorComponent', () => {
+  it('carries the historical identity while keeping provenance and verification server controlled', () => {
+    const { component, api } = createComponent();
+    const previous = history.state;
+    try {
+      history.replaceState({ assistantMealItems: [{ foodItemId: 'food', sourceMealItemId: 'original-item',
+        quantity: 150, measurementType: 'Grams', foodNameSnapshot: 'Soup', carbsPer100gSnapshot: 10,
+        carbOverride: 18, provenance: { referenceSource: 'Manual', transformation: 'HistoricalReuse' } }],
+        assistantOriginalMealId: 'original' }, '');
+      component.ngOnInit();
+      expect(api.calculateMeal).toHaveBeenCalledWith(jasmine.objectContaining({ items: [jasmine.objectContaining({
+        sourceMealItemId: 'original-item', quantity: 150, carbOverride: 18, clearCarbOverride: false
+      })] }));
+      component.items.at(0).patchValue({ carbOverride: null });
+      expect(api.calculateMeal).toHaveBeenCalledWith(jasmine.objectContaining({ items: [jasmine.objectContaining({
+        sourceMealItemId: 'original-item', clearCarbOverride: true
+      })] }));
+    } finally { history.replaceState(previous, ''); }
+  });
   function createComponent(auth?: AuthService) {
     const api = {
       getFoods: () => of([]),

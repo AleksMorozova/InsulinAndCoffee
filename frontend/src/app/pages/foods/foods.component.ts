@@ -2,6 +2,7 @@ import { DecimalPipe } from '@angular/common';
 import { Component, HostListener, OnInit } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiService, UpsertFoodRequest } from '../../core/api.service';
+import { CarbProvenanceComponent } from '../../shared/carb-provenance.component';
 import { FoodItem, FoodMeasurementType } from '../../core/models';
 
 type FoodFilter = 'all' | 'favorites';
@@ -10,7 +11,7 @@ type FoodSort = 'newest' | 'alphabetical' | 'highestCarbs' | 'lowestCarbs' | 'fa
 @Component({
   selector: 'app-foods',
   standalone: true,
-  imports: [DecimalPipe, ReactiveFormsModule],
+  imports: [DecimalPipe, ReactiveFormsModule, CarbProvenanceComponent],
   template: `
     <section class="food-library-hero">
       <div class="food-library-copy">
@@ -54,6 +55,7 @@ type FoodSort = 'newest' | 'alphabetical' | 'highestCarbs' | 'lowestCarbs' | 'fa
 
           <div class="food-main">
             <h2>{{ food.name }}</h2>
+            <app-carb-provenance [provenance]="food.provenance" />
             <p>{{ food.isFavorite ? 'Favorite food' : 'Saved food' }}</p>
           </div>
 

@@ -21,6 +21,26 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
     public AuthIntegrationTests(ApiFactory factory) => this.factory = factory;
 
     [Fact]
+    public async Task CarbVerification_UsesServerState_RejectsSpoofingAndStaleRevision()
+    {
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(client, "aleks", "aleks"));
+        var created = await client.PostAsJsonAsync("/api/meals", new { mealType = "Lunch", preMealGlucose = 6m, directCarbs = 20m, items = Array.Empty<object>() });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var json = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        var id = json.RootElement.GetProperty("id").GetGuid();
+        Assert.Equal(JsonValueKind.Null, json.RootElement.GetProperty("carbsVerifiedAt").ValueKind);
+        var route = $"/api/meals/{id}/carb-verification";
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(route, new { expectedCarbRevision = 0, carbsVerifiedAt = "2099-01-01T00:00:00Z" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync(route, new { expectedCarbRevision = 0 })).StatusCode);
+        Assert.Equal(HttpStatusCode.Conflict, (await client.PostAsJsonAsync(route, new { expectedCarbRevision = 0 })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/foods", new { name = "Forged", measurementType = "Grams", carbsPer100g = 20m, provenance = new { referenceSource = "Manual", sourceMealVerifiedAt = "2099-01-01T00:00:00Z" } })).StatusCode);
+        using var other = factory.CreateClient();
+        other.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(other, "admin", "admin"));
+        Assert.Equal(HttpStatusCode.NotFound, (await other.PostAsJsonAsync(route, new { expectedCarbRevision = 1 })).StatusCode);
+    }
+
+    [Fact]
     public async Task Login_ValidCredentials_ReturnsJwt()
     {
         var response = await factory.CreateClient().PostAsJsonAsync("/api/auth/login", new { username = "aleks", password = "aleks" });

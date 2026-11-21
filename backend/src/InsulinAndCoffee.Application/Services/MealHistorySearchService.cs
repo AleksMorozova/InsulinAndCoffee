@@ -108,8 +108,8 @@ public class MealHistorySearchService(IAppDbContext db, ICurrentUser currentUser
                 return new AssistantMealItem(item.FoodNameSnapshot, item.Quantity, item.MeasurementType,
                     item.CarbOverride ?? item.CalculatedCarbs, requested?.Quantity, requested?.Unit,
                     comparable ? FoodCarbCalculator.Calculate(item.MeasurementType, requested?.Quantity ?? 0,
-                        item.CarbsPer100gSnapshot, item.CarbsPerUnitSnapshot) : null);
-            }).ToArray(), readings, meal.Items.Count > 0);
+                        item.CarbsPer100gSnapshot, item.CarbsPerUnitSnapshot) : null, CarbProvenance.Of(item));
+            }).ToArray(), readings, meal.Items.Count > 0, meal.CarbsVerifiedAt);
 
     private static string Normalize(string value) => AssistantFoodMatching.Normalize(value);
     private static bool Matches(string food, string snapshot) => AssistantFoodMatching.Score(food, true).Compile()(snapshot) >= 2;
