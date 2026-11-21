@@ -34,6 +34,31 @@ public class AssistantPostgresCollection;
 public class AssistantPostgreSqlSafetyTests
 {
     [AssistantPostgresFact]
+    public async Task Settings_ConcurrentFirstRequests_ReturnSamePersistedDefaults()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var owner = Guid.NewGuid();
+        await using (var setup = database.Open())
+        {
+            setup.Users.Add(User(owner));
+            await setup.SaveChangesAsync(CancellationToken.None);
+        }
+        var gate = new ConcurrentSave();
+        await using var first = database.Open(gate);
+        await using var second = database.Open(gate);
+        var results = await Task.WhenAll(
+            new SettingsService(first, TimeProvider.System, new CurrentUser(owner)).GetSettingsAsync(CancellationToken.None),
+            new SettingsService(second, TimeProvider.System, new CurrentUser(owner)).GetSettingsAsync(CancellationToken.None));
+        Assert.Equal(results[0].Id, results[1].Id);
+        Assert.Equal(results[0].CarbRatio, results[1].CarbRatio);
+        Assert.True(Math.Abs((results[0].UpdatedAt - results[1].UpdatedAt).Ticks) < 10); // PostgreSQL microsecond precision.
+        await using var check = database.Open();
+        Assert.Equal(1, await check.DiabetesSettings.CountAsync(s => s.UserId == owner));
+        Assert.Equal(10m, results[0].CarbRatio);
+        Assert.Equal(6.5m, results[0].TargetGlucose);
+    }
+
+    [AssistantPostgresFact]
     public async Task CarbProvenanceMigration_LegacySnapshotRemainsUnknownAndNumericallyUnchanged()
     {
         await using var database = await TestDatabase.CreateAsync("20261120223407_AddAssistantDraftConcurrency");

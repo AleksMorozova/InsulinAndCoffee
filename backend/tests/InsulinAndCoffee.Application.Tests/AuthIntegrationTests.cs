@@ -154,6 +154,14 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
         Assert.Equal(1, await db.DiabetesSettings.CountAsync(item => item.UserId == userId));
 
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/settings")).StatusCode);
+        // Simulate a legacy/imported user missing the otherwise atomic registration settings.
+        var missing = await db.DiabetesSettings.SingleAsync(item => item.UserId == userId);
+        db.DiabetesSettings.Remove(missing);
+        await db.SaveChangesAsync(CancellationToken.None);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/settings")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/settings")).StatusCode);
+        Assert.Equal(1, await db.DiabetesSettings.CountAsync(item => item.UserId == userId));
         using var foods = JsonDocument.Parse(await client.GetStringAsync("/api/foods?pageSize=100"));
         Assert.Equal(0, foods.RootElement.GetProperty("totalCount").GetInt32());
     }
@@ -242,6 +250,7 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
 
         var token = await LoginAsync(client, username, "test-password");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/settings")).StatusCode);
         using var foods = JsonDocument.Parse(await client.GetStringAsync("/api/foods?pageSize=100"));
         Assert.Equal(0, foods.RootElement.GetProperty("totalCount").GetInt32());
 

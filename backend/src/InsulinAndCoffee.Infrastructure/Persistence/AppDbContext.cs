@@ -10,6 +10,16 @@ namespace InsulinAndCoffee.Infrastructure;
 
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext
 {
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        try { return await base.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateException exception) when (exception.InnerException is Npgsql.PostgresException
+            { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation, ConstraintName: "IX_DiabetesSettings_UserId" })
+        {
+            throw new SettingsAlreadyExistException(exception);
+        }
+    }
+
     public DbSet<AssistantConversation> AssistantConversations => Set<AssistantConversation>();
     public DbSet<AssistantMessage> AssistantMessages => Set<AssistantMessage>();
     public DbSet<AssistantRequestReceipt> AssistantRequestReceipts => Set<AssistantRequestReceipt>();

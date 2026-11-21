@@ -9,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser = null)
+public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser = null, TimeProvider? timeProvider = null)
 {
     private Guid UserId => currentUser?.UserId ?? DefaultUser.Id;
     public async Task<MealCarbPreview> PreviewCarbsAsync(MealCarbPreviewRequest request, CancellationToken cancellationToken)
@@ -187,9 +187,8 @@ public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser 
             effectiveCarbs);
     }
 
-    private async Task<DiabetesSettings> GetSettingsAsync(CancellationToken cancellationToken) =>
-        await db.DiabetesSettings.AsNoTracking().FirstOrDefaultAsync(s => s.UserId == UserId, cancellationToken)
-        ?? throw new NotFoundException("Diabetes settings", UserId);
+    private Task<DiabetesSettings> GetSettingsAsync(CancellationToken cancellationToken) =>
+        SettingsService.GetOrCreateUserSettingsAsync(db, UserId, timeProvider ?? TimeProvider.System, cancellationToken);
 
     private static void ValidateMealInputs(decimal preMealGlucose, IReadOnlyList<MealItemInputDto> items, decimal? directCarbs, decimal carbAdjustment)
     {
