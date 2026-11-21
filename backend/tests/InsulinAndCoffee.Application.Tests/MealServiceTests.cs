@@ -84,7 +84,7 @@ public class MealServiceTests
 
 
     [Fact]
-    public async Task CalculateMealAsync_WhenDiabetesSettingsAreMissing_ThrowsNotFound()
+    public async Task CalculateMealAsync_WhenUserAndSettingsAreMissing_ThrowsUserNotFound()
     {
         await using var db = CreateDbContext();
         var food = AddFood(db, "Bread", 40m);
@@ -96,7 +96,7 @@ public class MealServiceTests
                 new CalculateMealRequest(MealType.Breakfast, 6.5m, [new MealItemInputDto(food.Id, 100m)]),
                 CancellationToken.None));
 
-        Assert.Contains("Diabetes settings with id", exception.Message);
+        Assert.Contains("User with id", exception.Message);
     }
 
     [Fact]
