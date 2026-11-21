@@ -22,6 +22,8 @@ public class DeliveryMeal
     public CarbReferenceSource CarbReferenceSource { get; set; }
     public CarbTransformation CarbTransformation { get; set; }
     public DateTimeOffset? SourceMealVerifiedAt { get; set; }
+    public long Revision { get; set; }
+    public ICollection<DeliveryMealItem> Items { get; set; } = [];
 
     public User? User { get; set; }
 }

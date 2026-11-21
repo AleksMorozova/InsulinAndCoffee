@@ -16,7 +16,7 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
         var inputs = new List<MealItemInputDto>();
         foreach (var item in items)
         {
-            if (item.SourceMealItemId.HasValue || item.SourceDeliveryMealId.HasValue)
+            if (item.SourceMealItemId.HasValue || item.SourceDeliveryMealId.HasValue || item.SourceDeliveryMealItemId.HasValue)
             {
                 inputs.Add(ToInput(item));
                 continue;
@@ -37,8 +37,8 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
             inputs.Add(ToInput(item) with { SourceDeliveryMealId = order.Id });
         }
         var current = await calculation.CalculateItemsAsync(inputs, null, null, cancellationToken);
-        if (current.Where((item, index) => (item with { Provenance = null, SourceMealItemId = null, SourceDeliveryMealId = null })
-            != (items[index] with { Provenance = null, SourceMealItemId = null, SourceDeliveryMealId = null })).Any())
+        if (current.Where((item, index) => (item with { Provenance = null, SourceMealItemId = null, SourceDeliveryMealId = null, SourceDeliveryMealItemId = null })
+            != (items[index] with { Provenance = null, SourceMealItemId = null, SourceDeliveryMealId = null, SourceDeliveryMealItemId = null })).Any())
             throw new ValidationException("Saved food values changed. Ask for an updated meal draft.");
         return current;
     }
@@ -116,12 +116,15 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
         {
             if (quantity is < 0.1m or > 10000m ||
                 (selected.MeasurementType == FoodMeasurementType.Piece && decimal.Truncate(quantity) != quantity) ||
-                (selected.FoodItemId == Guid.Empty && quantity != 1m))
+                (selected.FoodItemId == Guid.Empty && !selected.SourceDeliveryMealItemId.HasValue && quantity != 1m))
                 return Feedback("That quantity is incompatible with the saved item.");
             var updated = (await calculation.CalculateItemsAsync(
                 [ToInput(selected) with { Quantity = quantity }], null, null, token))[0];
+            if (selected.SourceDeliveryMealItemId.HasValue && (updated.FoodName != selected.FoodName || updated.MeasurementType != selected.MeasurementType
+                || updated.CarbsPer100g != selected.CarbsPer100g || updated.CarbsPerUnit != selected.CarbsPerUnit || updated.CarbOverride != selected.CarbOverride))
+                return Feedback("The saved order item changed. Choose it again before changing quantities.");
             // A quantity operation transforms the trusted, persisted reference; it does not change its origin.
-            if (!selected.SourceMealItemId.HasValue && !selected.SourceDeliveryMealId.HasValue)
+            if (!selected.SourceMealItemId.HasValue && !selected.SourceDeliveryMealId.HasValue && !selected.SourceDeliveryMealItemId.HasValue)
                 updated = updated with { Provenance = selected.Provenance };
             items[items.IndexOf(selected)] = updated;
         }
@@ -139,7 +142,7 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
     private static MealItemInputDto ToInput(CalculatedMealItemDto item) =>
         new(item.FoodItemId, item.Quantity, MeasurementType: item.MeasurementType, FoodNameSnapshot: item.FoodName,
             CarbsPer100gSnapshot: item.CarbsPer100g, CarbsPerUnitSnapshot: item.CarbsPerUnit, CarbOverride: item.CarbOverride,
-            SourceMealItemId: item.SourceMealItemId, SourceDeliveryMealId: item.SourceDeliveryMealId);
+            SourceMealItemId: item.SourceMealItemId, SourceDeliveryMealId: item.SourceDeliveryMealId, SourceDeliveryMealItemId: item.SourceDeliveryMealItemId);
 
     public async Task<AssistantDraft?> BuildAsync(AssistantFoodQuery[] queries, CancellationToken cancellationToken)
     {
@@ -152,9 +155,39 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
         foreach (var original in queries)
         {
             var query = AssistantFoodMatching.Query(original);
+            var ownedItems = db.DeliveryMealItems.AsNoTracking().Where(item => item.DeliveryMeal!.UserId == userId);
+            var candidates = query.DeliveryMealItemId is Guid itemId
+                ? await ownedItems.Where(item => item.Id == itemId).ToListAsync(cancellationToken)
+                : query.FoodItemId.HasValue || query.DeliveryMealId.HasValue ? []
+                : await FoodKnowledgeSearchService.FindItems(ownedItems, query, false).Take(2).ToListAsync(cancellationToken);
+            if (query.DeliveryMealItemId.HasValue && candidates.Count == 0)
+                throw new ValidationException("The selected order item is unavailable.");
+            if (candidates.Count > 0)
+            {
+                var scoreItem = AssistantFoodMatching.Score(query.Name).Compile();
+                if (!query.DeliveryMealItemId.HasValue) candidates = candidates.Where(item => scoreItem(item.Name) == scoreItem(candidates[0].Name)).ToList();
+                var hasSavedFood = !query.DeliveryMealItemId.HasValue && string.IsNullOrWhiteSpace(query.Restaurant)
+                    && await FoodKnowledgeSearchService.FindFoods(db.FoodItems.AsNoTracking().Where(food => food.UserId == userId), query.Name, false).AnyAsync(cancellationToken);
+                if (candidates.Count != 1 || hasSavedFood)
+                { pending = query; issues.Add($"More than one saved item matched {query.Name}. Choose a specific saved food or order item."); continue; }
+                var candidate = candidates[0];
+                if (query.Unit.HasValue && query.Unit != candidate.MeasurementType)
+                { pending = query; issues.Add($"Specify a quantity in {candidate.MeasurementType} for {candidate.Name}."); continue; }
+                inputs.Add(new(Guid.Empty, query.Quantity ?? candidate.Quantity, SourceDeliveryMealItemId: candidate.Id));
+                sources.Add(new(candidate.Id, "AskPastMeItem", candidate.Name));
+                continue;
+            }
+            if (query.DeliveryMealId is Guid wholeId)
+            {
+                if (query.Quantity is not (null or 1m) || query.Unit is not (null or FoodMeasurementType.Portion or FoodMeasurementType.Piece))
+                    throw new ValidationException("Select a complete saved order once, then edit its individual item quantities.");
+                var whole = await db.DeliveryMeals.AsNoTracking().Include(order => order.Items).SingleOrDefaultAsync(order => order.Id == wholeId && order.UserId == userId, cancellationToken)
+                    ?? throw new ValidationException("The saved order is unavailable.");
+                AddOrder(whole); continue;
+            }
             if (!string.IsNullOrWhiteSpace(query.Restaurant))
             {
-                var orders = await FoodKnowledgeSearchService.FindOrders(db.DeliveryMeals.AsNoTracking()
+                var orders = await FoodKnowledgeSearchService.FindOrders(db.DeliveryMeals.AsNoTracking().Include(order => order.Items)
                     .Where(order => order.UserId == userId), query, false).Take(2).ToListAsync(cancellationToken);
                 if (orders.Count > 1)
                 {
@@ -171,10 +204,7 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                     continue;
                 }
                 var order = orders[0];
-                var label = $"{order.PlaceName} · {order.DishName}";
-                inputs.Add(new MealItemInputDto(Guid.Empty, 1m, MeasurementType: FoodMeasurementType.Portion,
-                    FoodNameSnapshot: label, CarbsPerUnitSnapshot: order.Carbs, SourceDeliveryMealId: order.Id));
-                sources.Add(new AssistantDraftSource(order.Id, "AskPastMe", label));
+                AddOrder(order);
                 continue;
             }
             var owned = db.FoodItems.AsNoTracking().Where(food => food.UserId == userId);
@@ -218,5 +248,21 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
             .CalculateItemsAsync(inputs, null, null, cancellationToken);
         return new AssistantDraft(items, issues, Math.Round(items.Sum(item => item.EffectiveCarbs), 2), sources,
             issues.Count == 1 ? pending : null);
+
+        void AddOrder(InsulinAndCoffee.Domain.Entities.DeliveryMeal order)
+        {
+            if (inputs.Count + Math.Max(1, order.Items.Count) > 100) throw new ValidationException("A draft supports at most 100 items.");
+            if (order.Items.Count > 0)
+            {
+                foreach (var item in order.Items.OrderBy(item => item.DisplayOrder))
+                { inputs.Add(new(Guid.Empty, item.Quantity, SourceDeliveryMealItemId: item.Id)); sources.Add(new(item.Id, "AskPastMeItem", item.Name)); }
+            }
+            else
+            {
+                var label = $"{order.PlaceName} · {order.DishName}";
+                inputs.Add(new(Guid.Empty, 1m, SourceDeliveryMealId: order.Id));
+                sources.Add(new(order.Id, "AskPastMe", label));
+            }
+        }
     }
 }

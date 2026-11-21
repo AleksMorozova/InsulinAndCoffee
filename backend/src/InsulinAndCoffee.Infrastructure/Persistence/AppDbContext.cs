@@ -31,6 +31,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<MealItem> MealItems => Set<MealItem>();
     public DbSet<GlucoseReading> GlucoseReadings => Set<GlucoseReading>();
     public DbSet<DeliveryMeal> DeliveryMeals => Set<DeliveryMeal>();
+    public DbSet<DeliveryMealItem> DeliveryMealItems => Set<DeliveryMealItem>();
     public DbSet<SupplyItem> SupplyItems => Set<SupplyItem>();
     public DbSet<LoginAttempt> LoginAttempts => Set<LoginAttempt>();
 

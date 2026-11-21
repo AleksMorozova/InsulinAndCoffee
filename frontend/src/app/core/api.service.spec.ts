@@ -6,6 +6,14 @@ import { ApiService } from './api.service';
 import { environment } from '../../environments/environment';
 
 describe('ApiService assistant candidate selection', () => {
+  it('sends structured order identities and expected revision without asserted provenance', () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    const http = TestBed.inject(HttpTestingController);
+    TestBed.inject(ApiService).reuseDeliveryMealItems('order', ['item-1', 'item-2'], 4).subscribe();
+    const request = http.expectOne(environment.apiUrl + '/delivery-meals/order/items-draft');
+    expect(request.request.body).toEqual({ itemIds: ['item-1', 'item-2'], expectedRevision: 4 });
+    request.flush([]); http.verify();
+  });
   it('requests carb verification using only the expected server revision', () => {
     TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
     const http = TestBed.inject(HttpTestingController);

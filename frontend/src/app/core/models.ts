@@ -62,6 +62,7 @@ export interface LoginAttemptStats {
 }
 
 export interface MealItemInput {
+  sourceDeliveryMealItemId?: string | null;
   sourceMealItemId?: string | null;
   sourceDeliveryMealId?: string | null;
   clearCarbOverride?: boolean;
@@ -76,6 +77,7 @@ export interface MealItemInput {
 }
 
 export interface CalculatedMealItem {
+  sourceDeliveryMealItemId?: string | null;
   provenance?: CarbProvenance | null;
   sourceMealItemId?: string | null;
   sourceDeliveryMealId?: string | null;
@@ -154,6 +156,8 @@ export interface Dashboard {
 }
 
 export interface DeliveryMeal {
+  items?: DeliveryMealItem[];
+  revision?: number;
   provenance?: CarbProvenance | null;
   id: string;
   placeName: string;
@@ -179,12 +183,32 @@ export interface DeliveryMealSections {
 }
 
 export interface UseDeliveryMeal {
+  items?: CalculatedMealItem[] | null;
   provenance?: CarbProvenance | null;
   id: string;
   carbs: number;
   usualInsulinUnits: number | null;
   notes: string;
 }
+
+export interface DeliveryMealItemInput {
+  id?: string | null;
+  foodItemId?: string | null;
+  name: string;
+  quantity: number;
+  measurementType: FoodMeasurementType;
+  carbsPer100g?: number | null;
+  carbsPerUnit?: number | null;
+  carbOverride?: number | null;
+}
+export interface DeliveryMealItem extends DeliveryMealItemInput {
+  id: string;
+  calculatedCarbs: number;
+  effectiveCarbs: number;
+  displayOrder: number;
+  provenance: CarbProvenance;
+}
+export interface DeliveryMealPreview { items: CalculatedMealItem[]; totalCarbs: number; difference?: number | null; }
 
 export type SupplyStatus = 'Ok' | 'Low' | 'Critical' | 'Unknown';
 

@@ -9,6 +9,20 @@ import { FoodItem } from '../../core/models';
 import { CalculatorComponent } from './calculator.component';
 
 describe('CalculatorComponent', () => {
+  it('hydrates structured saved order items, scales through the backend and ignores historical insulin/glucose', () => {
+    const { component, api } = createComponent();
+    const previous = history.state;
+    try {
+      history.replaceState({ deliveryMeal: { id: 'order', placeName: 'Le Grill', dishName: 'Set', carbs: 75,
+        usualInsulinUnits: 99, lastPreMealGlucose: 15, items: [{ foodItemId: '00000000-0000-0000-0000-000000000000',
+          foodName: 'Sushi', quantity: 5, measurementType: 'Piece', carbsPerUnit: 15, sourceDeliveryMealItemId: 'sushi-item' }] } }, '');
+      component.ngOnInit();
+      expect(component.form.controls.preMealGlucose.value).toBe(5.5);
+      expect(component.form.controls.confirmedBolus.value).toBeNull();
+      component.items.at(0).patchValue({ quantity: 3 });
+      expect(api.calculateMeal).toHaveBeenCalledWith(jasmine.objectContaining({ preMealGlucose: 5.5, items: [jasmine.objectContaining({ sourceDeliveryMealItemId: 'sushi-item', quantity: 3 })] }));
+    } finally { history.replaceState(previous, ''); }
+  });
   it('carries the historical identity while keeping provenance and verification server controlled', () => {
     const { component, api } = createComponent();
     const previous = history.state;

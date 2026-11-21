@@ -43,11 +43,22 @@ public class FoodKnowledgeSearchService(IAppDbContext db, ICurrentUser currentUs
         return orders.Where(AssistantFoodMatching.Positive(text)).OrderByDescending(place).ThenByDescending(dish).ThenBy(order => order.Id);
     }
 
+    internal static IQueryable<DeliveryMealItem> FindItems(IQueryable<DeliveryMealItem> items, AssistantFoodQuery food, bool discovery)
+    {
+        if (!string.IsNullOrWhiteSpace(food.Restaurant))
+            items = items.Where(AssistantFoodMatching.Positive(AssistantFoodMatching.On<DeliveryMealItem>(item => item.DeliveryMeal!.PlaceName,
+                AssistantFoodMatching.Score(food.Restaurant)), 3));
+        if (string.IsNullOrWhiteSpace(food.Name)) return items.OrderBy(item => item.DeliveryMealId).ThenBy(item => item.DisplayOrder);
+        var score = AssistantFoodMatching.On<DeliveryMealItem>(item => item.Name, AssistantFoodMatching.Score(food.Name, discovery));
+        return items.Where(AssistantFoodMatching.Positive(score, discovery ? 1 : 3)).OrderByDescending(score).ThenBy(item => item.Id);
+    }
+
     public async Task<AssistantKnowledge> SearchAsync(AssistantFoodQuery[] foods, CancellationToken cancellationToken)
     {
         var owner = currentUser.UserId;
         var saved = new List<AssistantSavedFood>();
         var orders = new List<AssistantOrder>();
+        var items = new List<AssistantOrderItem>();
         foreach (var original in foods)
         {
             var food = AssistantFoodMatching.Query(original with { Name = LookupName(original.Name) });
@@ -55,6 +66,10 @@ public class FoodKnowledgeSearchService(IAppDbContext db, ICurrentUser currentUs
                 ? new[] { food.Name, Terms(food.Name)[0] == "sushi" ? "roll" : "sushi" } : [food.Name];
             foreach (var name in searches)
             {
+                items.AddRange(await FindItems(db.DeliveryMealItems.AsNoTracking().Where(item => item.DeliveryMeal!.UserId == owner), food with { Name = name }, true)
+                    .Take(8).Select(item => new AssistantOrderItem(item.Id, item.DeliveryMealId, item.DeliveryMeal!.PlaceName, item.DeliveryMeal.DishName,
+                        item.Name, item.Quantity, item.MeasurementType, item.CarbsPer100gSnapshot, item.CarbsPerUnitSnapshot,
+                        item.CarbOverride ?? item.CalculatedCarbs, new(item.CarbReferenceSource, item.CarbTransformation, item.SourceMealVerifiedAt))).ToListAsync(cancellationToken));
                 if (string.IsNullOrWhiteSpace(food.Restaurant))
                     saved.AddRange(await FindFoods(db.FoodItems.AsNoTracking().Where(item => item.UserId == owner), name, true)
                         .Take(8).Select(item => new AssistantSavedFood(item.Id, item.Name, item.MeasurementType, item.CarbsPer100g, item.CarbsPerUnit,
@@ -66,6 +81,6 @@ public class FoodKnowledgeSearchService(IAppDbContext db, ICurrentUser currentUs
                     .ToListAsync(cancellationToken));
             }
         }
-        return new(saved.DistinctBy(item => item.Id).Take(8).ToArray(), orders.DistinctBy(item => item.Id).Take(8).ToArray());
+        return new(saved.DistinctBy(item => item.Id).Take(8).ToArray(), orders.DistinctBy(item => item.Id).Take(8).ToArray(), items.DistinctBy(item => item.Id).Take(8).ToArray());
     }
 }

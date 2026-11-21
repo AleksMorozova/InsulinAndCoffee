@@ -1,6 +1,7 @@
 import { CalculatedMealItem, CarbProvenance, FoodMeasurementType, MealType } from './models';
 
-export interface AssistantFoodSelection { foodId: string; quantity?: number; unit?: FoodMeasurementType; }
+export interface AssistantFoodSelection { foodId: string; quantity?: number; unit?: FoodMeasurementType; kind?: 'Food' | 'DeliveryMealItem' | 'DeliveryMeal'; }
+export interface AssistantOrderItem extends AssistantSavedFood { orderId: string; placeName: string; orderName: string; quantity: number; effectiveCarbs: number; }
 export interface AssistantSavedFood { id: string; name: string; unit: FoodMeasurementType; carbsPer100g: number | null; carbsPerUnit: number | null; provenance?: CarbProvenance | null; }
 
 export interface MealAssistantResponse {
@@ -13,6 +14,7 @@ export interface MealAssistantResponse {
   knowledge?: {
     foods: AssistantSavedFood[];
     orders: AssistantOrder[];
+    items?: AssistantOrderItem[];
   } | null;
   meals: {
     carbsVerifiedAt?: string | null;
