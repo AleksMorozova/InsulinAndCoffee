@@ -34,6 +34,79 @@ public class AssistantPostgresCollection;
 public class AssistantPostgreSqlSafetyTests
 {
     [AssistantPostgresFact]
+    public async Task CarbProvenanceMigration_LegacySnapshotRemainsUnknownAndNumericallyUnchanged()
+    {
+        await using var database = await TestDatabase.CreateAsync("20261120223407_AddAssistantDraftConcurrency");
+        var owner = Guid.NewGuid();
+        var mealId = Guid.NewGuid();
+        var itemId = Guid.NewGuid();
+        var now = TimeProvider.System.GetUtcNow();
+        await using (var legacy = database.Open())
+        {
+            legacy.Users.Add(User(owner));
+            await legacy.SaveChangesAsync(CancellationToken.None);
+            await legacy.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO \"Meals\" (\"Id\", \"UserId\", \"MealType\", \"MealTime\", \"PreMealGlucose\", \"TotalCarbs\", \"CarbAdjustment\", \"SuggestedBolus\", \"ConfirmedBolus\", \"CreatedAt\") VALUES ({mealId}, {owner}, {1}, {now}, {6m}, {17m}, {-1m}, {2m}, {1.5m}, {now})", CancellationToken.None);
+            await legacy.Database.ExecuteSqlInterpolatedAsync($"INSERT INTO \"MealItems\" (\"Id\", \"MealId\", \"FoodItemId\", \"FoodNameSnapshot\", \"Quantity\", \"MeasurementType\", \"WeightGrams\", \"CarbsPer100gSnapshot\", \"CalculatedCarbs\", \"CarbOverride\") VALUES ({itemId}, {mealId}, {Guid.NewGuid()}, {"Legacy soup"}, {150m}, {0}, {150m}, {10m}, {15m}, {18m})", CancellationToken.None);
+            await legacy.Database.MigrateAsync(CancellationToken.None);
+        }
+        await using var check = database.Open();
+        var meal = await check.Meals.Include(m => m.Items).SingleAsync(m => m.Id == mealId);
+        var item = Assert.Single(meal.Items);
+        Assert.Equal(CarbReferenceSource.Unknown, item.CarbReferenceSource);
+        Assert.Equal(CarbTransformation.None, item.CarbTransformation);
+        Assert.Null(item.SourceMealVerifiedAt);
+        Assert.Null(meal.CarbsVerifiedAt);
+        Assert.Equal(0, meal.CarbRevision);
+        Assert.Equal(15m, item.CalculatedCarbs);
+        Assert.Equal(18m, item.CarbOverride);
+        Assert.Equal(10m, item.CarbsPer100gSnapshot);
+        Assert.Equal(150m, item.Quantity);
+        Assert.Equal(-1m, meal.CarbAdjustment);
+        Assert.Equal(17m, meal.TotalCarbs);
+        Assert.Equal(1.5m, meal.ConfirmedBolus);
+        Assert.False(check.Database.HasPendingModelChanges());
+    }
+
+    [AssistantPostgresFact]
+    public async Task CarbVerification_ConcurrentSnapshotEditAndReview_CannotCommitStaleVerification()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        var seed = await SeedAsync(database);
+        foreach (var verifyFirst in new[] { true, false })
+        {
+            Guid mealId;
+            Guid itemId;
+            await using (var setup = database.Open())
+            {
+                if (!await setup.DiabetesSettings.AnyAsync(s => s.UserId == seed.Owner))
+                    setup.DiabetesSettings.Add(DiabetesSettings.CreateDefaults(Guid.NewGuid(), seed.Owner, TimeProvider.System.GetUtcNow()));
+                await setup.SaveChangesAsync(CancellationToken.None);
+                var meal = await Meals(setup).CreateMealAsync(new(MealType.Lunch, null, 6m, null, null, [new(seed.BreadId, 1m)]), CancellationToken.None);
+                mealId = meal.Id;
+                itemId = meal.Items[0].Id;
+            }
+            await using var stale = database.Open();
+            await stale.Meals.Include(m => m.Items).SingleAsync(m => m.Id == mealId);
+            await using (var winner = database.Open())
+            {
+                if (verifyFirst) await Meals(winner).VerifyCarbsAsync(mealId, new(0), CancellationToken.None);
+                else await Meals(winner).UpdateMealItemAsync(mealId, itemId, new(Quantity: 2m), CancellationToken.None);
+            }
+            if (verifyFirst)
+                await Assert.ThrowsAsync<CarbVerificationConflictException>(() => Meals(stale).UpdateMealItemAsync(mealId, itemId, new(Quantity: 2m), CancellationToken.None));
+            else
+                await Assert.ThrowsAsync<CarbVerificationConflictException>(() => Meals(stale).VerifyCarbsAsync(mealId, new(0), CancellationToken.None));
+            await using var check = database.Open();
+            var saved = await check.Meals.Include(m => m.Items).SingleAsync(m => m.Id == mealId);
+            Assert.Equal(verifyFirst ? 1m : 2m, saved.Items.Single().Quantity);
+            Assert.Equal(verifyFirst, saved.CarbsVerifiedAt.HasValue);
+            Assert.Equal(1, saved.CarbRevision);
+        }
+
+        MealService Meals(AppDbContext db) => new(db, TimeProvider.System, new MealCalculationService(db, new CurrentUser(seed.Owner)), new CurrentUser(seed.Owner));
+    }
+
+    [AssistantPostgresFact]
     public async Task Send_TwoServiceInstancesEditingSameVersion_OnlyOneMutationCommits()
     {
         await using var database = await TestDatabase.CreateAsync();

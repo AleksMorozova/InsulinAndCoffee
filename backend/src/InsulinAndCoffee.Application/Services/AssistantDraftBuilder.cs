@@ -16,6 +16,11 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
         var inputs = new List<MealItemInputDto>();
         foreach (var item in items)
         {
+            if (item.SourceMealItemId.HasValue || item.SourceDeliveryMealId.HasValue)
+            {
+                inputs.Add(ToInput(item));
+                continue;
+            }
             if (item.FoodItemId != Guid.Empty)
             {
                 inputs.Add(new MealItemInputDto(item.FoodItemId, item.Quantity, CarbOverride: item.CarbOverride));
@@ -29,10 +34,11 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
             if (order is null || order.Carbs != item.CarbsPerUnit || item.Quantity != 1m ||
                 item.FoodName != $"{order.PlaceName} · {order.DishName}")
                 throw new ValidationException("The saved order changed or was deleted. Refresh your draft.");
-            inputs.Add(ToInput(item));
+            inputs.Add(ToInput(item) with { SourceDeliveryMealId = order.Id });
         }
         var current = await calculation.CalculateItemsAsync(inputs, null, null, cancellationToken);
-        if (current.Where((item, index) => item != items[index]).Any())
+        if (current.Where((item, index) => (item with { Provenance = null, SourceMealItemId = null, SourceDeliveryMealId = null })
+            != (items[index] with { Provenance = null, SourceMealItemId = null, SourceDeliveryMealId = null })).Any())
             throw new ValidationException("Saved food values changed. Ask for an updated meal draft.");
         return current;
     }
@@ -112,8 +118,12 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                 (selected.MeasurementType == FoodMeasurementType.Piece && decimal.Truncate(quantity) != quantity) ||
                 (selected.FoodItemId == Guid.Empty && quantity != 1m))
                 return Feedback("That quantity is incompatible with the saved item.");
-            items[items.IndexOf(selected)] = (await calculation.CalculateItemsAsync(
+            var updated = (await calculation.CalculateItemsAsync(
                 [ToInput(selected) with { Quantity = quantity }], null, null, token))[0];
+            // A quantity operation transforms the trusted, persisted reference; it does not change its origin.
+            if (!selected.SourceMealItemId.HasValue && !selected.SourceDeliveryMealId.HasValue)
+                updated = updated with { Provenance = selected.Provenance };
+            items[items.IndexOf(selected)] = updated;
         }
         return Finish(current?.Issues ?? [], current?.Pending);
 
@@ -128,7 +138,8 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
 
     private static MealItemInputDto ToInput(CalculatedMealItemDto item) =>
         new(item.FoodItemId, item.Quantity, MeasurementType: item.MeasurementType, FoodNameSnapshot: item.FoodName,
-            CarbsPer100gSnapshot: item.CarbsPer100g, CarbsPerUnitSnapshot: item.CarbsPerUnit, CarbOverride: item.CarbOverride);
+            CarbsPer100gSnapshot: item.CarbsPer100g, CarbsPerUnitSnapshot: item.CarbsPerUnit, CarbOverride: item.CarbOverride,
+            SourceMealItemId: item.SourceMealItemId, SourceDeliveryMealId: item.SourceDeliveryMealId);
 
     public async Task<AssistantDraft?> BuildAsync(AssistantFoodQuery[] queries, CancellationToken cancellationToken)
     {
@@ -162,7 +173,7 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                 var order = orders[0];
                 var label = $"{order.PlaceName} · {order.DishName}";
                 inputs.Add(new MealItemInputDto(Guid.Empty, 1m, MeasurementType: FoodMeasurementType.Portion,
-                    FoodNameSnapshot: label, CarbsPerUnitSnapshot: order.Carbs));
+                    FoodNameSnapshot: label, CarbsPerUnitSnapshot: order.Carbs, SourceDeliveryMealId: order.Id));
                 sources.Add(new AssistantDraftSource(order.Id, "AskPastMe", label));
                 continue;
             }

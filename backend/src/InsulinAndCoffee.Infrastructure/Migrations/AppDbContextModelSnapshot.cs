@@ -128,6 +128,12 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<int>("CarbReferenceSource")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CarbTransformation")
+                        .HasColumnType("integer");
+
                     b.Property<decimal>("Carbs")
                         .HasPrecision(8, 2)
                         .HasColumnType("numeric(8,2)");
@@ -167,6 +173,9 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                     b.Property<int>("ResultRating")
                         .HasColumnType("integer");
 
+                    b.Property<DateTimeOffset?>("SourceMealVerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Tags")
                         .IsRequired()
                         .HasMaxLength(400)
@@ -196,6 +205,8 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         new
                         {
                             Id = new Guid("44444444-4444-4444-4444-444444444401"),
+                            CarbReferenceSource = 0,
+                            CarbTransformation = 0,
                             Carbs = 95m,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             DishName = "Philadelphia Set",
@@ -212,6 +223,8 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         new
                         {
                             Id = new Guid("44444444-4444-4444-4444-444444444402"),
+                            CarbReferenceSource = 0,
+                            CarbTransformation = 0,
                             Carbs = 67m,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             DishName = "Cottage Cheese Casserole",
@@ -228,6 +241,8 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         new
                         {
                             Id = new Guid("44444444-4444-4444-4444-444444444403"),
+                            CarbReferenceSource = 0,
+                            CarbTransformation = 0,
                             Carbs = 80m,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             DishName = "Shawarma",
@@ -301,6 +316,9 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         .HasPrecision(8, 2)
                         .HasColumnType("numeric(8,2)");
 
+                    b.Property<int>("CarbReferenceSource")
+                        .HasColumnType("integer");
+
                     b.Property<decimal?>("CarbsPer100g")
                         .HasPrecision(7, 2)
                         .HasColumnType("numeric(7,2)");
@@ -345,6 +363,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         {
                             Id = new Guid("33333333-3333-3333-3333-333333333301"),
                             CaloriesPer100g = 0m,
+                            CarbReferenceSource = 0,
                             CarbsPer100g = 25m,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FatPer100g = 0m,
@@ -358,6 +377,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         {
                             Id = new Guid("33333333-3333-3333-3333-333333333302"),
                             CaloriesPer100g = 0m,
+                            CarbReferenceSource = 0,
                             CarbsPer100g = 28m,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FatPer100g = 0m,
@@ -371,6 +391,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         {
                             Id = new Guid("33333333-3333-3333-3333-333333333303"),
                             CaloriesPer100g = 0m,
+                            CarbReferenceSource = 0,
                             CarbsPer100g = 45m,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FatPer100g = 0m,
@@ -384,6 +405,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         {
                             Id = new Guid("33333333-3333-3333-3333-333333333304"),
                             CaloriesPer100g = 0m,
+                            CarbReferenceSource = 0,
                             CarbsPer100g = 1m,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FatPer100g = 0m,
@@ -397,6 +419,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         {
                             Id = new Guid("33333333-3333-3333-3333-333333333305"),
                             CaloriesPer100g = 0m,
+                            CarbReferenceSource = 0,
                             CarbsPer100g = 27m,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FatPer100g = 0m,
@@ -410,6 +433,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         {
                             Id = new Guid("33333333-3333-3333-3333-333333333306"),
                             CaloriesPer100g = 0m,
+                            CarbReferenceSource = 0,
                             CarbsPer100g = 6m,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FatPer100g = 0m,
@@ -423,6 +447,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         {
                             Id = new Guid("33333333-3333-3333-3333-333333333307"),
                             CaloriesPer100g = 0m,
+                            CarbReferenceSource = 0,
                             CarbsPer100g = 8m,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FatPer100g = 0m,
@@ -436,6 +461,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         {
                             Id = new Guid("33333333-3333-3333-3333-333333333308"),
                             CaloriesPer100g = 0m,
+                            CarbReferenceSource = 0,
                             CarbsPer100g = 5m,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FatPer100g = 0m,
@@ -449,6 +475,7 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         {
                             Id = new Guid("33333333-3333-3333-3333-333333333309"),
                             CaloriesPer100g = 0m,
+                            CarbReferenceSource = 0,
                             CarbsPer100g = 55m,
                             CreatedAt = new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Unspecified), new TimeSpan(0, 0, 0, 0, 0)),
                             FatPer100g = 0m,
@@ -548,6 +575,15 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         .HasPrecision(8, 2)
                         .HasColumnType("numeric(8,2)");
 
+                    b.Property<long>("CarbRevision")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<DateTimeOffset?>("CarbsVerifiedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<decimal?>("ConfirmedBolus")
                         .HasPrecision(6, 2)
                         .HasColumnType("numeric(6,2)");
@@ -601,6 +637,12 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         .HasPrecision(8, 2)
                         .HasColumnType("numeric(8,2)");
 
+                    b.Property<int>("CarbReferenceSource")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("CarbTransformation")
+                        .HasColumnType("integer");
+
                     b.Property<decimal?>("CarbsPer100gSnapshot")
                         .HasPrecision(7, 2)
                         .HasColumnType("numeric(7,2)");
@@ -626,6 +668,9 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                     b.Property<decimal>("Quantity")
                         .HasPrecision(8, 2)
                         .HasColumnType("numeric(8,2)");
+
+                    b.Property<DateTimeOffset?>("SourceMealVerifiedAt")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<decimal?>("WeightGrams")
                         .HasPrecision(8, 2)

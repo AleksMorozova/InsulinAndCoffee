@@ -15,6 +15,7 @@ public class FoodItem
     public decimal CaloriesPer100g { get; set; }
     public bool IsFavorite { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public CarbReferenceSource CarbReferenceSource { get; set; }
 
     public User? User { get; set; }
     public ICollection<MealItem> MealItems { get; set; } = [];

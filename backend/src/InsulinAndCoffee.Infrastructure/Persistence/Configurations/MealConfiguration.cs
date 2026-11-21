@@ -9,6 +9,7 @@ public class MealConfiguration : IEntityTypeConfiguration<Meal>
     public void Configure(EntityTypeBuilder<Meal> entity)
     {
         entity.HasKey(m => m.Id);
+        entity.Property(m => m.CarbRevision).IsConcurrencyToken().HasDefaultValue(0L);
         entity.HasIndex(m => new { m.UserId, m.MealTime });
         entity.Property(m => m.PreMealGlucose).HasPrecision(6, 2);
         entity.Property(m => m.TotalCarbs).HasPrecision(8, 2);

@@ -6,6 +6,16 @@ import { ApiService } from './api.service';
 import { environment } from '../../environments/environment';
 
 describe('ApiService assistant candidate selection', () => {
+  it('requests carb verification using only the expected server revision', () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    const http = TestBed.inject(HttpTestingController);
+    TestBed.inject(ApiService).verifyMealCarbs('meal-id', 3).subscribe();
+    const request = http.expectOne(environment.apiUrl + '/meals/meal-id/carb-verification');
+    expect(request.request.method).toBe('POST');
+    expect(request.request.body).toEqual({ expectedCarbRevision: 3 });
+    request.flush({});
+    http.verify();
+  });
   it('sends the expected draft version as part of the retry envelope', () => {
     TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
     const http = TestBed.inject(HttpTestingController);

@@ -14,6 +14,12 @@ public class GlobalExceptionHandler(
     {
         var problemDetails = exception switch
         {
+            CarbVerificationConflictException ex => new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Carb snapshot changed",
+                Detail = ex.Message
+            },
             AssistantConflictException ex => new ProblemDetails
             {
                 Status = StatusCodes.Status409Conflict,
@@ -78,6 +84,7 @@ public class GlobalExceptionHandler(
 
         if (exception is MealAssistantUnavailableException assistantError)
             problemDetails.Extensions["code"] = assistantError.Code;
+        if (exception is CarbVerificationConflictException) problemDetails.Extensions["code"] = "carb_snapshot_changed";
         if (exception is AssistantConflictException conflict)
         {
             problemDetails.Extensions["code"] = conflict.Code;

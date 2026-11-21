@@ -15,6 +15,9 @@ public class MealItem
     public decimal? CarbsPerUnitSnapshot { get; set; }
     public decimal CalculatedCarbs { get; set; }
     public decimal? CarbOverride { get; set; }
+    public CarbReferenceSource CarbReferenceSource { get; set; }
+    public CarbTransformation CarbTransformation { get; set; }
+    public DateTimeOffset? SourceMealVerifiedAt { get; set; }
 
     public Meal? Meal { get; set; }
     public FoodItem? FoodItem { get; set; }

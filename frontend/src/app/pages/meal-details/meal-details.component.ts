@@ -2,7 +2,8 @@ import { AsyncPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { Component, Input, OnInit } from '@angular/core';
 import { FormArray, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { BehaviorSubject, catchError, combineLatest, distinctUntilChanged, map, of, startWith, switchMap } from 'rxjs';
+import { BehaviorSubject, catchError, combineLatest, distinctUntilChanged, finalize, map, of, startWith, switchMap } from 'rxjs';
+import { CarbProvenanceComponent } from '../../shared/carb-provenance.component';
 import { ApiError } from '../../core/api-error';
 import { toApiError } from '../../core/api-error.mapper';
 import { ApiService } from '../../core/api.service';
@@ -19,7 +20,7 @@ type MealDetailsState =
 @Component({
   selector: 'app-meal-details',
   standalone: true,
-  imports: [AsyncPipe, DatePipe, DecimalPipe, ReactiveFormsModule, RouterLink, LoadingStateComponent, PageErrorComponent],
+  imports: [AsyncPipe, DatePipe, DecimalPipe, ReactiveFormsModule, RouterLink, LoadingStateComponent, PageErrorComponent, CarbProvenanceComponent],
   template: `
     @if (state$ | async; as state) {
       @if (state.kind === 'loading') {
@@ -62,6 +63,17 @@ type MealDetailsState =
             </span>
           </div>
         </section>
+
+        <div class="carb-review" role="group" aria-label="Carbohydrate verification">
+          <div><strong>Carbohydrate review</strong><app-carb-provenance [provenance]="state.meal.provenance" /></div>
+          @if (state.meal.carbsVerifiedAt) {
+            <span>Verified by you · {{ state.meal.carbsVerifiedAt | date:'short' }}</span>
+          } @else {
+            <button type="button" [disabled]="verifyingCarbs" (click)="verifyCarbs(state.meal)">Verify these meal carbs</button>
+          }
+          <small>Review foods, portions, overrides and the meal adjustment. This does not confirm insulin.</small>
+          @if (carbVerificationError) { <p role="alert">{{ carbVerificationError }}</p> }
+        </div>
 
         <section class="meal-action-panel" [class.done]="state.meal.confirmedBolus !== null" id="confirm-insulin">
           <div class="meal-action-kicker">
@@ -160,6 +172,7 @@ type MealDetailsState =
                     <td class="meal-num">{{ carbBasis(item) }}</td>
                     <td class="meal-num">
                       {{ item.effectiveCarbs | number:'1.0-1' }} g
+                      <app-carb-provenance [provenance]="item.provenance" [overridden]="item.carbOverride !== null" />
                       @if (item.carbOverride !== null) {
                         <small class="meal-carb-adjustment-note">Adjusted from {{ item.calculatedCarbs | number:'1.0-1' }} g</small>
                       }
@@ -361,6 +374,22 @@ export class MealDetailsComponent implements OnInit {
     this.api.confirmMealBolus(mealId, { confirmedBolus }).subscribe(() => {
       this.confirmMessage = 'Confirmed';
       this.refresh$.next(this.refresh$.value + 1);
+    });
+  }
+
+  verifyingCarbs = false;
+  carbVerificationError = '';
+
+  verifyCarbs(meal: MealDetail) {
+    if (this.verifyingCarbs) return;
+    this.verifyingCarbs = true;
+    this.carbVerificationError = '';
+    this.api.verifyMealCarbs(meal.id, meal.carbRevision ?? 0).pipe(finalize(() => this.verifyingCarbs = false)).subscribe({
+      next: () => this.refresh$.next(this.refresh$.value + 1),
+      error: error => {
+        this.carbVerificationError = this.getMealActionError(error, 'Could not verify this carb snapshot.');
+        if (toApiError(error).status === 409) this.refresh$.next(this.refresh$.value + 1);
+      }
     });
   }
 

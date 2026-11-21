@@ -57,10 +57,12 @@ public class FoodKnowledgeSearchService(IAppDbContext db, ICurrentUser currentUs
             {
                 if (string.IsNullOrWhiteSpace(food.Restaurant))
                     saved.AddRange(await FindFoods(db.FoodItems.AsNoTracking().Where(item => item.UserId == owner), name, true)
-                        .Take(8).Select(item => new AssistantSavedFood(item.Id, item.Name, item.MeasurementType, item.CarbsPer100g, item.CarbsPerUnit))
+                        .Take(8).Select(item => new AssistantSavedFood(item.Id, item.Name, item.MeasurementType, item.CarbsPer100g, item.CarbsPerUnit,
+                            new(item.CarbReferenceSource, InsulinAndCoffee.Domain.Enums.CarbTransformation.None, null)))
                         .ToListAsync(cancellationToken));
                 orders.AddRange(await FindOrders(db.DeliveryMeals.AsNoTracking().Where(item => item.UserId == owner), food with { Name = name }, true)
-                    .Take(8).Select(item => new AssistantOrder(item.Id, item.PlaceName, item.DishName, item.PortionDescription, item.Carbs, item.LastUsedAt))
+                    .Take(8).Select(item => new AssistantOrder(item.Id, item.PlaceName, item.DishName, item.PortionDescription, item.Carbs, item.LastUsedAt,
+                        new(item.CarbReferenceSource, item.CarbTransformation, item.SourceMealVerifiedAt)))
                     .ToListAsync(cancellationToken));
             }
         }

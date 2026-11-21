@@ -19,6 +19,9 @@ public class DeliveryMeal
     public int UsageCount { get; set; }
     public DateTimeOffset? LastUsedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public CarbReferenceSource CarbReferenceSource { get; set; }
+    public CarbTransformation CarbTransformation { get; set; }
+    public DateTimeOffset? SourceMealVerifiedAt { get; set; }
 
     public User? User { get; set; }
 }

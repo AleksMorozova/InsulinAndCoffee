@@ -7,13 +7,14 @@ import { assistantFoodName } from '../../core/meal-assistant.models';
 import { getApiErrorMessage } from '../../core/api-error';
 import { AuthService } from '../../core/auth.service';
 import { ApiService } from '../../core/api.service';
-import { FoodItem, FoodMeasurementType, MealCalculation, MealCarbPreview, MealItemInput, mealTypes } from '../../core/models';
+import { FoodItem, FoodMeasurementType, MealCalculation, MealCarbPreview, MealDetail, MealItemInput, mealTypes } from '../../core/models';
+import { CarbProvenanceComponent } from '../../shared/carb-provenance.component';
 import { DisclaimerComponent } from '../../shared/disclaimer.component';
 
 @Component({
   selector: 'app-calculator',
   standalone: true,
-  imports: [ReactiveFormsModule, DecimalPipe, DisclaimerComponent],
+  imports: [ReactiveFormsModule, DecimalPipe, DisclaimerComponent, CarbProvenanceComponent],
   template: `
     <section class="page-title">
       <div>
@@ -58,6 +59,7 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
               <div>
                 <strong>{{ directCarbs | number:'1.0-1' }}g</strong>
                 <span>Recorded carbs</span>
+                <app-carb-provenance [provenance]="calculation?.items?.[0]?.provenance" />
               </div>
               <div>
                 <strong>
@@ -162,6 +164,7 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
                   </div>
                   <div class="meal-item-carbs" aria-label="Calculated carbs">
                     <strong>@if (itemCalculatedCarbs(i); as carbs) { {{ carbs | number:'1.0-2' }} g } @else if (itemCalculatedCarbs(i) === 0) { 0 g } @else { — }</strong>
+                    @if (itemCalculatedCarbs(i) !== null) { <app-carb-provenance [provenance]="(calculation ?? carbPreview)?.items?.[i]?.provenance" [overridden]="hasItemOverride(i)" /> }
                   </div>
                   <div class="item-carb-override">
                     <div class="override-input-wrap">
@@ -315,6 +318,7 @@ export class CalculatorComponent implements OnInit {
   directMode = false;
   directCarbs?: number;
   directFoodName = '';
+  private sourceDeliveryMealId?: string;
   showCreateFood = false;
   newFoodTargetIndex = 0;
   foodQueries: string[] = [''];
@@ -347,7 +351,8 @@ export class CalculatorComponent implements OnInit {
         foodNameSnapshot: this.fb.control<string | null>(null),
         carbsPer100gSnapshot: this.fb.control<number | null>(null),
         carbsPerUnitSnapshot: this.fb.control<number | null>(null),
-        carbOverride: this.fb.control<number | null>(null, [Validators.min(0)])
+        carbOverride: this.fb.control<number | null>(null, [Validators.min(0)]),
+        sourceMealItemId: this.fb.control<string | null>(null), sourceDeliveryMealId: this.fb.control<string | null>(null)
       })
     ])
   });
@@ -364,11 +369,12 @@ export class CalculatorComponent implements OnInit {
       this.syncFoodQueries();
     });
     this.form.valueChanges.subscribe(() => this.calculate());
-    const previousMeal = history.state?.meal;
+    const previousMeal: MealDetail | undefined = history.state?.meal;
     const deliveryMeal = history.state?.deliveryMeal;
     if (deliveryMeal) {
       this.directMode = true;
       this.directCarbs = deliveryMeal.carbs;
+      this.sourceDeliveryMealId = deliveryMeal.id;
       this.directFoodName = `${deliveryMeal.placeName} - ${deliveryMeal.dishName}`;
       this.items.clear({ emitEvent: false });
       this.form.patchValue({
@@ -377,7 +383,8 @@ export class CalculatorComponent implements OnInit {
       }, { emitEvent: false });
       this.initializeRepeatGlucose();
     }
-    const assistantItems: MealItemInput[] | undefined = history.state?.assistantMealItems ?? previousMeal?.items;
+    const assistantItems: MealItemInput[] | undefined = history.state?.assistantMealItems
+      ?? previousMeal?.items.map(item => ({ ...item, sourceMealItemId: item.id }));
     if (assistantItems?.length) {
       this.assistantDraft = true;
       this.initializeRepeatGlucose();
@@ -394,7 +401,8 @@ export class CalculatorComponent implements OnInit {
           foodNameSnapshot: this.fb.control<string | null>(item.foodNameSnapshot ?? null),
           carbsPer100gSnapshot: this.fb.control<number | null>(item.carbsPer100gSnapshot ?? null),
           carbsPerUnitSnapshot: this.fb.control<number | null>(item.carbsPerUnitSnapshot ?? null),
-          carbOverride: this.fb.control<number | null>(item.carbOverride ?? null, [Validators.min(0)])
+          carbOverride: this.fb.control<number | null>(item.carbOverride ?? null, [Validators.min(0)]),
+          sourceMealItemId: this.fb.control<string | null>(item.sourceMealItemId ?? null), sourceDeliveryMealId: this.fb.control<string | null>(item.sourceDeliveryMealId ?? null)
         }), { emitEvent: false });
         this.applyItemQuantityValidators(this.items.length - 1, item.measurementType ?? 'Grams');
       }
@@ -413,6 +421,7 @@ export class CalculatorComponent implements OnInit {
   addItem() {
     this.directMode = false;
     this.directCarbs = undefined;
+    this.sourceDeliveryMealId = undefined;
     this.directFoodName = '';
     this.items.push(this.fb.group({
       foodItemId: this.fb.nonNullable.control('', Validators.required),
@@ -421,12 +430,14 @@ export class CalculatorComponent implements OnInit {
       foodNameSnapshot: this.fb.control<string | null>(null),
       carbsPer100gSnapshot: this.fb.control<number | null>(null),
       carbsPerUnitSnapshot: this.fb.control<number | null>(null),
-      carbOverride: this.fb.control<number | null>(null, [Validators.min(0)])
+      carbOverride: this.fb.control<number | null>(null, [Validators.min(0)]),
+      sourceMealItemId: this.fb.control<string | null>(null), sourceDeliveryMealId: this.fb.control<string | null>(null)
     }));
     this.foodQueries.push('');
   }
 
   clearDirectMeal() {
+    this.sourceDeliveryMealId = undefined;
     this.directMode = false;
     this.directCarbs = undefined;
     this.directFoodName = '';
@@ -534,7 +545,8 @@ export class CalculatorComponent implements OnInit {
       foodNameSnapshot: null,
       carbsPer100gSnapshot: null,
       carbsPerUnitSnapshot: null,
-      carbOverride: null
+      carbOverride: null,
+      sourceMealItemId: null, sourceDeliveryMealId: null
     });
     this.applyItemQuantityValidators(index, food?.measurementType ?? 'Grams');
   }
@@ -630,8 +642,7 @@ export class CalculatorComponent implements OnInit {
   }
 
   calculate() {
-    const validItems = this.items.controls
-      .map((control) => control.getRawValue())
+    const validItems = this.mealInputs()
       .filter((item) => item.foodItemId.trim().length > 0 && item.quantity > 0);
 
     if (!this.directMode && (validItems.length === 0 || (this.assistantDraft && this.items.invalid))) {
@@ -662,6 +673,7 @@ export class CalculatorComponent implements OnInit {
       items: this.directMode ? [] : validItems,
       directCarbs: this.directMode ? this.directCarbs : undefined,
       directFoodName: this.directMode ? this.directFoodName : undefined,
+      ...(this.directMode && this.sourceDeliveryMealId ? { sourceDeliveryMealId: this.sourceDeliveryMealId } : {}),
       carbAdjustment: this.form.controls.carbAdjustment.value ?? 0
     };
 
@@ -710,14 +722,16 @@ export class CalculatorComponent implements OnInit {
       preMealGlucose,
       confirmedBolus: value.confirmedBolus ?? null,
       notes: value.notes ?? '',
-      items: this.directMode ? [] : value.items,
+      items: this.directMode ? [] : this.mealInputs(),
       directCarbs: this.directMode ? this.directCarbs : undefined,
       directFoodName: this.directMode ? this.directFoodName : undefined,
+      ...(this.directMode && this.sourceDeliveryMealId ? { sourceDeliveryMealId: this.sourceDeliveryMealId } : {}),
       carbAdjustment: this.form.controls.carbAdjustment.value ?? 0
     };
   }
 
   private resetMealBuilder() {
+    this.sourceDeliveryMealId = undefined;
     this.assistantDraft = false;
     this.historicalRepeat = false;
     this.glucoseIsDefault = false;
@@ -736,7 +750,8 @@ export class CalculatorComponent implements OnInit {
       foodNameSnapshot: this.fb.control<string | null>(null),
       carbsPer100gSnapshot: this.fb.control<number | null>(null),
       carbsPerUnitSnapshot: this.fb.control<number | null>(null),
-      carbOverride: this.fb.control<number | null>(null, [Validators.min(0)])
+      carbOverride: this.fb.control<number | null>(null, [Validators.min(0)]),
+      sourceMealItemId: this.fb.control<string | null>(null), sourceDeliveryMealId: this.fb.control<string | null>(null)
     }));
     this.form.reset({
       mealType: this.form.controls.mealType.value,
@@ -755,6 +770,14 @@ export class CalculatorComponent implements OnInit {
 
   private syncFoodQueries() {
     this.foodQueries = this.items.controls.map((_, index) => this.itemName(index, ''));
+  }
+
+  private mealInputs(): MealItemInput[] {
+    return this.form.getRawValue().items.map(item => {
+      if (this.assistantDraft && !this.historicalRepeat && !item.sourceMealItemId && !item.sourceDeliveryMealId)
+        return { foodItemId: item.foodItemId, quantity: item.quantity, carbOverride: item.carbOverride };
+      return { ...item, ...(item.sourceMealItemId ? { clearCarbOverride: item.carbOverride === null } : {}) };
+    });
   }
 
   selectedFood(index: number) {

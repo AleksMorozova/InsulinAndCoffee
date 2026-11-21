@@ -3,12 +3,13 @@ import { Component, OnInit } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ApiService, UpsertDeliveryMealRequest } from '../../core/api.service';
+import { CarbProvenanceComponent } from '../../shared/carb-provenance.component';
 import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/models';
 
 @Component({
   selector: 'app-delivery-meals',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, NgTemplateOutlet, ReactiveFormsModule],
+  imports: [DatePipe, DecimalPipe, NgTemplateOutlet, ReactiveFormsModule, CarbProvenanceComponent],
   template: `
     <section class="memory-hero">
       <div class="memory-hero-copy">
@@ -123,6 +124,7 @@ import { DeliveryMeal, DeliveryMealSections, resultRatings } from '../../core/mo
 
         <p class="quick-meal-metrics">
           <strong>{{ meal.carbs | number:'1.0-1' }}g</strong> carbs
+          <app-carb-provenance [provenance]="meal.provenance" />
           <span>{{ meal.usualInsulinUnits === null ? 'Insulin unrecorded' : (meal.usualInsulinUnits | number:'1.0-2') + ' U recorded' }}</span>
         </p>
 

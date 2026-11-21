@@ -19,6 +19,7 @@ export interface UpsertFoodRequest {
 }
 
 export interface CalculateMealRequest {
+  sourceDeliveryMealId?: string;
   mealType: MealType;
   preMealGlucose: number;
   items: MealItemInput[];
@@ -143,6 +144,10 @@ export class ApiService {
 
   createMeal(request: CreateMealRequest) {
     return this.http.post<MealDetail>(`${this.apiUrl}/meals`, request);
+  }
+
+  verifyMealCarbs(id: string, expectedCarbRevision: number) {
+    return this.http.post<MealDetail>(`${this.apiUrl}/meals/${id}/carb-verification`, { expectedCarbRevision });
   }
 
   confirmMealBolus(id: string, request: ConfirmMealBolusRequest) {

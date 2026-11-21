@@ -15,6 +15,8 @@ public class Meal
     public decimal? ConfirmedBolus { get; set; }
     public string? Notes { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? CarbsVerifiedAt { get; set; }
+    public long CarbRevision { get; set; }
 
     public User? User { get; set; }
     public ICollection<MealItem> Items { get; set; } = [];

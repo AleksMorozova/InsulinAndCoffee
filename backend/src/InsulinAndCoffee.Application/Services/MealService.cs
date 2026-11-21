@@ -49,7 +49,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
             throw new ValidationException("Confirmed bolus cannot be negative.");
         }
 
-        var calculation = await CalculateMealAsync(new CalculateMealRequest(request.MealType, request.PreMealGlucose, request.Items, request.DirectCarbs, request.DirectFoodName, request.CarbAdjustment), cancellationToken);
+        var calculation = await CalculateMealAsync(new CalculateMealRequest(request.MealType, request.PreMealGlucose, request.Items, request.DirectCarbs, request.DirectFoodName, request.CarbAdjustment, request.SourceDeliveryMealId), cancellationToken);
         var now = timeProvider.GetUtcNow();
         var mealTime = request.MealTime ?? now;
         var meal = new Meal
@@ -76,7 +76,10 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
                 CarbsPer100gSnapshot = item.CarbsPer100g,
                 CarbsPerUnitSnapshot = item.CarbsPerUnit,
                 CalculatedCarbs = item.CalculatedCarbs,
-                CarbOverride = item.CarbOverride
+                CarbOverride = item.CarbOverride,
+                CarbReferenceSource = item.Provenance?.ReferenceSource ?? CarbReferenceSource.Unknown,
+                CarbTransformation = item.Provenance?.Transformation ?? CarbTransformation.None,
+                SourceMealVerifiedAt = item.Provenance?.SourceMealVerifiedAt
             }).ToList(),
             GlucoseReadings =
             [
@@ -93,7 +96,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
         };
 
         db.Meals.Add(meal);
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveMealAsync(cancellationToken);
         return ToDetail(meal);
     }
 
@@ -134,7 +137,10 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
                 CarbsPer100gSnapshot = item.CarbsPer100g,
                 CarbsPerUnitSnapshot = item.CarbsPerUnit,
                 CalculatedCarbs = item.CalculatedCarbs,
-                CarbOverride = item.CarbOverride
+                CarbOverride = item.CarbOverride,
+                CarbReferenceSource = item.Provenance?.ReferenceSource ?? CarbReferenceSource.Unknown,
+                CarbTransformation = item.Provenance?.Transformation ?? CarbTransformation.None,
+                SourceMealVerifiedAt = item.Provenance?.SourceMealVerifiedAt
             })
             .ToList();
 
@@ -142,7 +148,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
 
         await RecalculateMealTotalsAsync(meal, existingCarbs + newItems.Sum(EffectiveCarbs), cancellationToken);
 
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveMealAsync(cancellationToken);
         return await GetMealAsync(id, cancellationToken);
     }
 
@@ -163,6 +169,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
             throw new ValidationException("Piece quantity must be a whole number.");
         }
 
+        var carbsChanged = item.Quantity != quantity || item.CarbOverride != request.CarbOverride;
         item.Quantity = quantity;
         item.WeightGrams = item.MeasurementType == FoodMeasurementType.Grams ? quantity : null;
         if (request.CarbOverride is < 0)
@@ -173,9 +180,9 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
         item.CalculatedCarbs = FoodCarbCalculator.Calculate(item.MeasurementType, item.Quantity, item.CarbsPer100gSnapshot, item.CarbsPerUnitSnapshot);
         item.CarbOverride = request.CarbOverride;
 
-        await RecalculateMealTotalsAsync(meal, meal.Items.Sum(EffectiveCarbs), cancellationToken);
+        await RecalculateMealTotalsAsync(meal, meal.Items.Sum(EffectiveCarbs), cancellationToken, carbsChanged);
 
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveMealAsync(cancellationToken);
         return await GetMealAsync(mealId, cancellationToken);
     }
 
@@ -193,7 +200,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
         db.MealItems.Remove(item);
         await RecalculateMealTotalsAsync(meal, meal.Items.Where(i => i.Id != itemId).Sum(EffectiveCarbs), cancellationToken);
 
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveMealAsync(cancellationToken);
         return await GetMealAsync(mealId, cancellationToken);
     }
 
@@ -245,7 +252,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
             ?? throw new NotFoundException("Meal", id);
 
         meal.ConfirmedBolus = request.ConfirmedBolus;
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveMealAsync(cancellationToken);
         return ToDetail(meal);
     }
 
@@ -257,7 +264,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
             ?? throw new NotFoundException("Meal", id);
 
         meal.ConfirmedBolus = null;
-        await db.SaveChangesAsync(cancellationToken);
+        await SaveMealAsync(cancellationToken);
         return ToDetail(meal);
     }
 
@@ -276,12 +283,39 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
         return meal;
     }
 
-    private async Task RecalculateMealTotalsAsync(Meal meal, decimal foodCarbs, CancellationToken cancellationToken)
+    public async Task<MealDetailDto> VerifyCarbsAsync(Guid id, VerifyMealCarbsRequest request, CancellationToken cancellationToken)
+    {
+        if (request.ExpectedCarbRevision < 0) throw new ValidationException("A non-negative carb snapshot revision is required.");
+        var meal = await db.Meals.Include(item => item.Items).SingleOrDefaultAsync(item => item.Id == id && item.UserId == UserId, cancellationToken)
+            ?? throw new NotFoundException("Meal", id);
+        if (meal.CarbRevision != request.ExpectedCarbRevision) throw new CarbVerificationConflictException();
+        meal.CarbsVerifiedAt = timeProvider.GetUtcNow();
+        meal.CarbRevision = checked(meal.CarbRevision + 1);
+        await SaveMealAsync(cancellationToken);
+        return ToDetail(meal);
+    }
+
+    private async Task SaveMealAsync(CancellationToken token)
+    {
+        try { await db.SaveChangesAsync(token); }
+        catch (DbUpdateConcurrencyException)
+        {
+            db.DiscardChanges();
+            throw new CarbVerificationConflictException();
+        }
+    }
+
+    private async Task RecalculateMealTotalsAsync(Meal meal, decimal foodCarbs, CancellationToken cancellationToken, bool carbsChanged = true)
     {
         var totals = await mealCalculationService.CalculateTotalsAsync(foodCarbs, meal.CarbAdjustment, meal.PreMealGlucose, cancellationToken);
         meal.TotalCarbs = totals.TotalCarbs;
         meal.SuggestedBolus = totals.SuggestedBolus;
         meal.ConfirmedBolus = null;
+        if (carbsChanged)
+        {
+            meal.CarbsVerifiedAt = null;
+            meal.CarbRevision = checked(meal.CarbRevision + 1);
+        }
     }
 
     private static string EscapeLikePattern(string value) =>
@@ -306,7 +340,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
                 i.CarbsPerUnitSnapshot,
                 i.CalculatedCarbs,
                 i.CarbOverride,
-                EffectiveCarbs(i))).ToList());
+                EffectiveCarbs(i), CarbProvenance.Of(i))).ToList(), CarbProvenance.Of(meal), meal.CarbsVerifiedAt, meal.CarbRevision);
 
     private static decimal EffectiveCarbs(MealItem item) =>
         item.CarbOverride ?? item.CalculatedCarbs;

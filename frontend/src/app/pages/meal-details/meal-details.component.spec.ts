@@ -26,6 +26,7 @@ describe('MealDetailsComponent', () => {
     api = jasmine.createSpyObj<ApiService>('ApiService', [
       'getMeal',
       'getFoods',
+      'verifyMealCarbs',
       'confirmMealBolus',
       'addMealItems',
       'updateMealItem',
@@ -52,6 +53,24 @@ describe('MealDetailsComponent', () => {
 
     expect(fixture.nativeElement.textContent).toContain('Loading meal details...');
     expect(api.getMeal).toHaveBeenCalledTimes(1);
+  });
+
+  it('verifies only through the explicit carb action and refreshes the server snapshot', () => {
+    const meal = { ...createMeal(), carbRevision: 4 };
+    api.getMeal.and.returnValues(of(meal), of({ ...meal, carbRevision: 5, carbsVerifiedAt: '2026-11-21T10:00:00Z' }));
+    api.verifyMealCarbs.and.returnValue(of({ ...meal, carbRevision: 5, carbsVerifiedAt: '2026-11-21T10:00:00Z' }));
+    fixture = TestBed.createComponent(MealDetailsComponent);
+    fixture.detectChanges();
+    expect(api.verifyMealCarbs).not.toHaveBeenCalled();
+    const button = Array.from(fixture.nativeElement.querySelectorAll('button') as NodeListOf<HTMLButtonElement>)
+      .find(element => element.textContent?.includes('Verify these meal carbs'));
+    expect(button).toBeDefined();
+    button?.click();
+    fixture.detectChanges();
+    expect(api.verifyMealCarbs).toHaveBeenCalledOnceWith(meal.id, 4);
+    expect(api.confirmMealBolus).not.toHaveBeenCalled();
+    expect(fixture.nativeElement.textContent).toContain('Verified by you');
+    expect(fixture.nativeElement.textContent).not.toContain('Verify these meal carbs');
   });
 
   it('displays meal details after a successful response', () => {

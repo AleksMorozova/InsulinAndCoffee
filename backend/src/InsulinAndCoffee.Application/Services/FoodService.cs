@@ -66,7 +66,8 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider, ICurrentUs
             FatPer100g = request.FatPer100g,
             CaloriesPer100g = request.CaloriesPer100g,
             IsFavorite = request.IsFavorite,
-            CreatedAt = now
+            CreatedAt = now,
+            CarbReferenceSource = CarbReferenceSource.Manual
         };
 
         db.FoodItems.Add(food);
@@ -81,6 +82,9 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider, ICurrentUs
         var food = await db.FoodItems.FirstOrDefaultAsync(f => f.Id == id && f.UserId == UserId, cancellationToken)
             ?? throw new NotFoundException("Food item", id);
 
+        if (food.MeasurementType != request.MeasurementType || food.CarbsPer100g != (request.MeasurementType == FoodMeasurementType.Grams ? request.CarbsPer100g : null)
+            || food.CarbsPerUnit != (request.MeasurementType == FoodMeasurementType.Grams ? null : request.CarbsPerUnit))
+            food.CarbReferenceSource = CarbReferenceSource.Manual;
         food.Name = request.Name.Trim();
         food.MeasurementType = request.MeasurementType;
         food.CarbsPer100g = request.MeasurementType == FoodMeasurementType.Grams ? request.CarbsPer100g : null;
@@ -151,7 +155,8 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider, ICurrentUs
     }
 
     private static FoodItemDto ToDto(FoodItem food) =>
-        new(food.Id, food.Name, food.MeasurementType, food.CarbsPer100g, food.CarbsPerUnit, food.ProteinPer100g, food.FatPer100g, food.CaloriesPer100g, food.IsFavorite, food.CreatedAt);
+        new(food.Id, food.Name, food.MeasurementType, food.CarbsPer100g, food.CarbsPerUnit, food.ProteinPer100g, food.FatPer100g, food.CaloriesPer100g, food.IsFavorite, food.CreatedAt,
+            new(food.CarbReferenceSource, CarbTransformation.None));
 
     private static string MeasurementUnitName(FoodMeasurementType measurementType) =>
         measurementType == FoodMeasurementType.Piece ? "piece" : "portion";
