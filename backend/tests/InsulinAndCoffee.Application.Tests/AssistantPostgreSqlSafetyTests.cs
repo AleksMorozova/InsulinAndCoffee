@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
@@ -33,6 +35,86 @@ public class AssistantPostgresCollection;
 [Collection("Assistant PostgreSQL")]
 public class AssistantPostgreSqlSafetyTests
 {
+    [AssistantPostgresFact]
+    public async Task NewAccount_EmptyCollections_ReturnSuccessfulResponsesOnPostgreSql()
+    {
+        await using var database = await TestDatabase.CreateAsync();
+        await using var factory = new StartupFactory(database.ConnectionString);
+        using var client = factory.CreateClient();
+        var username = "empty-" + Guid.NewGuid().ToString("N")[..12];
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/auth/register", new { username, password = "empty-account-test" })).StatusCode);
+        var login = await client.PostAsJsonAsync("/api/auth/login", new { username, password = "empty-account-test" });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        using var auth = JsonDocument.Parse(await login.Content.ReadAsStringAsync());
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", auth.RootElement.GetProperty("accessToken").GetString());
+        foreach (var route in new[] { "/api/meals", "/api/meals?search=soup", "/api/meals?mealType=Lunch", "/api/meal-assistant/conversations", "/api/supplies" })
+        {
+            var response = await client.GetAsync(route);
+            Assert.True(response.IsSuccessStatusCode, $"{route}: {response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
+            using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(0, json.RootElement.GetArrayLength());
+        }
+        using var foods = JsonDocument.Parse(await client.GetStringAsync("/api/foods"));
+        Assert.Equal(0, foods.RootElement.GetProperty("totalCount").GetInt32());
+        using var orders = JsonDocument.Parse(await client.GetStringAsync("/api/delivery-meals"));
+        foreach (var section in new[] { "favorites", "mostUsed", "recentlyUsed", "searchResults" })
+            Assert.Equal(0, orders.RootElement.GetProperty(section).GetArrayLength());
+        using var dashboard = JsonDocument.Parse(await client.GetStringAsync("/api/dashboard/today"));
+        Assert.Equal(0, dashboard.RootElement.GetProperty("meals").GetArrayLength());
+        Assert.Equal(0m, dashboard.RootElement.GetProperty("totalCarbs").GetDecimal());
+        Assert.Equal(HttpStatusCode.OK, (await client.GetAsync("/api/settings")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await client.PostAsJsonAsync("/api/meals/calculate", new { mealType = "Lunch", preMealGlucose = 5.5m, directCarbs = 20m, items = Array.Empty<object>() })).StatusCode);
+        var owner = auth.RootElement.GetProperty("user").GetProperty("id").GetGuid();
+        await using var assistantDb = database.Open();
+        var recent = await Service(assistantDb, owner, new EmptyAccountModel(new([], "recent")))
+            .SendAsync(new(null, "What did I eat last time?", Guid.NewGuid()), CancellationToken.None);
+        Assert.Empty(recent.Meals);
+        Assert.Contains("couldn't find", recent.Message);
+        var lookup = await Service(assistantDb, owner, new EmptyAccountModel(new([new("Bread", null, null)], "lookup")))
+            .SendAsync(new(null, "Find bread", Guid.NewGuid()), CancellationToken.None);
+        Assert.Empty(lookup.Meals);
+        var draft = await Service(assistantDb, owner, new EmptyAccountModel(new([new("Bread", 100m, FoodMeasurementType.Grams)], "draft")))
+            .SendAsync(new(null, "Plan 100g bread", Guid.NewGuid()), CancellationToken.None);
+        Assert.Empty(Assert.IsType<AssistantDraft>(draft.Draft).Items);
+        Assert.NotEmpty(draft.Draft.Issues);
+        Assert.False(await assistantDb.Meals.AnyAsync(meal => meal.UserId == owner));
+        Assert.False(await assistantDb.FoodItems.AnyAsync(food => food.UserId == owner));
+        Assert.False(await assistantDb.DeliveryMeals.AnyAsync(order => order.UserId == owner));
+
+        // First saved food, first meal, and first reusable order need no pre-existing history.
+        var firstFood = await client.PostAsJsonAsync("/api/foods", new {
+            name = "Empty-account test food", measurementType = "Grams", carbsPer100g = 20m,
+            proteinPer100g = 0m, fatPer100g = 0m, caloriesPer100g = 0m, isFavorite = false });
+        Assert.Equal(HttpStatusCode.Created, firstFood.StatusCode);
+        using var foodJson = JsonDocument.Parse(await firstFood.Content.ReadAsStringAsync());
+        var foodId = foodJson.RootElement.GetProperty("id").GetGuid();
+        var firstMeal = await client.PostAsJsonAsync("/api/meals", new { mealType = "Lunch", preMealGlucose = 5.5m,
+            items = new[] { new { foodItemId = foodId, quantity = 100m } } });
+        Assert.Equal(HttpStatusCode.Created, firstMeal.StatusCode);
+        using var firstMealJson = JsonDocument.Parse(await firstMeal.Content.ReadAsStringAsync());
+        Assert.Equal(20m, firstMealJson.RootElement.GetProperty("totalCarbs").GetDecimal());
+        Assert.Equal(JsonValueKind.Null, firstMealJson.RootElement.GetProperty("confirmedBolus").ValueKind);
+        using var historyJson = JsonDocument.Parse(await client.GetStringAsync("/api/meals"));
+        Assert.Equal(1, historyJson.RootElement.GetArrayLength());
+        var firstOrder = await client.PostAsJsonAsync("/api/delivery-meals", new {
+            placeName = "Test cafe", dishName = "Test order", portionDescription = "One order", carbs = 30m,
+            usualInsulinUnits = (decimal?)null, resultRating = "Unknown", tags = "", isFavorite = false });
+        Assert.Equal(HttpStatusCode.Created, firstOrder.StatusCode);
+        using var orderJson = JsonDocument.Parse(await firstOrder.Content.ReadAsStringAsync());
+        var orderId = orderJson.RootElement.GetProperty("id").GetGuid();
+        var reuse = await client.PostAsync($"/api/delivery-meals/{orderId}/meal-draft", null);
+        Assert.Equal(HttpStatusCode.OK, reuse.StatusCode);
+        using var reuseJson = JsonDocument.Parse(await reuse.Content.ReadAsStringAsync());
+        Assert.Equal(30m, reuseJson.RootElement.GetProperty("carbs").GetDecimal());
+        // Reusing an order prepares a draft, never silently creates another historical meal.
+        Assert.Equal(1, await assistantDb.Meals.CountAsync(meal => meal.UserId == owner));
+    }
+
+    private sealed class EmptyAccountModel(AssistantSearch search) : ILlmClient
+    {
+        public Task<AssistantSearch> InterpretAsync(IReadOnlyList<AssistantContext> context, CancellationToken cancellationToken) => Task.FromResult(search);
+    }
+
     [AssistantPostgresFact]
     public async Task Settings_ConcurrentFirstRequests_ReturnSamePersistedDefaults()
     {

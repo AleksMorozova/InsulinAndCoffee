@@ -29,6 +29,19 @@ describe('MealAssistantComponent', () => {
     fixture = TestBed.createComponent(MealAssistantComponent);
   });
 
+  it('supports a first conversation with no meals, saved foods or orders', () => {
+    api.sendMealAssistantMessage.and.returnValue(of({ conversationId: 'first',
+      message: "I couldn't find matching meals in your saved history.", meals: [] }));
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('No saved conversations yet');
+    fixture.componentInstance.message = 'What did I eat last time?';
+    fixture.componentInstance.send();
+    fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain("couldn't find matching meals");
+    expect(fixture.componentInstance.error).toBe('');
+    expect(fixture.componentInstance.turns.length).toBe(1);
+  });
+
   it('selects a saved candidate by id and retries only that selection with the same request id', () => {
     const food = { id: 'chosen-food', name: 'Salad', unit: 'Portion' as const, carbsPer100g: null, carbsPerUnit: 20 };
     api.sendMealAssistantMessage.and.returnValue(throwError(() => new Error('Offline')));

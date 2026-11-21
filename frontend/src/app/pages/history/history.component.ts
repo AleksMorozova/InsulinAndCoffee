@@ -2,9 +2,12 @@ import { AsyncPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { Component } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
-import { debounceTime, startWith, switchMap } from 'rxjs';
+import { BehaviorSubject, catchError, combineLatest, debounceTime, map, of, startWith, switchMap } from 'rxjs';
 import { ApiService } from '../../core/api.service';
-import { mealTypes } from '../../core/models';
+import { MealSummary, mealTypes } from '../../core/models';
+import { getApiErrorMessage } from '../../core/api-error';
+
+interface HistoryState { loading: boolean; meals: MealSummary[]; error: string; }
 
 @Component({
   selector: 'app-history',
@@ -34,6 +37,19 @@ import { mealTypes } from '../../core/models';
     </section>
 
     <section class="card">
+      @if (state$ | async; as state) {
+      @if (state.loading) {
+        <p role="status">Loading meal history...</p>
+      } @else if (state.error) {
+        <p role="alert">{{ state.error }}</p>
+        <button type="button" (click)="retry()">Try again</button>
+      } @else if (!state.meals.length) {
+        <div class="empty-state">
+          <h2>{{ filters.value.search || filters.value.mealType ? 'No meals match these filters' : 'No meals yet' }}</h2>
+          <p>Your saved meals will appear here. You can start with an empty food library.</p>
+          <a routerLink="/calculator">Create your first meal</a>
+        </div>
+      } @else {
       <table class="table">
         <thead>
           <tr>
@@ -47,7 +63,7 @@ import { mealTypes } from '../../core/models';
           </tr>
         </thead>
         <tbody>
-          @for (meal of meals$ | async; track meal.id) {
+          @for (meal of state.meals; track meal.id) {
             <tr>
               <td>{{ meal.mealTime | date:'medium' }}</td>
               <td><span class="pill">{{ meal.mealType }}</span></td>
@@ -66,17 +82,26 @@ import { mealTypes } from '../../core/models';
           }
         </tbody>
       </table>
+      }
+      }
     </section>
   `
 })
 export class HistoryComponent {
   mealTypes = mealTypes;
   filters = this.fb.group({ search: [''], mealType: [''] });
-  meals$ = this.filters.valueChanges.pipe(
-    startWith(this.filters.value),
-    debounceTime(200),
-    switchMap((filters) => this.api.getMeals(filters.search ?? '', filters.mealType ?? ''))
+  private readonly refresh$ = new BehaviorSubject(0);
+  state$ = combineLatest([
+    this.filters.valueChanges.pipe(startWith(this.filters.value), debounceTime(200)), this.refresh$
+  ]).pipe(
+    switchMap(([filters]) => this.api.getMeals(filters.search ?? '', filters.mealType ?? '').pipe(
+      map((meals): HistoryState => ({ loading: false, meals, error: '' })),
+      startWith({ loading: true, meals: [], error: '' } satisfies HistoryState),
+      catchError(error => of({ loading: false, meals: [], error: getApiErrorMessage(error, 'Could not load meal history. Please try again.') } satisfies HistoryState))
+    ))
   );
+
+  retry() { this.refresh$.next(this.refresh$.value + 1); }
 
   constructor(private readonly fb: FormBuilder, private readonly api: ApiService) {}
 }

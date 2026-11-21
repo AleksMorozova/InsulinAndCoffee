@@ -23,6 +23,7 @@ import { DisclaimerComponent } from '../../shared/disclaimer.component';
       </div>
     </section>
     <app-disclaimer />
+    @if (foodLoadError) { <p role="alert">{{ foodLoadError }}</p><button type="button" (click)="loadFoods()">Retry food search</button> }
 
     <form [formGroup]="form" class="calculator-layout" (ngSubmit)="save()">
       <section class="meal-builder">
@@ -303,6 +304,7 @@ export class CalculatorComponent implements OnInit {
   mealTypes = mealTypes;
   measurementTypes: FoodMeasurementType[] = ['Grams', 'Portion', 'Piece'];
   foods: FoodItem[] = [];
+  foodLoadError = '';
   calculation?: MealCalculation;
   carbPreview?: MealCarbPreview;
   assistantDraft = false;
@@ -364,10 +366,7 @@ export class CalculatorComponent implements OnInit {
   constructor(private readonly fb: FormBuilder, private readonly api: ApiService, private readonly router: Router, private readonly auth?: AuthService) {}
 
   ngOnInit() {
-    this.api.getFoods().subscribe((foods) => {
-      this.foods = foods;
-      this.syncFoodQueries();
-    });
+    this.loadFoods();
     this.form.valueChanges.subscribe(() => this.calculate());
     const previousMeal: MealDetail | undefined = history.state?.meal;
     const deliveryMeal = history.state?.deliveryMeal;
@@ -770,6 +769,14 @@ export class CalculatorComponent implements OnInit {
 
   private syncFoodQueries() {
     this.foodQueries = this.items.controls.map((_, index) => this.itemName(index, ''));
+  }
+
+  loadFoods() {
+    this.foodLoadError = '';
+    this.api.getFoods().subscribe({
+      next: foods => { this.foods = foods; this.syncFoodQueries(); },
+      error: error => this.foodLoadError = getApiErrorMessage(error, 'Could not load foods. Please try again.')
+    });
   }
 
   private mealInputs(): MealItemInput[] {
