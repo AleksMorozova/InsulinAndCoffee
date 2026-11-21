@@ -4,6 +4,7 @@ import { of, throwError } from 'rxjs';
 import { ApiService } from '../../core/api.service';
 import { CalculatedMealItem, DeliveryMeal, DeliveryMealItem, DeliveryMealPreview } from '../../core/models';
 import { DeliveryMealsComponent } from './delivery-meals.component';
+import { inResponsiveFrame } from '../../testing/responsive-frame';
 
 describe('Structured Ask Past Me orders', () => {
   let fixture: ComponentFixture<DeliveryMealsComponent>;
@@ -30,17 +31,17 @@ describe('Structured Ask Past Me orders', () => {
     fixture = TestBed.createComponent(DeliveryMealsComponent); fixture.detectChanges();
   });
 
-  it('creates item rows, shows backend totals and saves structured data', fakeAsync(() => {
+  it('creates item rows, shows backend totals and saves without a portion note', fakeAsync(() => {
     const component = fixture.componentInstance;
     component.openCreate(); component.enableItems();
-    component.form.patchValue({ placeName: 'Le Grill', dishName: 'Sushi order', portionDescription: 'Five pieces' });
+    component.form.patchValue({ placeName: 'Le Grill', dishName: 'Sushi order', portionDescription: '   ' });
     component.editorItems.at(0).patchValue({ name: 'Sushi', quantity: 5, measurementType: 'Piece', carbsPerUnit: 15 });
     tick(151); fixture.detectChanges();
     expect(api.previewDeliveryMealItems).toHaveBeenCalled();
-    expect(fixture.nativeElement.textContent).toContain('Item total:');
+    expect(fixture.nativeElement.textContent).toContain('Total effective carbs');
     expect(component.form.controls.carbs.value).toBe(75);
     component.save();
-    expect(api.createDeliveryMeal).toHaveBeenCalledWith(jasmine.objectContaining({ carbs: 75,
+    expect(api.createDeliveryMeal).toHaveBeenCalledWith(jasmine.objectContaining({ carbs: 75, portionDescription: null,
       items: [jasmine.objectContaining({ name: 'Sushi', quantity: 5, measurementType: 'Piece', carbsPerUnit: 15 })] }));
     expect(component.isEditorOpen).toBeFalse();
   }));
@@ -115,4 +116,70 @@ describe('Structured Ask Past Me orders', () => {
       expect(editor.querySelectorAll('input').length).toBeGreaterThanOrEqual(4);
     }
   }));
+
+  it('keeps equal explicit overrides while avoiding duplicate calculated/effective summaries', () => {
+    api.previewDeliveryMealItems.and.returnValue(of({ ...preview, items: [{ ...calculated, carbOverride: 75 }] }));
+    const component = fixture.componentInstance;
+    component.openEdit({ ...order, items: [{ ...sushi, carbOverride: 75 }] }); fixture.detectChanges();
+    const summary: HTMLElement | null = fixture.nativeElement.querySelector('.order-item-result');
+    expect(summary?.textContent).toContain('75 g carbs');
+    expect(summary?.textContent).toContain('Saved override');
+    expect(summary?.textContent).not.toContain('Effective 75');
+    expect(component.editorItems.at(0).controls.carbOverride.value).toBe(75);
+    component.save();
+    expect(api.updateDeliveryMeal).toHaveBeenCalledWith('order', jasmine.objectContaining({ items: [jasmine.objectContaining({ carbOverride: 75 })] }));
+  });
+
+  it('keeps its footer visible and scrolls internally at desktop, tablet and phone content widths', fakeAsync(() => {
+    const component = fixture.componentInstance;
+    component.openCreate(); component.enableItems();
+    for (let index = 0; index < 7; index++) component.addOrderItem();
+    tick(151); fixture.detectChanges();
+    const dialog: HTMLElement | null = fixture.nativeElement.querySelector('.delivery-modal');
+    const content: HTMLElement | null = fixture.nativeElement.querySelector('.modal-content');
+    const footer: HTMLElement | null = fixture.nativeElement.querySelector('.modal-actions');
+    if (!dialog || !content || !footer) throw new Error('Expected complete modal');
+    expect(dialog.getBoundingClientRect().width).toBeLessThanOrEqual(window.innerWidth + 1);
+    dialog.style.maxHeight = '500px';
+    for (const width of [940, 700, 350]) {
+      dialog.style.width = `${width}px`;
+      expect(content.scrollHeight).toBeGreaterThan(content.clientHeight);
+      expect(content.scrollWidth).toBeLessThanOrEqual(content.clientWidth + 1);
+      expect(footer.getBoundingClientRect().bottom).toBeLessThanOrEqual(dialog.getBoundingClientRect().bottom + 1);
+      expect(dialog.getBoundingClientRect().height).toBeLessThanOrEqual(501);
+    }
+  }));
+
+  it('supports keyboard focus wrapping, Escape, and return focus to the opener', () => {
+    const opener: HTMLButtonElement | null = fixture.nativeElement.querySelector('.hero-add-button');
+    if (!opener) throw new Error('Expected modal opener');
+    opener.focus(); opener.click(); fixture.detectChanges();
+    const close: HTMLButtonElement | null = fixture.nativeElement.querySelector('.dialog-close');
+    const actions: NodeListOf<HTMLButtonElement> = fixture.nativeElement.querySelectorAll('.modal-actions button');
+    const cancel = actions[actions.length - 1];
+    if (!close || !cancel) throw new Error('Expected modal actions');
+    close.focus(); close.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }));
+    expect(document.activeElement).toBe(cancel);
+    cancel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.isEditorOpen).toBeFalse();
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it('keeps the dialog and actions within desktop, tablet and phone viewports', async () => {
+    fixture.componentInstance.openCreate(); fixture.componentInstance.enableItems();
+    for (let index = 0; index < 7; index++) fixture.componentInstance.addOrderItem();
+    fixture.detectChanges();
+    await inResponsiveFrame(fixture.nativeElement, viewport => {
+      const dialog: HTMLElement | null = fixture.nativeElement.querySelector('.delivery-modal');
+      const content: HTMLElement | null = fixture.nativeElement.querySelector('.modal-content');
+      const footer: HTMLElement | null = fixture.nativeElement.querySelector('.modal-actions');
+      if (!dialog || !content || !footer) throw new Error('Expected modal');
+      expect(dialog.getBoundingClientRect().width).toBeLessThanOrEqual(viewport.innerWidth);
+      expect(dialog.getBoundingClientRect().bottom).toBeLessThanOrEqual(viewport.innerHeight);
+      expect(content.scrollWidth).toBeLessThanOrEqual(content.clientWidth + 1);
+      expect(content.scrollHeight).toBeGreaterThan(content.clientHeight);
+      expect(footer.getBoundingClientRect().bottom).toBeLessThanOrEqual(dialog.getBoundingClientRect().bottom + 1);
+    });
+  });
 });

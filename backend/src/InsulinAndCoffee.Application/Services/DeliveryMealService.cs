@@ -83,7 +83,7 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
             UserId = UserId,
             PlaceName = request.PlaceName.Trim(),
             DishName = request.DishName.Trim(),
-            PortionDescription = request.PortionDescription.Trim(),
+            PortionDescription = NormalizePortionDescription(request.PortionDescription),
             Carbs = request.Carbs,
             UsualInsulinUnits = request.UsualInsulinUnits,
             LastPreMealGlucose = request.LastPreMealGlucose,
@@ -135,7 +135,7 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
             UserId = UserId,
             PlaceName = request.PlaceName.Trim(),
             DishName = request.DishName.Trim(),
-            PortionDescription = request.PortionDescription.Trim(),
+            PortionDescription = NormalizePortionDescription(request.PortionDescription),
             Carbs = meal.TotalCarbs,
             UsualInsulinUnits = meal.ConfirmedBolus.Value,
             LastPreMealGlucose = meal.PreMealGlucose,
@@ -171,7 +171,7 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
         if (request.Items is { Count: > 0 })
             await SetItemsAsync(deliveryMeal, request, true, cancellationToken);
 
-        if (deliveryMeal.Carbs != request.Carbs || deliveryMeal.PortionDescription != request.PortionDescription.Trim()
+        if (deliveryMeal.Carbs != request.Carbs || deliveryMeal.PortionDescription != NormalizePortionDescription(request.PortionDescription)
             || deliveryMeal.DishName != request.DishName.Trim() || deliveryMeal.PlaceName != request.PlaceName.Trim())
         {
             deliveryMeal.CarbReferenceSource = CarbReferenceSource.Manual;
@@ -180,7 +180,7 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
         }
         deliveryMeal.PlaceName = request.PlaceName.Trim();
         deliveryMeal.DishName = request.DishName.Trim();
-        deliveryMeal.PortionDescription = request.PortionDescription.Trim();
+        deliveryMeal.PortionDescription = NormalizePortionDescription(request.PortionDescription);
         deliveryMeal.Carbs = request.Carbs;
         deliveryMeal.UsualInsulinUnits = request.UsualInsulinUnits;
         deliveryMeal.LastPreMealGlucose = request.LastPreMealGlucose;
@@ -335,11 +335,6 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
             throw new ValidationException("Place name and dish name are required.");
         }
 
-        if (string.IsNullOrWhiteSpace(request.PortionDescription))
-        {
-            throw new ValidationException("Portion description is required.");
-        }
-
         if (request.Carbs < 0 || request.Carbs == 0 && request.Items is not { Count: > 0 })
         {
             throw new ValidationException("Carbs must be greater than zero.");
@@ -355,6 +350,9 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
             throw new ValidationException("Last pre-meal glucose cannot be negative.");
         }
     }
+
+    // Existing non-null column stores absence as empty text; null/blank API input is valid.
+    private static string NormalizePortionDescription(string? description) => description?.Trim() ?? string.Empty;
 
     private static string NormalizeTags(string tags) =>
         string.Join(", ", tags.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Distinct(StringComparer.OrdinalIgnoreCase));

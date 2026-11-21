@@ -20,6 +20,45 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
     private readonly ApiFactory factory;
     public AuthIntegrationTests(ApiFactory factory) => this.factory = factory;
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task CountedMeal_OptionalPortionNote_PreservesStructuredTotalsOverrideAndSelectedItem(string? portionDescription)
+    {
+        using var client = factory.CreateClient();
+        var username = "optional-" + Guid.NewGuid().ToString("N")[..12];
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/auth/register", new { username, password = "optional-note-test" })).StatusCode);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(client, username, "optional-note-test"));
+        var created = await client.PostAsJsonAsync("/api/delivery-meals", new { placeName = "Le Gril", dishName = "Суши", portionDescription,
+            carbs = 135m, resultRating = "Unknown", tags = "", isFavorite = false, items = new[] {
+                new { name = "Калифорния", quantity = 1m, measurementType = "Portion", carbsPerUnit = 60m, carbOverride = (decimal?)null },
+                new { name = "Суши", quantity = 5m, measurementType = "Portion", carbsPerUnit = 15m, carbOverride = (decimal?)75m }
+            } });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using var json = JsonDocument.Parse(await created.Content.ReadAsStringAsync());
+        Assert.Equal("", json.RootElement.GetProperty("portionDescription").GetString());
+        Assert.Equal(135m, json.RootElement.GetProperty("carbs").GetDecimal());
+        var orderId = json.RootElement.GetProperty("id").GetGuid();
+        var sushi = json.RootElement.GetProperty("items")[1];
+        var sushiId = sushi.GetProperty("id").GetGuid();
+        Assert.Equal(75m, sushi.GetProperty("carbOverride").GetDecimal());
+        var updated = await client.PutAsJsonAsync($"/api/delivery-meals/{orderId}", new { placeName = "Le Gril", dishName = "Суши",
+            portionDescription, carbs = 135m, resultRating = "Unknown", tags = "", isFavorite = false, expectedRevision = 0 });
+        Assert.Equal(HttpStatusCode.OK, updated.StatusCode);
+        var selection = await client.PostAsJsonAsync($"/api/delivery-meals/{orderId}/items-draft", new { itemIds = new[] { sushiId }, expectedRevision = 1 });
+        Assert.Equal(HttpStatusCode.OK, selection.StatusCode);
+        using var selected = JsonDocument.Parse(await selection.Content.ReadAsStringAsync());
+        Assert.Equal(1, selected.RootElement.GetArrayLength());
+        Assert.Equal("Суши", selected.RootElement[0].GetProperty("foodName").GetString());
+        Assert.Equal(5m, selected.RootElement[0].GetProperty("quantity").GetDecimal());
+        Assert.Equal(75m, selected.RootElement[0].GetProperty("effectiveCarbs").GetDecimal());
+        Assert.Equal(75m, selected.RootElement[0].GetProperty("carbOverride").GetDecimal());
+        // Omitted note is accepted as well, including the legacy whole-order workflow.
+        Assert.Equal(HttpStatusCode.Created, (await client.PostAsJsonAsync("/api/delivery-meals", new {
+            placeName = "Le Gril", dishName = "Legacy", carbs = 135m, resultRating = "Unknown", tags = "", isFavorite = false })).StatusCode);
+    }
+
     [Fact]
     public async Task StructuredOrders_HttpContracts_PreviewReuseAndOwnershipAreValidated()
     {

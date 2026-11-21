@@ -99,7 +99,7 @@ public record DeliveryMealDto(
 public record UpsertDeliveryMealRequest(
     string PlaceName,
     string DishName,
-    string PortionDescription,
+    string? PortionDescription,
     decimal Carbs,
     decimal? UsualInsulinUnits,
     decimal? LastPreMealGlucose,
@@ -114,7 +114,7 @@ public record UpsertDeliveryMealRequest(
 public record CreateDeliveryMealFromMealRequest(
     string PlaceName,
     string DishName,
-    string PortionDescription,
+    string? PortionDescription,
     ResultRating ResultRating,
     string Tags,
     bool IsFavorite);

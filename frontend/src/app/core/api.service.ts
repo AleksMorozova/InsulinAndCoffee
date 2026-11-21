@@ -54,7 +54,7 @@ export interface UpsertDeliveryMealRequest {
   acceptCalculatedTotal?: boolean;
   placeName: string;
   dishName: string;
-  portionDescription: string;
+  portionDescription?: string | null;
   carbs: number;
   usualInsulinUnits: number | null;
   lastPreMealGlucose?: number;
@@ -67,7 +67,7 @@ export interface UpsertDeliveryMealRequest {
 export interface CreateDeliveryMealFromMealRequest {
   placeName: string;
   dishName: string;
-  portionDescription: string;
+  portionDescription?: string | null;
   resultRating: ResultRating;
   tags: string;
   isFavorite: boolean;

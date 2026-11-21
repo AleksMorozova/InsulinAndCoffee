@@ -2103,16 +2103,20 @@ button.create-food-button:hover {
 }
 
 .current-meal-list {
+  container-type: inline-size;
+  container-name: meal-items;
   display: grid;
   min-width: 0;
   width: 100%;
   gap: 0.55rem;
 }
 
+
+
 .meal-item-grid-head,
 .meal-item-card {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(7.3rem, 0.66fr) 4.4rem minmax(9rem, 0.82fr) 2.8rem;
+  grid-template-columns: minmax(9rem, 1fr) 7rem 5rem minmax(8.5rem, .7fr) 2.25rem;
   column-gap: 0.65rem;
   align-items: center;
 }
@@ -2150,6 +2154,7 @@ button.create-food-button:hover {
 
 .meal-item-main {
   display: grid;
+  gap: .25rem;
 }
 
 .meal-item-main input {
@@ -2193,10 +2198,14 @@ button.create-food-button:hover {
 }
 
 .meal-item-carbs {
-  display: flex;
-  align-items: center;
+  display: grid;
+  gap: .15rem;
   color: var(--muted);
 }
+
+.meal-item-carbs small { font-size: .7rem; white-space: nowrap; }
+.item-carb-override .override-input-wrap { grid-template-columns: minmax(0,1fr) auto; min-width: 0; }
+.saved-override-toggle { min-width: 0; padding: .5rem .2rem; border: 1px solid var(--line); background: var(--cream); color: var(--coffee-dark); font-size: .73rem; white-space: nowrap; }
 
 .meal-item-carbs strong {
   display: inline-flex;
@@ -2992,31 +3001,6 @@ button.create-food-button:hover {
   .calculation-card {
     position: static;
   }
-  .meal-item-grid-head {
-    display: none;
-  }
-  .meal-item-card {
-    grid-template-columns: 1fr;
-    align-items: stretch;
-  }
-  .meal-weight,
-  .meal-item-carbs,
-  .item-carb-override,
-  .meal-remove {
-    grid-column: 1 / -1;
-  }
-  .item-carb-override {
-    align-items: stretch;
-    flex-wrap: wrap;
-  }
-  .override-input-wrap {
-    min-width: min(10rem, 100%);
-  }
-  .meal-remove {
-    width: 24px;
-    margin-bottom: 0;
-    justify-self: start;
-  }
   .meal-carb-adjustment-control {
     grid-template-columns: 1fr;
   }
@@ -3253,16 +3237,17 @@ button.create-food-button:hover {
   line-height: 1.25;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+@container meal-items (max-width: 600px) {
+  .meal-item-grid-head { display: none; }
+  .meal-item-card { grid-template-columns: minmax(0,1fr) minmax(0,1fr) 2.25rem; align-items: start; row-gap: .6rem; }
+  .meal-item-card .meal-item-main { grid-column: 1 / 3; grid-row: 1; }
+  .meal-item-card .meal-remove { grid-column: 3; grid-row: 1; width: 100%; margin: 0; }
+  .meal-item-card .meal-weight { grid-column: 1; grid-row: 2; }
+  .meal-item-card .meal-weight::before { content: 'Amount'; color: var(--muted); font-size: .73rem; margin-bottom: .25rem; }
+  .meal-item-card .meal-weight span { top: auto; bottom: .65rem; transform: none; }
+  .meal-item-card .item-carb-override { grid-column: 2 / 4; grid-row: 2; }
+  .meal-item-card .item-carb-override::before { content: 'Override (g)'; grid-column: 1 / -1; color: var(--muted); font-size: .73rem; }
+  .meal-item-card .item-carb-override .reset-carb-button { grid-column: 2; grid-row: 2; }
+  .meal-item-card .meal-item-carbs { grid-column: 1 / -1; grid-row: 3; display: flex; gap: .4rem; align-items: baseline; }
+  .meal-item-card .meal-item-carbs::before { content: 'Carbs'; color: var(--muted); font-size: .73rem; }
+}
