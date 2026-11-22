@@ -21,7 +21,7 @@ describe('Structured Ask Past Me orders', () => {
 
   beforeEach(async () => {
     api = jasmine.createSpyObj<ApiService>('ApiService', ['getDeliveryMeals', 'previewDeliveryMealItems', 'createDeliveryMeal',
-      'updateDeliveryMeal', 'reuseDeliveryMealItems', 'createMealDraftFromDeliveryMeal', 'previewMealCarbs']);
+      'updateDeliveryMeal', 'reuseDeliveryMealItems', 'createMealDraftFromDeliveryMeal', 'previewMealCarbs', 'toggleDeliveryMealFavorite']);
     api.getDeliveryMeals.and.returnValue(of({ favorites: [], mostUsed: [], recentlyUsed: [], searchResults: [] }));
     api.previewDeliveryMealItems.and.returnValue(of(preview));
     api.createDeliveryMeal.and.returnValue(of(order));
@@ -67,11 +67,12 @@ describe('Structured Ask Past Me orders', () => {
     expect(api.reuseDeliveryMealItems).not.toHaveBeenCalled();
   });
 
-  it('uses the same compact cards for favorites and results without checkboxes on single items', async () => {
+  it('keeps compact favorites separate from full results at desktop, tablet and phone widths', async () => {
     const long: DeliveryMeal = { ...order, dishName: 'Long order', items: [{ ...sushi, name: 'Очень длинное название ресторанного блюда для проверки переноса текста' }] };
-    fixture.componentInstance.sections = { favorites: [order], searchResults: [order, long], mostUsed: [], recentlyUsed: [] };
+    fixture.componentInstance.sections = { favorites: [order, { ...long, id: 'long-favorite' }], searchResults: [order, long], mostUsed: [], recentlyUsed: [] };
     fixture.detectChanges();
-    expect(fixture.nativeElement.querySelectorAll('.memory-card').length).toBe(3);
+    expect(fixture.nativeElement.querySelectorAll('.memory-card').length).toBe(2);
+    expect(fixture.nativeElement.querySelectorAll('.favorite-bookmark').length).toBe(2);
     expect(fixture.nativeElement.querySelectorAll('.memory-item-row input').length).toBe(0);
     await inResponsiveFrame(fixture.nativeElement, viewport => {
       const grids: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.memory-card-grid');
@@ -82,7 +83,44 @@ describe('Structured Ask Past Me orders', () => {
       }
       const cards: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.memory-card');
       for (const card of Array.from(cards)) expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth + 1);
+      const bookmarks: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.favorite-bookmark');
+      for (const bookmark of Array.from(bookmarks)) {
+        expect(bookmark.scrollWidth).toBeLessThanOrEqual(bookmark.clientWidth + 1);
+        expect(bookmark.getBoundingClientRect().height).toBeLessThan(180);
+      }
     });
+  });
+
+  it('shows only bookmark essentials, hides absent notes and removes favorites through the existing API', () => {
+    fixture.componentInstance.sections.favorites = [{ ...order, portionDescription: '  ', isFavorite: true }];
+    fixture.detectChanges();
+    const bookmark: HTMLElement = fixture.nativeElement.querySelector('.favorite-bookmark');
+    expect(bookmark.textContent).toContain('Le Grill');
+    expect(bookmark.textContent).toContain('Sushi order');
+    expect(bookmark.textContent).toContain('75 g carbs');
+    expect(bookmark.querySelector('.favorite-portion')).toBeNull();
+    expect(bookmark.querySelector('app-carb-provenance')).toBeNull();
+    expect(bookmark.textContent).not.toContain('Previously recorded');
+    expect(bookmark.textContent).not.toContain('Used');
+    api.toggleDeliveryMealFavorite.and.returnValue(of(order));
+    bookmark.querySelector<HTMLButtonElement>('.favorite-remove')?.click();
+    expect(api.toggleDeliveryMealFavorite).toHaveBeenCalledOnceWith(order.id);
+  });
+
+  it('reuses every item of a favorite even when only one search-result item is selected', () => {
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+    const california: CalculatedMealItem = { ...calculated, foodName: 'California', quantity: 1, carbsPerUnit: 60,
+      calculatedCarbs: 60, effectiveCarbs: 60, sourceDeliveryMealItemId: 'california' };
+    const favorite: DeliveryMeal = { ...order, carbs: 135, items: [sushi, { ...sushi, id: 'california', quantity: 1 }] };
+    fixture.componentInstance.sections.favorites = [favorite];
+    fixture.componentInstance.selectedItems[order.id] = [sushi.id];
+    api.createMealDraftFromDeliveryMeal.and.returnValue(of({ id: order.id, carbs: 135, usualInsulinUnits: null, notes: '', items: [calculated, california] }));
+    fixture.detectChanges();
+    fixture.nativeElement.querySelector('.favorite-reuse').click();
+    expect(api.createMealDraftFromDeliveryMeal).toHaveBeenCalledOnceWith(order.id);
+    expect(api.reuseDeliveryMealItems).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith(['/calculator'], { state: { assistantMealItems: [
+      jasmine.objectContaining({ sourceDeliveryMealItemId: sushi.id }), jasmine.objectContaining({ sourceDeliveryMealItemId: 'california' })] } });
   });
 
   it('creates item rows, shows backend totals and saves without a portion note', fakeAsync(() => {

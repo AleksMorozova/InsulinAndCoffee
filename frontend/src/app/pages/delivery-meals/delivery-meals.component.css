@@ -84,3 +84,11 @@
   .single-item .memory-item-name, .single-item .memory-item-quantity { grid-column: 1; }
   .single-item .memory-item-carbs { grid-column: 2; }
 }
+.favorite-bookmark { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.favorite-copy { display: grid; gap: 2px; min-width: 0; overflow-wrap: break-word; }
+.favorite-place, .favorite-portion { font-size: .78rem; color: var(--muted); }
+.favorite-copy > strong { font-size: .92rem; }
+.favorite-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; flex: none; max-width: 50%; }
+.favorite-carbs { width: 100%; text-align: right; font-size: .82rem; white-space: nowrap; }
+.favorite-remove { padding: 0; width: 28px; height: 32px; font-size: 1.2rem; }
+.favorite-bookmark button:focus-visible { outline: 2px solid var(--coffee-dark); outline-offset: 2px; }
