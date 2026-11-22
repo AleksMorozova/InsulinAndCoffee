@@ -21,7 +21,7 @@ describe('Structured Ask Past Me orders', () => {
 
   beforeEach(async () => {
     api = jasmine.createSpyObj<ApiService>('ApiService', ['getDeliveryMeals', 'previewDeliveryMealItems', 'createDeliveryMeal',
-      'updateDeliveryMeal', 'reuseDeliveryMealItems', 'createMealDraftFromDeliveryMeal']);
+      'updateDeliveryMeal', 'reuseDeliveryMealItems', 'createMealDraftFromDeliveryMeal', 'previewMealCarbs']);
     api.getDeliveryMeals.and.returnValue(of({ favorites: [], mostUsed: [], recentlyUsed: [], searchResults: [] }));
     api.previewDeliveryMealItems.and.returnValue(of(preview));
     api.createDeliveryMeal.and.returnValue(of(order));
@@ -29,6 +29,60 @@ describe('Structured Ask Past Me orders', () => {
     api.reuseDeliveryMealItems.and.returnValue(of([calculated]));
     await TestBed.configureTestingModule({ imports: [DeliveryMealsComponent], providers: [provideRouter([]), { provide: ApiService, useValue: api }] }).compileComponents();
     fixture = TestBed.createComponent(DeliveryMealsComponent); fixture.detectChanges();
+  });
+
+  it('selects full rows, quotes saved totals and transfers only selected IDs with one primary action', () => {
+    spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+    const multi: DeliveryMeal = { ...order, portionDescription: '', carbs: 135, items: [
+      { ...sushi, id: 'california', name: 'California', quantity: 1, effectiveCarbs: 60, calculatedCarbs: 60 }, sushi] };
+    fixture.componentInstance.sections.searchResults = [multi]; fixture.detectChanges();
+    const card: HTMLElement = fixture.nativeElement.querySelector('.memory-card');
+    expect(card.querySelector('.meal-note')).toBeNull();
+    expect(card.querySelectorAll('.memory-reuse-button').length).toBe(1);
+    const rows = card.querySelectorAll<HTMLLabelElement>('.memory-item-row');
+    rows[1].click(); fixture.detectChanges();
+    expect(fixture.componentInstance.selectedTotals[order.id]).toBe(75);
+    expect(card.textContent).toContain('1 selected');
+    expect(api.reuseDeliveryMealItems).not.toHaveBeenCalled();
+    fixture.componentInstance.selectAll(multi); fixture.detectChanges();
+    expect(fixture.componentInstance.selectedTotals[order.id]).toBe(135);
+    rows[0].click(); fixture.detectChanges();
+    card.querySelector<HTMLButtonElement>('.memory-reuse-button')?.click();
+    expect(api.reuseDeliveryMealItems).toHaveBeenCalledOnceWith(order.id, ['sushi-item'], 4);
+    expect(card.textContent).toContain('Previously recorded: 99 U');
+    expect(card.textContent).not.toContain('Unknown');
+  });
+
+  it('requests a backend total for a partial multi-item selection without recording reuse', () => {
+    api.previewMealCarbs.and.returnValue(of({ totalCarbs: 135, foodCarbs: 135, items: [] }));
+    const multi: DeliveryMeal = { ...order, carbs: 145, items: [sushi,
+      { ...sushi, id: 'california', effectiveCarbs: 60 }, { ...sushi, id: 'third', effectiveCarbs: 10 }] };
+    const component = fixture.componentInstance;
+    component.toggleItem(multi.id, sushi.id, multi);
+    component.toggleItem(multi.id, 'california', multi);
+    expect(api.previewMealCarbs).toHaveBeenCalledOnceWith([
+      jasmine.objectContaining({ sourceDeliveryMealItemId: 'sushi-item', quantity: 5 }),
+      jasmine.objectContaining({ sourceDeliveryMealItemId: 'california', quantity: 5 })], 0);
+    expect(component.selectedTotals[multi.id]).toBe(135);
+    expect(api.reuseDeliveryMealItems).not.toHaveBeenCalled();
+  });
+
+  it('uses the same compact cards for favorites and results without checkboxes on single items', async () => {
+    const long: DeliveryMeal = { ...order, dishName: 'Long order', items: [{ ...sushi, name: 'Очень длинное название ресторанного блюда для проверки переноса текста' }] };
+    fixture.componentInstance.sections = { favorites: [order], searchResults: [order, long], mostUsed: [], recentlyUsed: [] };
+    fixture.detectChanges();
+    expect(fixture.nativeElement.querySelectorAll('.memory-card').length).toBe(3);
+    expect(fixture.nativeElement.querySelectorAll('.memory-item-row input').length).toBe(0);
+    await inResponsiveFrame(fixture.nativeElement, viewport => {
+      const grids: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.memory-card-grid');
+      for (const grid of Array.from(grids)) {
+        expect(grid.scrollWidth).toBeLessThanOrEqual(grid.clientWidth + 1);
+        const columns = viewport.getComputedStyle(grid).gridTemplateColumns.split(' ').length;
+        expect(columns).toBe(viewport.innerWidth <= 760 ? 1 : 2);
+      }
+      const cards: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.memory-card');
+      for (const card of Array.from(cards)) expect(card.scrollWidth).toBeLessThanOrEqual(card.clientWidth + 1);
+    });
   });
 
   it('creates item rows, shows backend totals and saves without a portion note', fakeAsync(() => {
