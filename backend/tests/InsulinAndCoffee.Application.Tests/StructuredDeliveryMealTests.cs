@@ -16,6 +16,30 @@ public class StructuredDeliveryMealTests
     private static readonly CancellationToken Token = CancellationToken.None;
 
     [Fact]
+    public async Task RestaurantMemory_SelectedReuseIsIndependentAndTracksOnlySuccessfulReuse()
+    {
+        await using var db = Db();
+        var service = Orders(db);
+        var order = await service.CreateAsync(Request(135m, [new("California", 1m, FoodMeasurementType.Portion, CarbsPerUnit: 60m),
+            new("Sushi", 5m, FoodMeasurementType.Portion, CarbsPerUnit: 15m)]) with { PortionDescription = null }, Token);
+        var sushi = order.Items!.Last();
+        Assert.Empty(await db.FoodItems.ToListAsync(Token));
+        Assert.Equal(0, (await service.GetByIdAsync(order.Id, Token)).UsageCount);
+        await Assert.ThrowsAsync<ValidationException>(() => service.ReuseItemsAsync(order.Id, new([Guid.NewGuid()], order.Revision), Token));
+        Assert.Equal(0, (await service.GetByIdAsync(order.Id, Token)).UsageCount);
+        var selected = Assert.Single(await service.ReuseItemsAsync(order.Id, new([sushi.Id], order.Revision), Token));
+        Assert.Equal(75m, selected.EffectiveCarbs);
+        Assert.Equal(1, (await service.GetByIdAsync(order.Id, Token)).UsageCount);
+        Assert.NotNull((await service.GetByIdAsync(order.Id, Token)).LastUsedAt);
+        var all = await service.ReuseItemsAsync(order.Id, new(order.Items.Select(item => item.Id).ToArray(), order.Revision), Token);
+        Assert.Equal(135m, all.Sum(item => item.EffectiveCarbs));
+        var local = await Calc(db).CalculateItemsAsync([new(Guid.Empty, 5m, CarbOverride: 85m, SourceDeliveryMealItemId: sushi.Id)], null, null, Token);
+        Assert.Equal(85m, Assert.Single(local).EffectiveCarbs);
+        Assert.Equal(75m, (await service.GetByIdAsync(order.Id, Token)).Items!.Last().EffectiveCarbs);
+        Assert.Empty(await db.FoodItems.ToListAsync(Token));
+    }
+
+    [Fact]
     public async Task CreateAsync_StructuredOrder_CalculatesItemsAndPreservesStableIdsOnEdit()
     {
         await using var db = Db();

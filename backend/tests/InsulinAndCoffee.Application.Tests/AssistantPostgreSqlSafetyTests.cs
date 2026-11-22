@@ -16,6 +16,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Npgsql;
 
 namespace InsulinAndCoffee.Application.Tests;
@@ -33,7 +35,7 @@ public sealed class AssistantPostgresFactAttribute : FactAttribute
 public class AssistantPostgresCollection;
 
 [Collection("Assistant PostgreSQL")]
-public class AssistantPostgreSqlSafetyTests
+public partial class AssistantPostgreSqlSafetyTests
 {
     [AssistantPostgresFact]
     public async Task StructuredOrders_MigrationRelationsAndConcurrentEdits_PreserveLegacyAndAtomicChildren()
@@ -523,9 +525,17 @@ public class AssistantPostgreSqlSafetyTests
         Assert.Equal(0, await verify.AssistantRequestReceipts.CountAsync(CancellationToken.None));
     }
 
-    private sealed class StartupFactory(string connectionString) : WebApplicationFactory<Program>
+    private sealed class StartupFactory(string connectionString, ILlmClient? model = null) : WebApplicationFactory<Program>
     {
-        protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Production");
+        protected override void ConfigureWebHost(IWebHostBuilder builder)
+        {
+            builder.UseEnvironment("Production");
+            if (model is not null) builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<ILlmClient>();
+                services.AddSingleton(model);
+            });
+        }
 
         protected override Microsoft.Extensions.Hosting.IHost CreateHost(Microsoft.Extensions.Hosting.IHostBuilder builder)
         {

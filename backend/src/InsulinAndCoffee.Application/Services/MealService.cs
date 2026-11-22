@@ -164,10 +164,7 @@ public class MealService(IAppDbContext db, TimeProvider timeProvider, MealCalcul
         var item = meal.Items.FirstOrDefault(i => i.Id == itemId)
             ?? throw new NotFoundException("Meal item", itemId);
 
-        if (item.MeasurementType == FoodMeasurementType.Piece && quantity != decimal.Truncate(quantity))
-        {
-            throw new ValidationException("Piece quantity must be a whole number.");
-        }
+        MealCalculationService.ValidateQuantity(item.MeasurementType, quantity);
 
         var carbsChanged = item.Quantity != quantity || item.CarbOverride != request.CarbOverride;
         item.Quantity = quantity;

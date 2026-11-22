@@ -257,8 +257,10 @@ public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser 
         }
     }
 
-    private static void ValidateQuantity(FoodMeasurementType measurementType, decimal quantity)
+    internal static void ValidateQuantity(FoodMeasurementType measurementType, decimal quantity)
     {
+        if (decimal.Round(quantity, 2) != quantity)
+            throw new ValidationException("Quantity supports at most two decimal places so saved meal snapshots remain exact.");
         if (measurementType == FoodMeasurementType.Piece && quantity != decimal.Truncate(quantity))
         {
             throw new ValidationException("Piece quantity must be a whole number.");
@@ -268,6 +270,9 @@ public class MealCalculationService(IAppDbContext db, ICurrentUser? currentUser 
     private static void ValidateSnapshotInput(MealItemInputDto input, FoodMeasurementType measurementType, decimal quantity)
     {
         ValidateQuantity(measurementType, quantity);
+        var reference = measurementType == FoodMeasurementType.Grams ? input.CarbsPer100gSnapshot : input.CarbsPerUnitSnapshot;
+        if (reference.HasValue && decimal.Round(reference.Value, 2) != reference.Value)
+            throw new ValidationException("Carbohydrate references support at most two decimal places so saved meal snapshots remain exact.");
 
         switch (measurementType)
         {

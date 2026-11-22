@@ -42,9 +42,9 @@ import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPr
           <p>Meals you reuse often.</p>
         </div>
       </div>
-      <div class="quick-meal-strip">
+      <div class="memory-card-grid favorites-grid">
         @for (meal of sections.favorites; track meal.id) {
-          <ng-container [ngTemplateOutlet]="quickMealCard" [ngTemplateOutletContext]="{ meal: meal }" />
+          <ng-container [ngTemplateOutlet]="mealCard" [ngTemplateOutletContext]="{ meal: meal }" />
         } @empty {
           @if (!loading && !loadError) {
           <div class="empty-state wide">
@@ -171,37 +171,15 @@ import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPr
       </div>
     }
 
-    <ng-template #quickMealCard let-meal="meal">
-      <article class="quick-meal-card">
-        <div class="quick-meal-copy">
-          <h3>{{ meal.dishName }}</h3>
-          <p>{{ meal.placeName }}</p>
-        </div>
-
-        <p class="quick-meal-metrics">
-          <strong>{{ meal.carbs | number:'1.0-1' }}g</strong> carbs
-          <app-carb-provenance [provenance]="meal.provenance" />
-          <span>{{ meal.usualInsulinUnits === null ? 'Insulin unrecorded' : (meal.usualInsulinUnits | number:'1.0-2') + ' U recorded' }}</span>
-        </p>
-
-        <div class="quick-meal-context">
-          <span class="result-badge {{ resultBadgeClass(meal.resultRating) }}">{{ resultLabel(meal.resultRating) }}</span>
-          <span>Last used {{ meal.lastUsedAt ? (meal.lastUsedAt | date:'mediumDate') : 'never' }}</span>
-        </div>
-
-        <button type="button" (click)="createMealDraft(meal)">Use Again</button>
-      </article>
-    </ng-template>
-
     <ng-template #mealCard let-meal="meal">
-      <article class="memory-card">
+      <article class="memory-card" [attr.aria-label]="meal.placeName + ' · ' + meal.dishName">
         <div class="memory-card-top">
           <div>
             <p>{{ meal.placeName }}</p>
             <h3>{{ meal.dishName }}</h3>
           </div>
           <details class="overflow-menu">
-            <summary title="More actions">⋮</summary>
+            <summary [attr.aria-label]="'Actions for ' + meal.dishName" title="More actions">⋮</summary>
             <div class="overflow-panel">
               <button type="button" class="subtle" (click)="openEdit(meal)">Edit</button>
               <button type="button" class="subtle" (click)="toggleFavorite(meal)">{{ meal.isFavorite ? 'Remove Favorite' : 'Add Favorite' }}</button>
@@ -210,38 +188,33 @@ import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPr
           </details>
         </div>
 
-        <p class="meal-note">{{ meal.portionDescription }}</p>
+        @if (meal.portionDescription?.trim()) { <p class="meal-note">{{ meal.portionDescription }}</p> }
         @if (meal.items?.length) {
           <div class="order-item-list">
             @for (item of meal.items; track item.id) {
-              <div class="order-item-summary">
-                <label><input type="checkbox" [checked]="isSelected(meal.id, item.id)" (change)="toggleItem(meal.id, item.id)"> {{ item.name }} · {{ item.quantity }} {{ item.measurementType }} · {{ item.effectiveCarbs | number:'1.0-2' }} g</label>
-                <app-carb-provenance [provenance]="item.provenance" [overridden]="item.carbOverride !== null && item.carbOverride !== undefined" />
-                <button type="button" class="subtle" (click)="reuseItems(meal, [item.id])">Use this item</button>
-              </div>
+              <label class="memory-item-row" [class.is-selected]="isSelected(meal.id, item.id)" [class.single-item]="meal.items.length === 1">
+                @if (meal.items.length > 1) {
+                  <input type="checkbox" [checked]="isSelected(meal.id, item.id)" (change)="toggleItem(meal.id, item.id, meal)"
+                    [attr.aria-label]="'Select ' + item.name + ' from ' + meal.placeName">
+                }
+                <span class="memory-item-name"><strong>{{ item.name }}</strong>
+                  <app-carb-provenance [compact]="true" [memory]="true" [provenance]="item.provenance"
+                    [overridden]="item.carbOverride !== null && item.carbOverride !== undefined"
+                    [adjusted]="item.carbOverride !== null && item.carbOverride !== undefined && item.carbOverride !== item.calculatedCarbs" />
+                </span>
+                <span class="memory-item-quantity">{{ item.quantity | number:'1.0-2' }} {{ itemUnit(item.measurementType, item.quantity) }}</span>
+                <strong class="memory-item-carbs">{{ item.effectiveCarbs | number:'1.0-2' }} g</strong>
+              </label>
             }
-            <button type="button" [disabled]="!selectedItems[meal.id]?.length" (click)="reuseItems(meal, selectedItems[meal.id] || [])">Use selected items</button>
           </div>
         }
-
-        <div class="metric-row">
-          <div class="metric">
-            <strong>{{ meal.carbs | number:'1.0-1' }}g</strong>
-            <span>Carbs</span>
+        <div class="memory-summary">
+          <div class="memory-total"><strong>{{ meal.carbs | number:'1.0-2' }} g carbs</strong><app-carb-provenance [compact]="true" [memory]="true" [provenance]="meal.provenance" /></div>
+          @if (meal.usualInsulinUnits !== null && meal.usualInsulinUnits !== undefined) { <span>Previously recorded: {{ meal.usualInsulinUnits | number:'1.0-2' }} U</span> }
+          <div class="memory-history"><span>Used {{ meal.usageCount }} {{ meal.usageCount === 1 ? 'time' : 'times' }}</span>
+            @if (meal.lastUsedAt) { <span>Last used {{ meal.lastUsedAt | date:'mediumDate' }}</span> }
+            @if (meal.resultRating !== 'Unknown') { <span [title]="'Historical result: ' + resultLabel(meal.resultRating)">{{ resultLabel(meal.resultRating) }}</span> }
           </div>
-          <div class="metric">
-            <strong>{{ meal.usualInsulinUnits === null ? 'Unrecorded' : (meal.usualInsulinUnits | number:'1.0-2') + ' U' }}</strong>
-            <span>Recorded</span>
-          </div>
-          <div class="metric">
-            <strong>{{ meal.usageCount }}x</strong>
-            <span>Used</span>
-          </div>
-        </div>
-
-        <div class="meal-meta">
-          <span class="result-badge {{ resultBadgeClass(meal.resultRating) }}">{{ resultLabel(meal.resultRating) }}</span>
-          <span>Last used {{ meal.lastUsedAt ? (meal.lastUsedAt | date:'mediumDate') : 'never' }}</span>
         </div>
 
         @if (meal.tags) {
@@ -251,9 +224,20 @@ import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPr
             }
           </div>
         }
-
-        <div class="card-actions">
-          <button type="button" (click)="createMealDraft(meal)">Use Again</button>
+        <div class="memory-reuse">
+          @if (meal.items && meal.items.length > 1) {
+            <div class="memory-selection-tools"><span aria-live="polite">{{ selectedCount(meal) }} selected
+              @if (selectedTotals[meal.id] !== undefined) { · {{ selectedTotals[meal.id] | number:'1.0-2' }} g }
+              @if (selectionLoading.has(meal.id)) { · Calculating… }
+            </span><button type="button" class="subtle compact-button" (click)="selectAll(meal)">{{ allSelected(meal) ? 'Deselect all' : 'Select all' }}</button></div>
+            <button type="button" class="memory-reuse-button" [disabled]="!selectedCount(meal) || selectionLoading.has(meal.id) || !!selectionErrors[meal.id] || reusingOrderId !== null"
+              (click)="reuseItems(meal, selectedItems[meal.id] || [])">Use selected items<span aria-hidden="true"> ({{ selectedCount(meal) }})</span></button>
+          } @else if (meal.items?.length === 1) {
+            <button type="button" class="memory-reuse-button" [disabled]="reusingOrderId !== null" (click)="reuseItems(meal, [meal.items[0].id])">Use Again</button>
+          } @else {
+            <button type="button" class="memory-reuse-button" [disabled]="reusingOrderId !== null" (click)="createMealDraft(meal)">Use Again</button>
+          }
+          @if (selectionErrors[meal.id]) { <p class="memory-selection-error" role="alert">{{ selectionErrors[meal.id] }}</p> }
         </div>
       </article>
     </ng-template>
@@ -278,6 +262,11 @@ export class DeliveryMealsComponent implements OnInit {
   saving = false;
   editError = '';
   selectedItems: Partial<Record<string, string[]>> = {};
+  selectedTotals: Partial<Record<string, number>> = {};
+  selectionErrors: Partial<Record<string, string>> = {};
+  selectionLoading = new Set<string>();
+  private selectionRequests = new Map<string, Subscription>();
+  reusingOrderId: string | null = null;
   editorItems = this.fb.array([this.itemForm()]);
   resultRatings = resultRatings;
   loading = true;
@@ -378,7 +367,9 @@ export class DeliveryMealsComponent implements OnInit {
   }
 
   createMealDraft(meal: DeliveryMeal) {
-    this.api.createMealDraftFromDeliveryMeal(meal.id).subscribe({ next: prefill => {
+    if (this.reusingOrderId !== null) return;
+    this.reusingOrderId = meal.id;
+    this.api.createMealDraftFromDeliveryMeal(meal.id).pipe(takeUntilDestroyed(this.destroyRef), finalize(() => this.reusingOrderId = null)).subscribe({ next: prefill => {
       if (prefill.items?.length) { this.navigateItems(prefill.items); return; }
       this.router.navigate(['/calculator'], {
         state: {
@@ -462,14 +453,44 @@ export class DeliveryMealsComponent implements OnInit {
       && (this.savedTotal === undefined || this.savedTotal === this.preview.totalCarbs || this.acceptedTotal);
   }
   isSelected(orderId: string, itemId: string) { return this.selectedItems[orderId]?.includes(itemId) ?? false; }
-  toggleItem(orderId: string, itemId: string) {
+  toggleItem(orderId: string, itemId: string, meal?: DeliveryMeal) {
     this.selectedItems[orderId] = this.isSelected(orderId, itemId)
       ? (this.selectedItems[orderId] ?? []).filter(id => id !== itemId) : [...(this.selectedItems[orderId] ?? []), itemId];
+    if (meal) this.refreshSelection(meal);
+  }
+  selectedCount(meal: DeliveryMeal) { return meal.items?.filter(item => this.isSelected(meal.id, item.id)).length ?? 0; }
+  allSelected(meal: DeliveryMeal) { return !!meal.items?.length && this.selectedCount(meal) === meal.items.length; }
+  selectAll(meal: DeliveryMeal) {
+    this.selectedItems[meal.id] = this.allSelected(meal) ? [] : (meal.items ?? []).map(item => item.id);
+    this.refreshSelection(meal);
+  }
+  itemUnit(type: FoodMeasurementType, quantity: number) {
+    return type === 'Grams' ? 'g' : type === 'Piece' ? (quantity === 1 ? 'piece' : 'pieces') : (quantity === 1 ? 'portion' : 'portions');
+  }
+  private refreshSelection(meal: DeliveryMeal) {
+    this.selectionRequests.get(meal.id)?.unsubscribe();
+    delete this.selectedTotals[meal.id]; delete this.selectionErrors[meal.id];
+    this.selectionLoading.delete(meal.id);
+    const items = (meal.items ?? []).filter(item => this.isSelected(meal.id, item.id));
+    if (!items.length) return;
+    if (items.length === 1) { this.selectedTotals[meal.id] = items[0].effectiveCarbs; return; }
+    if (items.length === meal.items?.length) { this.selectedTotals[meal.id] = meal.carbs; return; }
+    this.selectionLoading.add(meal.id);
+    this.selectionRequests.set(meal.id, this.api.previewMealCarbs(items.map(item => ({
+      foodItemId: item.foodItemId ?? '00000000-0000-0000-0000-000000000000', quantity: item.quantity,
+      sourceDeliveryMealItemId: item.id, carbOverride: item.carbOverride
+    })), 0).pipe(takeUntilDestroyed(this.destroyRef), finalize(() => this.selectionLoading.delete(meal.id))).subscribe({
+      next: preview => this.selectedTotals[meal.id] = preview.totalCarbs,
+      error: error => this.selectionErrors[meal.id] = getApiErrorMessage(error, 'Could not calculate selected items. Please select them again.')
+    }));
   }
   reuseItems(meal: DeliveryMeal, ids: string[]) {
-    this.api.reuseDeliveryMealItems(meal.id, ids, meal.revision ?? 0).subscribe({
+    if (this.reusingOrderId !== null || !ids.length) return;
+    this.reusingOrderId = meal.id;
+    delete this.selectionErrors[meal.id];
+    this.api.reuseDeliveryMealItems(meal.id, ids, meal.revision ?? 0).pipe(takeUntilDestroyed(this.destroyRef), finalize(() => this.reusingOrderId = null)).subscribe({
       next: items => this.navigateItems(items),
-      error: error => this.loadError = getApiErrorMessage(error, 'Could not reuse saved items. Reload this order.')
+      error: error => this.selectionErrors[meal.id] = getApiErrorMessage(error, 'Could not reuse saved items. Reload this order.')
     });
   }
   private navigateItems(items: CalculatedMealItem[]) {

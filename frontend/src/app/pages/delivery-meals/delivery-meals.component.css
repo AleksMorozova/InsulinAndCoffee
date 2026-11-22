@@ -49,3 +49,38 @@
 @container order-editor (max-width: 560px) {
   .order-item-fields { grid-template-columns: repeat(2,minmax(0,1fr)); }
 }
+.memory-card-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start; gap: 12px; }
+.memory-card { align-self: start; align-content: start; gap: 12px; padding: 16px; min-width: 0; container-type: inline-size; container-name: memory-card; }
+.memory-card-top > div { min-width: 0; }
+.memory-card-top h3 { margin: 4px 0 0; font-size: 1.1rem; overflow-wrap: break-word; }
+.memory-card-top p, .meal-note { margin: 0; }
+.meal-note { color: var(--muted); font-size: .85rem; }
+.order-item-list { gap: 4px; }
+.memory-item-row { display: grid; grid-template-columns: 18px minmax(0,1fr) auto auto; align-items: center; gap: 8px; padding: 8px; border-radius: 6px; cursor: pointer; font-size: .85rem; }
+.memory-item-row.single-item { grid-template-columns: minmax(0,1fr) auto auto; cursor: default; }
+.memory-item-row input[type=checkbox] { width: 18px; height: 18px; margin: 0; padding: 0; }
+.memory-item-row:hover, .memory-item-row.is-selected { background: var(--surface); }
+.memory-item-row:focus-within { outline: 2px solid var(--coffee-dark); outline-offset: 2px; }
+.memory-item-name { min-width: 0; overflow-wrap: break-word; }
+.memory-item-name app-carb-provenance { margin-top: 3px; }
+.memory-item-quantity, .memory-item-carbs { white-space: nowrap; }
+.memory-item-quantity { color: var(--muted); font-size: .8rem; }
+.memory-summary { display: grid; gap: 5px; font-size: .82rem; }
+.memory-total, .memory-history { display: flex; flex-wrap: wrap; gap: 5px 12px; align-items: center; }
+.memory-total > strong { font-size: 1rem; }
+.memory-history { color: var(--muted); }
+.memory-reuse { display: grid; gap: 8px; }
+.memory-selection-tools { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-size: .82rem; }
+.memory-reuse-button { justify-self: start; padding: .65rem .9rem; }
+.memory-selection-error { margin: 0; font-size: .85rem; }
+@media (max-width: 760px) { .memory-card-grid { grid-template-columns: minmax(0,1fr); } }
+@container memory-card (max-width: 420px) {
+  .memory-item-row { grid-template-columns: 18px minmax(0,1fr) auto; gap: 3px 8px; }
+  .memory-item-row input { grid-row: 1 / 3; }
+  .memory-item-name { grid-column: 2; }
+  .memory-item-quantity { grid-column: 2; grid-row: 2; }
+  .memory-item-carbs { grid-column: 3; grid-row: 1 / 3; }
+  .memory-item-row.single-item { grid-template-columns: minmax(0,1fr) auto; }
+  .single-item .memory-item-name, .single-item .memory-item-quantity { grid-column: 1; }
+  .single-item .memory-item-carbs { grid-column: 2; }
+}

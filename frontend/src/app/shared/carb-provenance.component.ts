@@ -4,7 +4,7 @@ import { CarbProvenance } from '../core/models';
 @Component({
   selector: 'app-carb-provenance',
   standalone: true,
-  host: { '[class.compact]': 'compact' },
+  host: { '[class.compact]': 'compact', '[class.memory]': 'memory' },
   template: `@if (compact) { <small class="compact-source" tabindex="0" [title]="description" [attr.aria-label]="description">{{ shortLabel }}</small> }
     @else { <small>{{ label }}@if (overridden) { · Override entered by you }@if (provenance?.sourceMealVerifiedAt) { <span title="The source meal was verified. This does not verify the current meal or changed portion."> · source meal verified</span> }</small> }`,
   styles: [':host { display:block; } small { color:var(--muted); font-size:.78rem; line-height:1.4; overflow-wrap:anywhere; } :host(.compact) { min-width:0; max-width:100%; } .compact-source { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; overflow-wrap:normal; font-size:.74rem; }']
@@ -13,7 +13,14 @@ export class CarbProvenanceComponent {
   @Input() provenance?: CarbProvenance | null;
   @Input() overridden = false;
   @Input() compact = false;
+  @Input() memory = false;
+  @Input() adjusted = false;
   get shortLabel() {
+    if (this.memory) {
+      if (this.adjusted) return 'Adjusted';
+      if (this.overridden || this.provenance?.referenceSource === 'Manual') return 'Your carbs';
+      return { Unknown: 'Source unknown', Manual: 'Your carbs', AiEstimate: 'AI estimate', Mixed: 'Mixed sources' }[this.provenance?.referenceSource ?? 'Unknown'];
+    }
     if (this.provenance?.transformation.includes('HistoricalReuse')) return 'From history';
     return { Unknown: 'Source unknown', Manual: 'Your value', AiEstimate: 'AI estimate', Mixed: 'Mixed sources' }[this.provenance?.referenceSource ?? 'Unknown'];
   }
@@ -26,6 +33,6 @@ export class CarbProvenanceComponent {
     const origin = { Unknown: 'Source unknown', Manual: 'Entered by you', AiEstimate: 'AI estimate', Mixed: 'Mixed sources' }[source];
     const operation = this.provenance?.transformation;
     return operation?.includes('HistoricalReuse') ? `From previous record · ${origin.toLowerCase()}`
-      : operation?.includes('Calculated') ? `Calculated from saved food · ${origin.toLowerCase()}` : origin;
+      : operation?.includes('Calculated') ? `Calculated from saved ${this.memory ? 'item' : 'food'} · ${origin.toLowerCase()}` : origin;
   }
 }

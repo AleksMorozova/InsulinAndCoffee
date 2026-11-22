@@ -303,14 +303,18 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
 
     public async Task<IReadOnlyList<CalculatedMealItemDto>> ReuseItemsAsync(Guid id, ReuseDeliveryMealRequest request, CancellationToken token)
     {
-        var order = await db.DeliveryMeals.AsNoTracking().Include(order => order.Items).SingleOrDefaultAsync(order => order.Id == id && order.UserId == UserId, token)
+        var order = await db.DeliveryMeals.Include(order => order.Items).SingleOrDefaultAsync(order => order.Id == id && order.UserId == UserId, token)
             ?? throw new NotFoundException("Delivery meal", id);
         if (request.ExpectedRevision != order.Revision) throw new DeliveryMealConflictException();
         if (request.ItemIds.Count == 0 || request.ItemIds.Distinct().Count() != request.ItemIds.Count
             || request.ItemIds.Any(itemId => !order.Items.Any(item => item.Id == itemId)))
             throw new ValidationException("Select one or more items from this structured order.");
-        return await Calculator.CalculateItemsAsync(order.Items.Where(item => request.ItemIds.Contains(item.Id)).OrderBy(item => item.DisplayOrder)
+        var items = await Calculator.CalculateItemsAsync(order.Items.Where(item => request.ItemIds.Contains(item.Id)).OrderBy(item => item.DisplayOrder)
             .Select(item => new MealItemInputDto(Guid.Empty, item.Quantity, SourceDeliveryMealItemId: item.Id)).ToArray(), null, null, token);
+        order.UsageCount++;
+        order.LastUsedAt = timeProvider.GetUtcNow();
+        await SaveAsync(token);
+        return items;
     }
 
     private async Task SaveAsync(CancellationToken token)

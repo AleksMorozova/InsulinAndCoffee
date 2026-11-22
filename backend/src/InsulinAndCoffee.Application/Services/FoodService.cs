@@ -119,6 +119,10 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider, ICurrentUs
             throw new ValidationException("Nutrition values cannot be negative.");
         }
 
+        var reference = request.MeasurementType == FoodMeasurementType.Grams ? request.CarbsPer100g : request.CarbsPerUnit;
+        if (reference.HasValue && decimal.Round(reference.Value, 2) != reference.Value)
+            throw new ValidationException("Carbohydrate references support at most two decimal places so saved food values remain exact.");
+
         switch (request.MeasurementType)
         {
             case FoodMeasurementType.Grams:
