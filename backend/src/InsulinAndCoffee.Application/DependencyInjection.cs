@@ -9,6 +9,8 @@ public static class DependencyInjection
     {
         services.AddScoped<AuthService>();
         services.AddScoped<AdminLoginAttemptService>();
+        services.AddScoped<AiMonitoringService>();
+        services.AddScoped<InsulinAndCoffee.Application.Abstractions.AiRequestContext>();
         services.AddScoped<FoodService>();
         services.AddScoped<DeliveryMealService>();
         services.AddScoped<MealCalculationService>();

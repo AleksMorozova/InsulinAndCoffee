@@ -4,6 +4,7 @@ import { of, Subject, throwError, TimeoutError } from 'rxjs';
 import { ApiService } from '../core/api.service';
 import { MealAssistantResponse } from '../core/meal-assistant.models';
 import { MealAssistantComponent } from './meal-assistant.component';
+import { inResponsiveFrame } from '../testing/responsive-frame';
 
 describe('MealAssistantComponent', () => {
   let fixture: ComponentFixture<MealAssistantComponent>;
@@ -20,7 +21,7 @@ describe('MealAssistantComponent', () => {
   };
 
   beforeEach(async () => {
-    api = jasmine.createSpyObj<ApiService>('ApiService', ['sendMealAssistantMessage', 'getMeal', 'getMealAssistantConversations', 'getMealAssistantConversation', 'getMealAssistantCalculatorDraft', 'getMealAssistantDraftState']);
+    api = jasmine.createSpyObj<ApiService>('ApiService', ['sendMealAssistantMessage', 'getMeal', 'getMealAssistantConversations', 'getMealAssistantConversation', 'getMealAssistantCalculatorDraft', 'getMealAssistantDraftState', 'renameMealAssistantConversation']);
     api.getMealAssistantConversations.and.returnValue(of([]));
     await TestBed.configureTestingModule({
       imports: [MealAssistantComponent],
@@ -40,6 +41,79 @@ describe('MealAssistantComponent', () => {
     expect(fixture.nativeElement.textContent).toContain("couldn't find matching meals");
     expect(fixture.componentInstance.error).toBe('');
     expect(fixture.componentInstance.turns.length).toBe(1);
+  });
+
+  it('prefills a saved order item quantity and provides just one whole-order action', async () => {
+    fixture.componentInstance.turns = [{ question: 'California', answer: { ...response, meals: [], knowledge: { foods: [],
+      items: [{ id: 'california', orderId: 'order', placeName: 'Le Gril', orderName: 'Sushi', name: 'California', quantity: 1,
+        unit: 'Portion', carbsPer100g: null, carbsPerUnit: 60, effectiveCarbs: 60 }],
+      orders: [{ id: 'order', placeName: 'Le Gril', dishName: 'Sushi', portionDescription: '', carbs: 135, lastUsedAt: null }] } } }];
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const input: HTMLInputElement | null = fixture.nativeElement.querySelector('.result-actions input');
+    expect(input?.value).toBe('1');
+    const text: string = fixture.nativeElement.textContent;
+    expect(text.match(/Add entire order/g)?.length).toBe(1); expect(text).not.toContain('Reuse whole order');
+  });
+
+  it('edits the persisted current meal by index and retries the exact edit safely', () => {
+    const component = fixture.componentInstance;
+    const item = { foodItemId: 'food', foodName: 'Soup', quantity: 1, measurementType: 'Portion' as const, carbsPer100g: null,
+      carbsPerUnit: 20, weightGrams: null, calculatedCarbs: 20, carbOverride: null, effectiveCarbs: 20 };
+    component.conversationId = 'conversation'; component.draftVersion = 1;
+    component.turns = [{ question: 'Add Soup', answer: { ...response, draft: { items: [item], issues: [], totalCarbs: 20 } } }];
+    component.draftQuantities[0] = 2;
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => new Error('Offline')));
+    component.editCurrentItem(0, 'set');
+    const envelope = api.sendMealAssistantMessage.calls.mostRecent().args;
+    expect(envelope[5]).toEqual({ itemIndex: 0, action: 'set', quantity: 2 }); expect(envelope[4]).toBe(1);
+    component.retryFailed(); expect(api.sendMealAssistantMessage.calls.mostRecent().args).toEqual(envelope);
+  });
+
+  it('renames conversations through the existing API service', () => {
+    spyOn(window, 'prompt').and.returnValue('  Lunch plans  ');
+    api.renameMealAssistantConversation.and.returnValue(of(undefined));
+    fixture.componentInstance.renameChat({ id: 'conversation', title: 'Old title', updatedAt: '' });
+    expect(api.renameMealAssistantConversation).toHaveBeenCalledOnceWith('conversation', 'Lunch plans');
+  });
+
+  it('keeps Russian timeout errors in Russian and preserves the failed question', () => {
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => new TimeoutError()));
+    fixture.componentInstance.message = 'Сколько брала на калифорнию'; fixture.componentInstance.send();
+    expect(fixture.componentInstance.error).toContain('не успел');
+    expect(fixture.componentInstance.failedSend?.question).toBe('Сколько брала на калифорнию');
+  });
+
+  it('keeps Ukrainian lookup controls and timeout errors in Ukrainian', () => {
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => new TimeoutError()));
+    fixture.componentInstance.message = 'знайди гречку';
+    expect(fixture.componentInstance.ui('quantity')).toBe('Кількість');
+    fixture.componentInstance.send();
+    expect(fixture.componentInstance.error).toContain('не встиг');
+  });
+
+  it('keeps the expanded current meal, scrolling transcript and composer usable at desktop, tablet and phone widths', async () => {
+    const component = fixture.componentInstance;
+    const item = { foodItemId: 'food', foodName: 'Long saved restaurant item name with a readable quantity', quantity: 1,
+      measurementType: 'Portion' as const, carbsPer100g: null, carbsPerUnit: 20, weightGrams: null, calculatedCarbs: 20, carbOverride: null, effectiveCarbs: 20 };
+    component.turns = Array.from({ length: 12 }, (_, index) => ({ question: 'Question ' + index, answer: { ...response, meals: [] } }));
+    component.turns.push({ question: 'Add food', answer: { ...response, meals: [], draft: { items: [item], issues: ['Unresolved: another food'], totalCarbs: 20 } } });
+    component.mealSummaryOpen = true;
+    fixture.detectChanges(); await fixture.whenStable();
+    const host: HTMLElement = fixture.nativeElement;
+    host.style.height = 'calc(100dvh - 24px)';
+    await inResponsiveFrame(host, viewport => {
+      const transcript: HTMLElement | null = host.querySelector('.transcript');
+      const composer: HTMLElement | null = host.querySelector('.composer');
+      const summary: HTMLElement | null = host.querySelector('.live-meal');
+      if (!transcript || !composer || !summary) throw new Error('Expected persistent chat controls');
+      expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
+      expect(transcript.scrollHeight).toBeGreaterThan(transcript.clientHeight);
+      expect(viewport.getComputedStyle(transcript).overflowY).toBe('auto');
+      expect(composer.getBoundingClientRect().bottom).toBeLessThanOrEqual(viewport.innerHeight);
+      expect(summary.getBoundingClientRect().bottom).toBeLessThanOrEqual(composer.getBoundingClientRect().top);
+      expect(summary.querySelector('input')?.value).toBe('1');
+    });
   });
 
   it('keeps a selected order item identity, unit and quantity on retry', () => {

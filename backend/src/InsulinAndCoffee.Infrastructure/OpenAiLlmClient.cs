@@ -1,17 +1,18 @@
 using System.Diagnostics;
-using System.Globalization;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
+using InsulinAndCoffee.Domain.Entities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 
 namespace InsulinAndCoffee.Infrastructure;
 
-public class OpenAiLlmClient(HttpClient http, IConfiguration configuration, ILogger<OpenAiLlmClient> logger) : ILlmClient
+public class OpenAiLlmClient(HttpClient http, IConfiguration configuration, ILogger<OpenAiLlmClient> logger,
+    IAiUsageWriter? usageWriter = null, AiRequestContext? tracking = null, TimeProvider? clock = null) : ILlmClient
 {
     private const string ToolName = "search_meal_history";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -29,6 +30,7 @@ public class OpenAiLlmClient(HttpClient http, IConfiguration configuration, ILog
 
     public async Task<AssistantSearch> InterpretAsync(IReadOnlyList<AssistantContext> context, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var settings = configuration.GetSection("MealAssistant");
         var key = settings["ApiKey"];
         var model = settings["Model"];
@@ -61,11 +63,19 @@ public class OpenAiLlmClient(HttpClient http, IConfiguration configuration, ILog
         });
 
         var started = Stopwatch.GetTimestamp();
+        var record = new AiUsageRecord { Id = Guid.NewGuid(), UserId = tracking?.UserId, Model = model,
+            OperationId = tracking is { OperationId: var operation } && operation != Guid.Empty ? operation : Guid.NewGuid(),
+            ConversationId = tracking?.ConversationId, CorrelationId = tracking?.CorrelationId,
+            StartedAtUtc = (clock ?? TimeProvider.System).GetUtcNow(), Status = "Failure", ErrorCode = "provider_error" };
         try
         {
             using var response = await http.SendAsync(request, timeout.Token);
+            if (response.Headers.TryGetValues("x-request-id", out var requestIds))
+                record.ProviderRequestId = requestIds.FirstOrDefault() is { Length: <= 200 } providerId ? providerId : null;
             if (!response.IsSuccessStatusCode)
             {
+                record.ErrorCode = response.StatusCode switch { System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden => "provider_auth",
+                    System.Net.HttpStatusCode.TooManyRequests => "provider_rate_limit", _ => "provider_http_error" };
                 logger.LogWarning("Meal assistant provider returned HTTP {Status}", (int)response.StatusCode);
                 if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.Forbidden)
                     throw new MealAssistantUnavailableException("The Meal Assistant provider rejected its credentials or permissions.", "assistant_provider_auth");
@@ -73,62 +83,67 @@ public class OpenAiLlmClient(HttpClient http, IConfiguration configuration, ILog
             }
 
             using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(timeout.Token));
-            LogUsage(json.RootElement, model, settings);
+            if (json.RootElement.TryGetProperty("model", out var reportedModel) && reportedModel.ValueKind == JsonValueKind.String
+                && reportedModel.GetString() is { Length: > 0 and <= 100 } actualModel) record.Model = actualModel;
+            ReadUsage(json.RootElement, record);
             var calls = json.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("tool_calls");
             if (calls.GetArrayLength() != 1) throw new JsonException();
             var function = calls[0].GetProperty("function");
             if (function.GetProperty("name").GetString() != ToolName) throw new JsonException();
-            return JsonSerializer.Deserialize<AssistantSearch>(function.GetProperty("arguments").GetString()!, JsonOptions)
+            var result = JsonSerializer.Deserialize<AssistantSearch>(function.GetProperty("arguments").GetString()!, JsonOptions)
                 ?? throw new JsonException();
+            record.Status = "Success"; record.ErrorCode = null;
+            return result;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
+            record.ErrorCode = "provider_timeout";
             logger.LogWarning("Meal assistant provider timed out");
             throw new MealAssistantUnavailableException("Meal Assistant took too long to respond. Try again.", "assistant_timeout");
+        }
+        catch (OperationCanceledException)
+        {
+            record.Status = "Cancelled"; record.ErrorCode = "request_cancelled";
+            throw;
         }
         catch (Exception error) when (error is HttpRequestException or JsonException or InvalidOperationException
             or KeyNotFoundException or ArgumentException or IndexOutOfRangeException)
         {
+            record.ErrorCode = error is HttpRequestException ? "provider_network" : "provider_response_invalid";
             logger.LogWarning("Meal assistant provider request failed with {FailureType}", error.GetType().Name);
             throw new MealAssistantUnavailableException("Meal Assistant could not complete the search. Try again.");
         }
         finally
         {
+            record.CompletedAtUtc = (clock ?? TimeProvider.System).GetUtcNow();
+            record.CreatedAtUtc = record.CompletedAtUtc;
+            record.DurationMs = (long)Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            if (usageWriter is not null)
+            {
+                try { await usageWriter.WriteAsync(record); }
+                catch (Exception error) { logger.LogError("AI tracking failed: {FailureType}, usage {UsageId}", error.GetType().Name, record.Id); }
+            }
             logger.LogInformation("Meal assistant model {Model}: {LlmCalls} provider call, {ProviderRetries} automatic retries, {ElapsedMs} ms",
-                model, 1, 0, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+                record.Model, 1, 0, record.DurationMs);
         }
     }
 
-    private void LogUsage(JsonElement response, string model, IConfiguration settings)
+    private static void ReadUsage(JsonElement response, AiUsageRecord record)
     {
-        int? input = null, output = null, cached = null;
         if (response.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object)
         {
-            input = ReadTokens(usage, "prompt_tokens");
-            output = ReadTokens(usage, "completion_tokens");
+            record.InputTokens = ReadTokens(usage, "prompt_tokens");
+            record.OutputTokens = ReadTokens(usage, "completion_tokens");
+            record.TotalTokens = ReadTokens(usage, "total_tokens");
             if (usage.TryGetProperty("prompt_tokens_details", out var details) && details.ValueKind == JsonValueKind.Object)
-                cached = ReadTokens(details, "cached_tokens");
+                record.CachedInputTokens = ReadTokens(details, "cached_tokens");
+            if (usage.TryGetProperty("completion_tokens_details", out var outputDetails) && outputDetails.ValueKind == JsonValueKind.Object)
+                record.ReasoningTokens = ReadTokens(outputDetails, "reasoning_tokens");
         }
-
-        var pricing = settings.GetSection($"Pricing:{model}");
-        var inputRate = Rate(pricing["InputUsdPerMillion"]);
-        var outputRate = Rate(pricing["OutputUsdPerMillion"]);
-        var cachedRate = Rate(pricing["CachedInputUsdPerMillion"]);
-        decimal? estimate = null;
-        if (input is int prompt && output is int completion && inputRate is decimal full && outputRate is decimal generated)
-        {
-            var cachedCount = Math.Min(prompt, cached ?? 0);
-            estimate = ((prompt - cachedCount) * full + cachedCount * (cachedRate ?? full) + completion * generated) / 1_000_000m;
-        }
-
-        logger.LogInformation("Meal assistant usage for {Model}: {InputTokens} input, {CachedInputTokens} cached input, {OutputTokens} output, {EstimatedUsd} estimated USD",
-            model, input, cached, output, estimate);
     }
 
     private static int? ReadTokens(JsonElement usage, string name) =>
         usage.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number &&
         value.TryGetInt32(out var count) && count >= 0 ? count : null;
 
-    private static decimal? Rate(string? value) =>
-        decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var rate) && rate is >= 0 and <= 1000000 ? rate : null;
 }

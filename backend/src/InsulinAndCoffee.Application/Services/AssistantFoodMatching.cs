@@ -14,10 +14,11 @@ public static class AssistantFoodMatching
         ["shawarma", "шаурма", "шаурму", "шаверма", "шаверму"],
         ["borscht", "борщ", "борща", "борщу"],
         ["porridge", "каша", "каши", "каші"],
+        ["buckwheat", "buckwheat porridge", "гречка", "гречки", "гречку", "гречневая каша", "гречневой каши", "гречневую кашу", "гречана каша", "гречаної каші", "гречану кашу"],
         ["bread", "хлеб", "хлеба", "хліб", "хліба"],
         ["pizza", "пицца", "піца", "пиццу", "піцу", "пиццы", "піци"],
         ["potatoes", "potato", "картошка", "картошки", "картошку", "картопля", "картоплі", "картоплю"],
-        ["california", "калифорния", "каліфорнія", "california roll", "california sushi", "калифорнию", "каліфорнію"],
+        ["california", "калифорния", "каліфорнія", "california roll", "california sushi", "калифорнию", "каліфорнію", "калифорнии", "каліфорнії"],
         ["chicken", "курка", "курятина", "курица"],
         ["rice", "рис"],
         ["fried potatoes", "смажена картопля", "жареная картошка"],
@@ -26,7 +27,7 @@ public static class AssistantFoodMatching
     ];
     private static readonly string[][] RestaurantAliases =
     [
-        ["le grill", "ле гриль", "ле грілль"],
+        ["le grill", "le gril", "ле гриль", "ле грілль"],
         ["huli huli", "хули хули", "хулі хулі"]
     ];
 

@@ -26,6 +26,174 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
             NpgsqlModelBuilderExtensions.HasPostgresEnum(modelBuilder, "result_rating", new[] { "perfect", "good", "high_glucose", "low_glucose", "unknown" });
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.AiModelPricing", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("CachedInputPricePerMillionTokens")
+                        .HasPrecision(28, 14)
+                        .HasColumnType("numeric(28,14)");
+
+                    b.Property<DateTimeOffset>("EffectiveFromUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset?>("EffectiveToUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("InputPricePerMillionTokens")
+                        .HasPrecision(28, 14)
+                        .HasColumnType("numeric(28,14)");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("OutputPricePerMillionTokens")
+                        .HasPrecision(28, 14)
+                        .HasColumnType("numeric(28,14)");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Provider", "Model", "EffectiveFromUtc")
+                        .IsUnique();
+
+                    b.ToTable("AiModelPrices");
+                });
+
+            modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.AiUsageRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CacheStatus")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal?>("CachedInputCostUsd")
+                        .HasPrecision(28, 14)
+                        .HasColumnType("numeric(28,14)");
+
+                    b.Property<decimal?>("CachedInputPricePerMillionTokens")
+                        .HasPrecision(28, 14)
+                        .HasColumnType("numeric(28,14)");
+
+                    b.Property<int?>("CachedInputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("DurationMs")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ErrorCode")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal?>("EstimatedCostUsd")
+                        .HasPrecision(28, 14)
+                        .HasColumnType("numeric(28,14)");
+
+                    b.Property<string>("Feature")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<decimal?>("InputCostUsd")
+                        .HasPrecision(28, 14)
+                        .HasColumnType("numeric(28,14)");
+
+                    b.Property<decimal?>("InputPricePerMillionTokens")
+                        .HasPrecision(28, 14)
+                        .HasColumnType("numeric(28,14)");
+
+                    b.Property<int?>("InputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Model")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("OperationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("OutputCostUsd")
+                        .HasPrecision(28, 14)
+                        .HasColumnType("numeric(28,14)");
+
+                    b.Property<decimal?>("OutputPricePerMillionTokens")
+                        .HasPrecision(28, 14)
+                        .HasColumnType("numeric(28,14)");
+
+                    b.Property<int?>("OutputTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("PricingVersion")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<bool>("ProviderCalled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ProviderRequestId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("ReasoningTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int?>("TotalTokens")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("OperationId");
+
+                    b.HasIndex("StartedAtUtc");
+
+                    b.HasIndex("UserId", "StartedAtUtc");
+
+                    b.HasIndex("Model", "Feature", "StartedAtUtc");
+
+                    b.ToTable("AiUsageRecords");
+                });
+
             modelBuilder.Entity("InsulinAndCoffee.Domain.Entities.AssistantConversation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -46,6 +214,10 @@ namespace InsulinAndCoffee.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bigint")
                         .HasDefaultValue(0L);
+
+                    b.Property<string>("Title")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");

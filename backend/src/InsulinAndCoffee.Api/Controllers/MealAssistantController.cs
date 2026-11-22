@@ -1,5 +1,6 @@
 using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Application.Services;
+using InsulinAndCoffee.Application.Abstractions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -10,7 +11,7 @@ namespace InsulinAndCoffee.Api.Controllers;
 [ApiController]
 [Route("api/meal-assistant")]
 [EnableRateLimiting("meal-assistant")]
-public class MealAssistantController(MealAssistantService assistant) : ControllerBase
+public class MealAssistantController(MealAssistantService assistant, AiRequestContext tracking) : ControllerBase
 {
     [HttpGet("conversations")]
     public async Task<ActionResult<IReadOnlyList<AssistantConversationSummary>>> List(CancellationToken cancellationToken) =>
@@ -35,8 +36,18 @@ public class MealAssistantController(MealAssistantService assistant) : Controlle
         return NoContent();
     }
 
+    [HttpPatch("conversations/{id:guid}")]
+    public async Task<IActionResult> Rename(Guid id, RenameAssistantConversation request, CancellationToken cancellationToken)
+    {
+        await assistant.RenameAsync(id, request.Title, cancellationToken);
+        return NoContent();
+    }
+
     [HttpPost("messages")]
     [RequestSizeLimit(8192)]
-    public async Task<ActionResult<MealAssistantResponse>> Send(MealAssistantRequest request, CancellationToken cancellationToken) =>
-        Ok(await assistant.SendAsync(request, cancellationToken));
+    public async Task<ActionResult<MealAssistantResponse>> Send(MealAssistantRequest request, CancellationToken cancellationToken)
+    {
+        tracking.CorrelationId = HttpContext.TraceIdentifier.Length <= 200 ? HttpContext.TraceIdentifier : null;
+        return Ok(await assistant.SendAsync(request, cancellationToken));
+    }
 }

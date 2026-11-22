@@ -7,6 +7,7 @@ import { CalculatedMealItem, Dashboard, DiabetesSettings, FoodItem, DeliveryMeal
 
 import { AssistantConversation, AssistantDraftState, AssistantFoodSelection, AssistantTurn, MealAssistantResponse } from './meal-assistant.models';
 import { DeliveryMealItemInput, DeliveryMealPreview } from './models';
+import { AiUsageRecord, AiMonitoringOverview, AiUsageFilters, AiModelPricing, CreateAiPricing } from './ai-monitoring.models';
 
 export interface UpsertFoodRequest {
   name: string;
@@ -95,9 +96,9 @@ export class ApiService {
 
   constructor(private readonly http: HttpClient) {}
 
-  sendMealAssistantMessage(conversationId: string | null, message: string, requestId: string, selection?: AssistantFoodSelection, expectedDraftVersion?: number) {
+  sendMealAssistantMessage(conversationId: string | null, message: string, requestId: string, selection?: AssistantFoodSelection, expectedDraftVersion?: number, edit?: { itemIndex: number; action: 'set' | 'remove'; quantity?: number }) {
     return this.http.post<MealAssistantResponse>(`${this.apiUrl}/meal-assistant/messages`, { conversationId, message, requestId,
-      ...(selection ? { selection } : {}), ...(expectedDraftVersion !== undefined ? { expectedDraftVersion } : {})
+      ...(selection ? { selection } : {}), ...(expectedDraftVersion !== undefined ? { expectedDraftVersion } : {}), ...(edit ? { edit } : {})
     }, { context: this.localErrorContext }).pipe(timeout(90000));
   }
 
@@ -120,6 +121,26 @@ export class ApiService {
   deleteMealAssistantConversation(id: string) {
     return this.http.delete<void>(`${this.apiUrl}/meal-assistant/conversations/${id}`, { context: this.localErrorContext });
   }
+
+  renameMealAssistantConversation(id: string, title: string) {
+    return this.http.patch<void>(`${this.apiUrl}/meal-assistant/conversations/${id}`, { title }, { context: this.localErrorContext });
+  }
+
+  private aiParams(filters: AiUsageFilters) {
+    let params = new HttpParams();
+    for (const [key, value] of Object.entries(filters)) if (value) params = params.set(key, value);
+    return params;
+  }
+  getAiOverview(filters: AiUsageFilters) {
+    return this.http.get<AiMonitoringOverview>(`${this.apiUrl}/admin/ai-monitoring/overview`, { params: this.aiParams(filters), context: this.localErrorContext });
+  }
+  getAiRequests(filters: AiUsageFilters, page = 1, sort = 'time', descending = true) {
+    return this.http.get<PaginatedResult<AiUsageRecord>>(`${this.apiUrl}/admin/ai-monitoring/requests`, {
+      params: this.aiParams(filters).set('page', page).set('pageSize', 25).set('sort', sort).set('descending', descending), context: this.localErrorContext });
+  }
+  getAiRequest(id: string) { return this.http.get<AiUsageRecord>(`${this.apiUrl}/admin/ai-monitoring/requests/${id}`, { context: this.localErrorContext }); }
+  getAiPricing() { return this.http.get<AiModelPricing[]>(`${this.apiUrl}/admin/ai-monitoring/pricing`, { context: this.localErrorContext }); }
+  createAiPricing(request: CreateAiPricing) { return this.http.post<AiModelPricing>(`${this.apiUrl}/admin/ai-monitoring/pricing`, request, { context: this.localErrorContext }); }
 
   getDashboard() {
     return this.http.get<Dashboard>(`${this.apiUrl}/dashboard/today`, { context: this.localErrorContext });

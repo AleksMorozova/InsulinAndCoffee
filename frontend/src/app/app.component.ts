@@ -76,6 +76,7 @@ import { AuthService } from './core/auth.service';
           <a routerLink="/settings" routerLinkActive="active" ariaCurrentWhenActive="page" (click)="openMenu = null">Settings</a>
           @if (auth.isAdmin()) {
             <a routerLink="/admin/login-attempts" routerLinkActive="active" ariaCurrentWhenActive="page" (click)="openMenu = null">Login History</a>
+            <a routerLink="/admin/ai-monitoring" routerLinkActive="active" ariaCurrentWhenActive="page" (click)="openMenu = null">AI Monitoring</a>
           }
           <button type="button" (click)="logout()">Logout</button>
         </div>

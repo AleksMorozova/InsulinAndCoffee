@@ -282,8 +282,8 @@ public partial class AssistantPostgreSqlSafetyTests
         var model = new ConcurrentModel();
         await using var firstDb = database.Open();
         await using var secondDb = database.Open();
-        var first = SendOrConflict(Service(firstDb, seed.Owner, model), new(seed.ConversationId, "Add bread", Guid.NewGuid(), ExpectedDraftVersion: 1));
-        var second = SendOrConflict(Service(secondDb, seed.Owner, model), new(seed.ConversationId, "Add bread", Guid.NewGuid(), ExpectedDraftVersion: 1));
+        var first = SendOrConflict(Service(firstDb, seed.Owner, model), new(seed.ConversationId, "Please add bread", Guid.NewGuid(), ExpectedDraftVersion: 1));
+        var second = SendOrConflict(Service(secondDb, seed.Owner, model), new(seed.ConversationId, "Please add bread", Guid.NewGuid(), ExpectedDraftVersion: 1));
         var results = await Task.WhenAll(first, second);
 
         Assert.Single(results, result => result.Response is not null);
@@ -302,7 +302,7 @@ public partial class AssistantPostgreSqlSafetyTests
     {
         await using var database = await TestDatabase.CreateAsync();
         var seed = await SeedAsync(database);
-        var request = new MealAssistantRequest(seed.ConversationId, "Add bread", Guid.NewGuid(), ExpectedDraftVersion: 1);
+        var request = new MealAssistantRequest(seed.ConversationId, "Please add bread", Guid.NewGuid(), ExpectedDraftVersion: 1);
         var model = new ConcurrentModel();
         await using var firstDb = database.Open();
         await using var secondDb = database.Open();
@@ -343,11 +343,11 @@ public partial class AssistantPostgreSqlSafetyTests
         await using var database = await TestDatabase.CreateAsync();
         var seed = await SeedAsync(database);
         var model = new ConcurrentModel();
-        var request = new MealAssistantRequest(seed.ConversationId, "Add bread", Guid.NewGuid(), ExpectedDraftVersion: 1);
+        var request = new MealAssistantRequest(seed.ConversationId, "Please add bread", Guid.NewGuid(), ExpectedDraftVersion: 1);
         await using var firstDb = database.Open();
         await using var secondDb = database.Open();
         var answers = await Task.WhenAll(SendOrConflict(Service(firstDb, seed.Owner, model), request),
-            SendOrConflict(Service(secondDb, seed.Owner, model), request with { Message = "Add a different amount of bread" }));
+            SendOrConflict(Service(secondDb, seed.Owner, model), request with { Message = "Please add a different amount of bread" }));
         Assert.Single(answers, answer => answer.Response is not null);
         Assert.Equal("assistant_request_reused", Assert.Single(answers, answer => answer.Error is not null).Error?.Code);
         await using var verify = database.Open();

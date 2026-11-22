@@ -182,6 +182,25 @@ public sealed class AuthIntegrationTests : IClassFixture<AuthIntegrationTests.Ap
         Assert.Equal(HttpStatusCode.OK, (await adminClient.GetAsync("/api/admin/login-attempts")).StatusCode);
     }
 
+    [Theory]
+    [InlineData("overview")]
+    [InlineData("requests")]
+    [InlineData("pricing")]
+    [InlineData("requests/00000000-0000-0000-0000-000000000001")]
+    public async Task AiMonitoring_Endpoints_EnforceAdminRole(string path)
+    {
+        using var anonymous = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anonymous.GetAsync("/api/admin/ai-monitoring/" + path)).StatusCode);
+        using var regular = factory.CreateClient();
+        regular.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(regular, "aleks", "aleks"));
+        Assert.Equal(HttpStatusCode.Forbidden, (await regular.GetAsync("/api/admin/ai-monitoring/" + path)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await regular.PostAsJsonAsync("/api/admin/ai-monitoring/pricing", new { })).StatusCode);
+        using var admin = factory.CreateClient();
+        admin.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", await LoginAsync(admin, "admin", "admin"));
+        Assert.Equal(path.StartsWith("requests/") ? HttpStatusCode.NotFound : HttpStatusCode.OK,
+            (await admin.GetAsync("/api/admin/ai-monitoring/" + path)).StatusCode);
+    }
+
     [Fact]
     public async Task AdminLoginAttempts_FiltersOrdersAndPagesResults()
     {

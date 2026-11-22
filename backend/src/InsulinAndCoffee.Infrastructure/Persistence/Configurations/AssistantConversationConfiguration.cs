@@ -9,6 +9,7 @@ public class AssistantConversationConfiguration : IEntityTypeConfiguration<Assis
     public void Configure(EntityTypeBuilder<AssistantConversation> entity)
     {
         entity.HasOne<User>().WithMany().HasForeignKey(conversation => conversation.UserId);
+        entity.Property(conversation => conversation.Title).HasMaxLength(100);
         entity.Property(conversation => conversation.DraftVersion).IsConcurrencyToken().HasDefaultValue(0L);
         entity.Property(conversation => conversation.Revision).IsConcurrencyToken().HasDefaultValue(0L);
         entity.HasMany(conversation => conversation.Messages).WithOne().HasForeignKey(message => message.ConversationId);
