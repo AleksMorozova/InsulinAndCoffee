@@ -10,6 +10,8 @@ namespace InsulinAndCoffee.Infrastructure;
 
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options), IAppDbContext
 {
+    public DbSet<AiUsageRecord> AiUsageRecords => Set<AiUsageRecord>();
+    public DbSet<AiModelPricing> AiModelPrices => Set<AiModelPricing>();
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         try { return await base.SaveChangesAsync(cancellationToken); }

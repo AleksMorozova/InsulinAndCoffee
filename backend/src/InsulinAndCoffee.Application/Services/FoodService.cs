@@ -26,8 +26,9 @@ public class FoodService(IAppDbContext db, TimeProvider timeProvider, ICurrentUs
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLower();
-            query = query.Where(f => f.Name.ToLower().Contains(term));
+            var term = AssistantIntentText.Interpret(search, false) is { Intent: "lookup", Foods.Length: 1 } lookup
+                ? lookup.Foods[0].Name : FoodKnowledgeSearchService.LookupName(search);
+            query = FoodKnowledgeSearchService.FindFoods(query, term, true);
         }
 
         var totalCount = await query.CountAsync(cancellationToken);

@@ -5,6 +5,7 @@ export interface AssistantOrderItem extends AssistantSavedFood { orderId: string
 export interface AssistantSavedFood { id: string; name: string; unit: FoodMeasurementType; carbsPer100g: number | null; carbsPerUnit: number | null; provenance?: CarbProvenance | null; }
 
 export interface MealAssistantResponse {
+  resultStatus?: 'Completed' | 'PartiallyCompleted' | 'NeedsClarification' | 'NoMatchesFound' | 'Failed' | null;
   draftVersion?: number;
   requestId?: string | null;
   replayed?: boolean;

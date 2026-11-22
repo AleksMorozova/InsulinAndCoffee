@@ -31,6 +31,7 @@ export const routes: Routes = [
   { path: 'supplies', component: SuppliesComponent, title: 'Supplies', canActivate: [authGuard] },
   { path: 'settings', component: SettingsComponent, title: 'Settings', canActivate: [authGuard] },
   { path: 'admin/login-attempts', component: LoginAttemptsComponent, title: 'Login History', canActivate: [adminGuard] },
+  { path: 'admin/ai-monitoring', loadComponent: () => import('./pages/admin/ai-monitoring.component').then(module => module.AiMonitoringComponent), title: 'AI Monitoring', canActivate: [adminGuard] },
   { path: 'not-found', component: NotFoundPageComponent, title: 'Page not found' },
   { path: 'access-denied', component: AccessDeniedPageComponent, title: 'Access denied' },
   { path: 'error', component: GenericErrorPageComponent, title: 'Something went wrong' },

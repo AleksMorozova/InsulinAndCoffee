@@ -119,7 +119,7 @@ public class MealAssistantTests
         await using var db = CreateDb();
         var model = new FakeLlm(new([new("Porridge", -1, FoodMeasurementType.Grams)]));
 
-        await Assert.ThrowsAsync<MealAssistantUnavailableException>(() => Assistant(db, model).SendAsync(new(null, "Find porridge"), default));
+        await Assert.ThrowsAsync<MealAssistantUnavailableException>(() => Assistant(db, model).SendAsync(new(null, "Look through records for porridge"), default));
         Assert.Empty(db.AssistantConversations);
         Assert.Empty(db.AssistantMessages);
     }
@@ -252,7 +252,7 @@ public class MealAssistantTests
         var result = await Assistant(db, model).SendAsync(new(null, "что взять на шаурму?"), CancellationToken.None);
 
         Assert.Empty(result.Meals);
-        Assert.Contains("Which food", result.Message);
+        Assert.Contains("Уточни", result.Message);
         Assert.Single(model.Context);
     }
 

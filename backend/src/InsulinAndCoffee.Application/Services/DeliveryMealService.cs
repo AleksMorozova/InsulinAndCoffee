@@ -42,11 +42,12 @@ public class DeliveryMealService(IAppDbContext db, TimeProvider timeProvider, IC
         var searchResultsQuery = baseQuery;
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim().ToLower();
-            searchResultsQuery = searchResultsQuery.Where(k =>
-                k.PlaceName.ToLower().Contains(term) ||
-                k.DishName.ToLower().Contains(term) ||
-                k.Tags.ToLower().Contains(term) || k.Items.Any(item => item.Name.ToLower().Contains(term)));
+            var term = AssistantIntentText.Interpret(search, false) is { Intent: "lookup", Foods.Length: 1 } lookup
+                ? lookup.Foods[0].Name : FoodKnowledgeSearchService.LookupName(search);
+            var food = AssistantFoodMatching.Query(new(term, null, null));
+            var orders = FoodKnowledgeSearchService.FindOrders(db.DeliveryMeals.AsNoTracking().Where(order => order.UserId == UserId), food, true).Select(order => order.Id);
+            var items = FoodKnowledgeSearchService.FindItems(db.DeliveryMealItems.AsNoTracking().Where(item => item.DeliveryMeal!.UserId == UserId), food, true).Select(item => item.DeliveryMealId);
+            searchResultsQuery = searchResultsQuery.Where(order => orders.Contains(order.Id) || items.Contains(order.Id));
         }
 
         var searchResults = await searchResultsQuery

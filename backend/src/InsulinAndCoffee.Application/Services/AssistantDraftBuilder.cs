@@ -7,6 +7,22 @@ namespace InsulinAndCoffee.Application.Services;
 
 public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, MealCalculationService calculation)
 {
+    public async Task<AssistantDraft> EditItemAsync(AssistantDraft? current, AssistantDraftEdit edit, CancellationToken token)
+    {
+        if (current is null || edit.ItemIndex < 0 || edit.ItemIndex >= current.Items.Count || edit.Action is not ("set" or "remove"))
+            throw new ValidationException("Choose an item from the current draft.");
+        await PrepareAsync(current.Items, token, current.Sources);
+        var inputs = current.Items.Select(ToInput).ToList();
+        if (edit.Action == "remove") inputs.RemoveAt(edit.ItemIndex);
+        else
+        {
+            if (edit.Quantity is null or <= 0 or > 10000) throw new ValidationException("Specify a positive quantity up to 10,000.");
+            inputs[edit.ItemIndex] = inputs[edit.ItemIndex] with { Quantity = edit.Quantity.Value };
+        }
+        var items = await calculation.CalculateItemsAsync(inputs, null, null, token);
+        return current with { Items = items, TotalCarbs = Math.Round(items.Sum(item => item.EffectiveCarbs), 2), EditFeedback = null,
+            Sources = current.Sources?.Where(source => items.Any(item => item.FoodName == source.Name)).ToArray() };
+    }
     public async Task<IReadOnlyList<CalculatedMealItemDto>> PrepareAsync(
         IReadOnlyList<CalculatedMealItemDto> items, CancellationToken cancellationToken, IReadOnlyList<AssistantDraftSource>? sources = null)
     {

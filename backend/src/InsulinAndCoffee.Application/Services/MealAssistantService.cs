@@ -14,7 +14,8 @@ using Microsoft.Extensions.Logging;
 namespace InsulinAndCoffee.Application.Services;
 
 public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, ILlmClient llm,
-    MealHistorySearchService history, TimeProvider clock, ILogger<MealAssistantService> logger, AssistantDraftBuilder? drafts = null, FoodKnowledgeSearchService? knowledge = null)
+    MealHistorySearchService history, TimeProvider clock, ILogger<MealAssistantService> logger, AssistantDraftBuilder? drafts = null, FoodKnowledgeSearchService? knowledge = null,
+    AiRequestContext? tracking = null)
 {
     private static readonly JsonSerializerOptions StoredJson = new() { PropertyNameCaseInsensitive = true };
     public async Task<IReadOnlyList<AssistantConversationSummary>> ListAsync(CancellationToken cancellationToken)
@@ -22,7 +23,7 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         var userId = currentUser.UserId;
         return await db.AssistantConversations.AsNoTracking().Where(item => item.UserId == userId)
             .OrderByDescending(item => item.UpdatedAt).ThenBy(item => item.Id).Take(50)
-            .Select(item => new AssistantConversationSummary(item.Id,
+            .Select(item => new AssistantConversationSummary(item.Id, item.Title ??
                 item.Messages.Where(message => message.Role == "user").OrderBy(message => message.CreatedAt)
                     .Select(message => message.Content).FirstOrDefault() ?? "Conversation", item.UpdatedAt))
             .ToListAsync(cancellationToken);
@@ -95,6 +96,18 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         }
     }
 
+    public async Task RenameAsync(Guid id, string title, CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(title) || title.Trim().Length > 100) throw new ValidationException("Enter a conversation title of 1–100 characters.");
+        var owner = currentUser.UserId;
+        var conversation = await db.AssistantConversations.SingleOrDefaultAsync(row => row.Id == id && row.UserId == owner, token)
+            ?? throw new NotFoundException("Conversation", id);
+        conversation.Title = title.Trim();
+        conversation.Revision++;
+        try { await db.SaveChangesAsync(token); }
+        catch (DbUpdateConcurrencyException) { db.DiscardChanges(); throw new AssistantConflictException("draft_version_conflict", "The conversation changed. Refresh and rename it again."); }
+    }
+
     public async Task<MealAssistantResponse> SendAsync(MealAssistantRequest request, CancellationToken cancellationToken)
     {
         var message = request.Message?.Trim();
@@ -112,7 +125,7 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             Selection = request.Selection is null ? null : request.Selection.Kind == "Food" ? (object)new
             { request.Selection.FoodId, Quantity = request.Selection.Quantity?.ToString("G29", CultureInfo.InvariantCulture), request.Selection.Unit }
                 : new { request.Selection.FoodId, Quantity = request.Selection.Quantity?.ToString("G29", CultureInfo.InvariantCulture), request.Selection.Unit, request.Selection.Kind }
-        }))));
+        }) + (request.Edit is null ? "" : JsonSerializer.Serialize(request.Edit)))));
         var requestMessageId = request.RequestId is Guid requestId
             ? new Guid(SHA256.HashData(Encoding.UTF8.GetBytes($"{userId:D}/{requestId:D}"))[..16])
             : Guid.NewGuid();
@@ -231,7 +244,14 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
                 selection.Unit ?? selectedFood.MeasurementType, FoodItemId: selectedFood.Id)], "draft",
                 active.Draft?.Pending is not null ? "clarify" : active.Draft is not null ? "add" : "create");
         }
-        var search = selectedSearch ?? (recentMeals ? new AssistantSearch([], "recent")
+        if (tracking is not null) { tracking.UserId = userId; tracking.ConversationId = conversation.Id; tracking.OperationId = request.RequestId ?? Guid.NewGuid(); }
+        if (request.Edit is not null)
+        {
+            if (request.Selection is not null) throw new ValidationException("Send either a source selection or a draft edit.");
+            selectedSearch = new([], "draft", "set");
+        }
+        var textSearch = AssistantIntentText.Interpret(message, active.Draft is not null);
+        var search = selectedSearch ?? textSearch ?? (recentMeals ? new AssistantSearch([], "recent")
             : namedLookup ? new AssistantSearch([new(lookupName, null, null)], "lookup")
             : await llm.InterpretAsync(context, cancellationToken));
         if (recentMeals) logger.LogInformation("Meal assistant recent history handled with {LlmCalls} provider calls", 0);
@@ -279,7 +299,8 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         if (ordinalUnresolved) reply = "Choose one saved order and an available structured item first. Legacy orders can only be reused as a whole.";
         var draftStarted = Stopwatch.GetTimestamp();
         var draft = search.Intent == "draft" && drafts is not null
-            ? await drafts.UpdateAsync(search, active.Draft, cancellationToken) : null;
+            ? request.Edit is not null ? await drafts.EditItemAsync(active.Draft, request.Edit, cancellationToken)
+                : await drafts.UpdateAsync(search, active.Draft, cancellationToken) : null;
         if (search.Intent == "draft")
         {
             logger.LogInformation("Meal assistant draft took {ElapsedMs} ms", Stopwatch.GetElapsedTime(draftStarted).TotalMilliseconds);
@@ -291,12 +312,16 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             reply = "Here’s what I found in your saved records.";
         if (draft is { Issues.Count: > 0, EditFeedback: null } && knowledge is not null && search.Foods.Length > 0)
             sources = await knowledge.SearchAsync(search.Foods, cancellationToken);
-        if (draft is not null)
+        var found = draft?.Items.Count > 0 || meals.Count > 0 || sources is not null && (sources.Foods.Count > 0 || sources.Orders.Count > 0 || sources.Items?.Count > 0);
+        var resultStatus = draft?.Issues.Count > 0 ? draft.Items.Count > 0 ? "PartiallyCompleted" : "NeedsClarification"
+            : draft?.EditFeedback is not null || search.Foods.Length == 0 && search.Intent != "recent" && draft is null ? "NeedsClarification"
+            : found || draft is not null ? "Completed" : "NoMatchesFound";
+        var language = AssistantLanguage.Detect(context.Reverse().Where(item => item.Role == "user").Select(item => item.Content));
+        if (language != "en")
         {
-            if (System.Text.RegularExpressions.Regex.IsMatch(message, "[іїєґІЇЄҐ]|борщу|хліб|дві|прибери|додай"))
-                reply = draft.Issues.Count > 0 ? "Перевір продукти, які вдалося знайти, й уточни решту." : "Ось твій план прийому їжі.";
-            else if (System.Text.RegularExpressions.Regex.IsMatch(message, "[а-яА-ЯёЁ]"))
-                reply = draft.Issues.Count > 0 ? "Проверь найденные продукты и уточни остальные." : "Вот твой план приёма пищи.";
+            reply = AssistantLanguage.Reply(language, resultStatus, draft is not null, found);
+            if (draft is not null) draft = draft with { Issues = draft.Issues.Select(issue => AssistantLanguage.Detail(issue, language)).ToArray(),
+                EditFeedback = draft.EditFeedback is null ? null : AssistantLanguage.Detail(draft.EditFeedback, language) };
         }
         if (mutation && draft is not null)
         {
@@ -304,7 +329,7 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             conversation.DraftJson = JsonSerializer.Serialize(draft);
         }
         var response = new MealAssistantResponse(conversation.Id, draft?.EditFeedback ?? reply, meals, draft, sources,
-            conversation.DraftVersion, request.RequestId);
+            conversation.DraftVersion, request.RequestId, ResultStatus: resultStatus);
         if (request.ConversationId is null) db.AssistantConversations.Add(conversation);
         conversation.UpdatedAt = now;
         conversation.Revision = checked(conversation.Revision + 1);

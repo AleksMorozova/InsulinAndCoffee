@@ -127,7 +127,7 @@ public partial class AssistantPostgreSqlSafetyTests
         var order = await Post<DeliveryMealDto>(owner, "/api/delivery-meals", OrderRequest("Le Grill", 30m, [new("Rice", 150m, FoodMeasurementType.Grams, 20m)]));
         await Post<DeliveryMealDto>(owner, "/api/delivery-meals", OrderRequest("Huli Huli", 40m, [new("Rice", 200m, FoodMeasurementType.Grams, 20m)]));
         model.Plans.Enqueue(new([new("Rice", 150m, FoodMeasurementType.Grams)], "draft"));
-        var ambiguous = await Post<MealAssistantResponse>(owner, "/api/meal-assistant/messages", new MealAssistantRequest(null, "Add 150g rice", Guid.NewGuid()));
+        var ambiguous = await Post<MealAssistantResponse>(owner, "/api/meal-assistant/messages", new MealAssistantRequest(null, "Plan 150g rice", Guid.NewGuid()));
         Assert.Empty(ambiguous.Draft!.Items); Assert.NotEmpty(ambiguous.Draft.Issues);
         Assert.Equal(2, ambiguous.Knowledge!.Foods.Count); Assert.Equal(2, ambiguous.Knowledge.Items?.Count);
         var selected = await Post<MealAssistantResponse>(owner, "/api/meal-assistant/messages", new MealAssistantRequest(ambiguous.ConversationId, "Choose Le Grill rice", Guid.NewGuid(), new(order.Items![0].Id, 150m, FoodMeasurementType.Grams, "DeliveryMealItem"), ambiguous.DraftVersion));

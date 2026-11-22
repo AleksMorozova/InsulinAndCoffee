@@ -5,6 +5,8 @@ namespace InsulinAndCoffee.Application.Abstractions;
 
 public interface IAppDbContext
 {
+    DbSet<AiUsageRecord> AiUsageRecords { get; }
+    DbSet<AiModelPricing> AiModelPrices { get; }
     DbSet<AssistantConversation> AssistantConversations { get; }
     DbSet<AssistantMessage> AssistantMessages { get; }
     DbSet<AssistantRequestReceipt> AssistantRequestReceipts { get; }
