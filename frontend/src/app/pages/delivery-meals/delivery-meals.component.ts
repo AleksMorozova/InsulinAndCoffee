@@ -44,7 +44,18 @@ import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPr
       </div>
       <div class="memory-card-grid favorites-grid">
         @for (meal of sections.favorites; track meal.id) {
-          <ng-container [ngTemplateOutlet]="mealCard" [ngTemplateOutletContext]="{ meal: meal }" />
+          <article class="favorite-bookmark" [attr.aria-label]="meal.placeName + ' · ' + meal.dishName">
+            <div class="favorite-copy">
+              <span class="favorite-place">{{ meal.placeName }}</span>
+              <strong>{{ meal.dishName }}</strong>
+              @if (meal.portionDescription && meal.portionDescription.trim()) { <span class="favorite-portion">{{ meal.portionDescription }}</span> }
+            </div>
+            <div class="favorite-actions">
+              <strong class="favorite-carbs">{{ meal.carbs | number:'1.0-2' }} g carbs</strong>
+              <button type="button" class="compact-button favorite-reuse" [disabled]="reusingOrderId !== null" (click)="createMealDraft(meal)">Use Again</button>
+              <button type="button" class="subtle favorite-remove" [attr.aria-label]="'Remove ' + meal.dishName + ' from favorites'" title="Remove from favorites" (click)="toggleFavorite(meal)">×</button>
+            </div>
+          </article>
         } @empty {
           @if (!loading && !loadError) {
           <div class="empty-state wide">
