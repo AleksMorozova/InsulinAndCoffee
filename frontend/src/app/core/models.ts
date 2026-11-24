@@ -77,6 +77,8 @@ export interface MealItemInput {
 }
 
 export interface CalculatedMealItem {
+  draftItemId?: string | null;
+  sourceItemId?: string | null;
   sourceDeliveryMealItemId?: string | null;
   provenance?: CarbProvenance | null;
   sourceMealItemId?: string | null;

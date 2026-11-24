@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Domain.Entities;
+using InsulinAndCoffee.Domain.Enums;
 using InsulinAndCoffee.Domain.Exceptions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -71,7 +72,7 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             : (await ReadAsync(id, cancellationToken)).LastOrDefault(turn => turn.Answer.Draft is not null)?.Answer.Draft;
         if (draft is { Unresolved: null, Issues.Count: > 0 })
             draft = (await ReadAsync(id, cancellationToken)).LastOrDefault(turn => turn.Answer.Draft is not null)?.Answer.Draft ?? AssistantDraftBuilder.HydrateLegacy(draft);
-        return new(conversation.DraftVersion, draft);
+        return new(conversation.DraftVersion, draft is null ? null : AssistantDraftBuilder.WithIdentities(draft));
     }
 
     public async Task<IReadOnlyList<CalculatedMealItemDto>> PrepareDraftAsync(Guid id, CancellationToken cancellationToken)
@@ -129,7 +130,8 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             Selection = request.Selection is null ? null : request.Selection.Kind == "Food" ? (object)new
             { request.Selection.FoodId, Quantity = request.Selection.Quantity?.ToString("G29", CultureInfo.InvariantCulture), request.Selection.Unit }
                 : new { request.Selection.FoodId, Quantity = request.Selection.Quantity?.ToString("G29", CultureInfo.InvariantCulture), request.Selection.Unit, request.Selection.Kind }
-        }) + (request.Edit is null ? "" : JsonSerializer.Serialize(request.Edit)) + (request.Resolution is null ? "" : JsonSerializer.Serialize(new
+        }) + (request.Edit is null ? "" : JsonSerializer.Serialize(request.Edit.DraftItemId is null
+            ? (object)new { request.Edit.ItemIndex, request.Edit.Action, request.Edit.Quantity } : request.Edit)) + (request.Resolution is null ? "" : JsonSerializer.Serialize(new
         {
             request.Resolution.UnresolvedId, request.Resolution.Action, request.Resolution.SourceId, request.Resolution.SourceKind,
             Quantity = request.Resolution.Quantity?.ToString("G29", CultureInfo.InvariantCulture), request.Resolution.Unit,
@@ -331,7 +333,9 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             throw new ValidationException("Explicitly request clearing or replacing the whole meal before resetting it.");
         if (search.Intent == "draft" && active.Draft is not null && (search.Operation is null or "create") && replaceRequested)
             search = search with { Operation = "replaceMeal" };
-        if (search.Operation is not (null or "create" or "add" or "clarify" or "remove" or "replace" or "replaceMeal" or "set" or "increase" or "decrease" or "clear" or "show")
+        if (search.Operation == "batch" && textSearch?.Operation != "batch")
+            throw new ValidationException("Use explicit independent meal edit commands.");
+        if (search.Operation is not (null or "create" or "add" or "clarify" or "remove" or "replace" or "replaceMeal" or "set" or "increase" or "decrease" or "clear" or "show" or "batch")
             || search.Target?.Length > 160 || search.Foods.Any(food => food.Restaurant?.Length > 180))
             throw new MealAssistantUnavailableException("The draft edit could not be interpreted.");
         var mutation = search.Intent == "draft" && search.Operation != "show";
@@ -386,13 +390,16 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         }
         if (draft is { Items.Count: 0, Issues.Count: 0 } && (search.Operation == "clear" || request.Edit?.Action == "remove" || request.Resolution?.Action == "remove"))
             reply = language == "ru" ? "Текущий приём пищи очищен." : language == "uk" ? "Поточний прийом їжі очищено." : "Current meal cleared.";
+        var operationSummary = search.Operation == "batch" && draft is { EditFeedback: null } && active.Draft is not null
+            ? DescribeOperations(search.Operations ?? [], active.Draft, draft, language) : null;
+        if (operationSummary is not null) reply = operationSummary;
         if (mutation && draft is not null)
         {
             conversation.DraftVersion = checked(conversation.DraftVersion + 1);
             conversation.DraftJson = JsonSerializer.Serialize(draft);
         }
         var response = new MealAssistantResponse(conversation.Id, draft?.EditFeedback ?? reply, meals, draft, sources,
-            conversation.DraftVersion, request.RequestId, ResultStatus: resultStatus);
+            conversation.DraftVersion, request.RequestId, ResultStatus: resultStatus, OperationSummary: operationSummary);
         logger.LogInformation("Assistant assembly {AssemblyStatus}, resolved {ResolvedCount}, unresolved {UnresolvedCount}, draft version {DraftVersion}",
             resultStatus, draft?.Items.Count ?? 0, draft?.Unresolved?.Count ?? draft?.Issues.Count ?? 0, conversation.DraftVersion);
         if (request.ConversationId is null) db.AssistantConversations.Add(conversation);
@@ -445,6 +452,37 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         logger.LogInformation("Meal assistant replay served with {LlmCalls} provider calls", 0);
         return (JsonSerializer.Deserialize<MealAssistantResponse>(receipt.ResponseJson, StoredJson)
             ?? throw new InvalidOperationException("The saved assistant response is unavailable.")) with { Replayed = true };
+    }
+
+    private static string DescribeOperations(AssistantSearch[] operations, AssistantDraft before, AssistantDraft after, string language)
+    {
+        var ru = language == "ru";
+        var uk = language == "uk";
+        var parts = new List<string>();
+        foreach (var operation in operations)
+        {
+            var name = operation.Target ?? "";
+            if (operation.Operation == "remove")
+            {
+                var score = AssistantFoodMatching.Score(name).Compile();
+                var existed = before.Items.Any(item => score(item.FoodName) > 0) || (before.Unresolved?.Any(item => score(item.Query.Name) > 0) ?? false);
+                parts.Add(existed ? (ru ? "Убрала " : uk ? "Прибрала " : "Removed ") + name + "."
+                    : name + (ru ? " уже нет в приёме пищи." : uk ? " вже немає у прийомі їжі." : " is already absent from the meal."));
+            }
+            else if (operation.Foods.FirstOrDefault() is { Quantity: { } quantity, Unit: { } unit })
+            {
+                var amount = quantity == 1m && unit == FoodMeasurementType.Portion && (ru || uk)
+                    ? ru ? "одну порцию" : "одну порцію"
+                    : quantity.ToString("G29", CultureInfo.InvariantCulture) + " " + (unit == FoodMeasurementType.Grams ? ru || uk ? "г" : "g" : unit.ToString());
+                var verb = operation.Operation == "decrease" ? ru ? " уменьшила на " : uk ? " зменшила на " : " reduced by "
+                    : ru ? " оставила " : uk ? " залишила " : " set to ";
+                parts.Add(name.Length == 0 ? "" : char.ToUpperInvariant(name[0]) + name[1..] + verb + amount + ".");
+            }
+        }
+        var label = after.Issues.Count > 0 ? ru ? "Известные углеводы: " : uk ? "Відомі вуглеводи: " : "Known carbs: "
+            : ru ? "Всего: " : uk ? "Усього: " : "Total: ";
+        parts.Add(label + after.TotalCarbs.ToString("G29", CultureInfo.InvariantCulture) + (ru ? " г углеводов." : uk ? " г вуглеводів." : " g carbs."));
+        return string.Join(" ", parts);
     }
 
     private static string DescribeDraft(AssistantDraft draft)

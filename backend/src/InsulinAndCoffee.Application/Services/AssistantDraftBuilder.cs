@@ -15,6 +15,7 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
             : food.MeasurementType == FoodMeasurementType.Grams ? $"{carbs} g / 100 g" : $"{carbs} g / 1 {food.MeasurementType}";
     public static AssistantDraft HydrateLegacy(AssistantDraft draft, string question = "")
     {
+        draft = WithIdentities(draft);
         if (draft.Unresolved is not null || draft.Issues.Count == 0) return draft;
         var parsed = AssistantIntentText.Interpret(question, false)?.Foods ?? [];
         var entries = draft.Issues.Select((detail, index) =>
@@ -30,6 +31,34 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
         }).ToArray();
         return draft with { Unresolved = entries, Pending = entries.Length == 1 ? entries[0].Query : null };
     }
+
+    public static AssistantDraft WithIdentities(AssistantDraft draft)
+    {
+        var seen = new HashSet<Guid>();
+        return draft with { Items = draft.Items.Select((item, index) =>
+        {
+            if (item.DraftItemId is Guid existing && existing != Guid.Empty && seen.Add(existing)) return item;
+            // Stable across old JSON reads and metadata changes; first mutation persists the ID.
+            var salt = 0;
+            Guid identity;
+            do { identity = new Guid(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                $"{index}/{item.SourceItemId}/{item.FoodItemId}/{item.FoodName}/{salt++}"))[..16]); } while (!seen.Add(identity));
+            return item with { DraftItemId = identity };
+        }).ToArray() };
+    }
+
+    private static bool SameReference(CalculatedMealItemDto left, CalculatedMealItemDto right) =>
+        left.SourceItemId.HasValue && left.SourceItemId == right.SourceItemId && left.FoodItemId == right.FoodItemId &&
+        left.MeasurementType == right.MeasurementType && left.CarbsPer100g == right.CarbsPer100g && left.CarbsPerUnit == right.CarbsPerUnit &&
+        left.CarbOverride == right.CarbOverride && left.Provenance == right.Provenance && (!left.CarbOverride.HasValue || left.Quantity == right.Quantity);
+
+    private async Task<CalculatedMealItemDto> SetQuantityAsync(CalculatedMealItemDto item, decimal quantity, CancellationToken token)
+    {
+        var input = ToInput(item) with { Quantity = quantity, CarbOverride = item.CarbOverride.HasValue
+            ? InsulinAndCoffee.Domain.Calculations.FoodCarbCalculator.ScaleTotal(item.CarbOverride.Value, item.Quantity, quantity) : null };
+        var updated = (await calculation.CalculateItemsAsync([input], null, null, token))[0];
+        return updated with { DraftItemId = item.DraftItemId, Provenance = item.Provenance };
+    }
     private void Trace(AssistantFoodQuery query, string status, AssistantCandidateKind? kind, Guid? selected, int count, int score, long started) =>
         logger?.LogInformation("Assistant match: operation {OperationId}, conversation {ConversationId}, correlation {CorrelationId}, sources {Sources}, candidates {CandidateCount}, score {Score}, selected {SelectedId}, type {CandidateType}, resolution {Resolution}, elapsed {ElapsedMs}",
             tracking?.OperationId, tracking?.ConversationId, tracking?.CorrelationId,
@@ -39,7 +68,8 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
 
     public async Task<AssistantDraft> ResolveAsync(AssistantDraft? current, AssistantResolution resolution, CancellationToken token)
     {
-        if (resolution.Quantity is <= 0 or > 10000 || resolution.Unit is { } unit && !Enum.IsDefined(unit))
+        if (current is not null) current = WithIdentities(current);
+        if (resolution.Action != "remove" && (resolution.Quantity is <= 0 or > 10000 || resolution.Unit is { } unit && !Enum.IsDefined(unit)))
             throw new ValidationException("Specify a positive quantity and a valid unit.");
         var unresolved = current?.Unresolved?.SingleOrDefault(item => item.Id == resolution.UnresolvedId)
             ?? throw new ValidationException("Choose an unresolved item from the current draft.");
@@ -68,7 +98,7 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                     FoodNameSnapshot: query.Name, CarbsPer100gSnapshot: query.Unit == FoodMeasurementType.Grams ? basis : null,
                     CarbsPerUnitSnapshot: query.Unit != FoodMeasurementType.Grams ? basis : null, CarbOverride: resolution.Carbs)], null, null, token))[0]
                     with { Provenance = new(CarbReferenceSource.Manual, CarbTransformation.Calculated) };
-                items.Add(manual); sources.Add(new(unresolved.Id, "Manual", manual.FoodName));
+                items.Add(manual with { DraftItemId = unresolved.Id }); sources.Add(new(unresolved.Id, "Manual", manual.FoodName));
             }
             else
             {
@@ -80,7 +110,7 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                         DeliveryMealId = resolution.SourceKind == "DeliveryMeal" ? resolution.SourceId : null, Restaurant = null };
                 }
                 var result = await BuildAsync([query], token) ?? throw new ValidationException("Enter a food to resolve.");
-                items.AddRange(result.Items); sources.AddRange(result.Sources ?? []);
+                items.AddRange(result.Items.Select((item, index) => index == 0 ? item with { DraftItemId = unresolved.Id } : item)); sources.AddRange(result.Sources ?? []);
                 remaining.AddRange((result.Unresolved ?? []).Select(item => item with { Id = unresolved.Id, OriginalText = unresolved.OriginalText }));
             }
         }
@@ -89,17 +119,20 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
     }
     public async Task<AssistantDraft> EditItemAsync(AssistantDraft? current, AssistantDraftEdit edit, CancellationToken token)
     {
-        if (current is null || edit.ItemIndex < 0 || edit.ItemIndex >= current.Items.Count || edit.Action is not ("set" or "remove"))
+        if (current is not null) current = WithIdentities(current);
+        var index = edit.DraftItemId.HasValue ? current?.Items.ToList().FindIndex(item => item.DraftItemId == edit.DraftItemId) ?? -1 : edit.ItemIndex;
+        if (current is not null && index < 0 && edit.DraftItemId.HasValue && edit.Action == "remove") return current;
+        if (current is null || index < 0 || index >= current.Items.Count || edit.Action is not ("set" or "remove"))
             throw new ValidationException("Choose an item from the current draft.");
-        await PrepareAsync(current.Items, token, current.Sources);
-        var inputs = current.Items.Select(ToInput).ToList();
-        if (edit.Action == "remove") inputs.RemoveAt(edit.ItemIndex);
+        var items = current.Items.ToList();
+        // Removal only needs the persisted entry identity; a deleted/edited source must not block it.
+        if (edit.Action == "remove") items.RemoveAt(index);
         else
         {
             if (edit.Quantity is null or <= 0 or > 10000) throw new ValidationException("Specify a positive quantity up to 10,000.");
-            inputs[edit.ItemIndex] = inputs[edit.ItemIndex] with { Quantity = edit.Quantity.Value };
+            await PrepareAsync([items[index]], token, current.Sources);
+            items[index] = await SetQuantityAsync(items[index], edit.Quantity.Value, token);
         }
-        var items = await calculation.CalculateItemsAsync(inputs, null, null, token);
         return current with { Items = items, TotalCarbs = Math.Round(items.Sum(item => item.EffectiveCarbs), 2), EditFeedback = null,
             Sources = current.Sources?.Where(source => items.Any(item => item.FoodName == source.Name)).ToArray() };
     }
@@ -139,14 +172,27 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                 && item.CarbOverride.HasValue && sources?.Any(source => source.Kind == "Manual" && source.Name == item.FoodName) == true
                 ? item with { Provenance = new(CarbReferenceSource.Manual, CarbTransformation.Calculated) } : item).ToArray();
         if (current.Where((item, index) => (item with { Provenance = null, SourceMealItemId = null, SourceDeliveryMealId = null, SourceDeliveryMealItemId = null })
-            != (items[index] with { Provenance = null, SourceMealItemId = null, SourceDeliveryMealId = null, SourceDeliveryMealItemId = null })).Any())
+            != (items[index] with { Provenance = null, SourceMealItemId = null, SourceDeliveryMealId = null, SourceDeliveryMealItemId = null, DraftItemId = null })).Any())
             throw new ValidationException("Saved food values changed. Ask for an updated meal draft.");
-        return current;
+        return current.Select((item, index) => item with { DraftItemId = items[index].DraftItemId }).ToArray();
     }
 
     public async Task<AssistantDraft?> UpdateAsync(AssistantSearch search, AssistantDraft? current, CancellationToken token)
     {
+        if (current is not null) current = WithIdentities(current);
         var op = search.Operation ?? "create";
+        if (op == "batch")
+        {
+            if (search.Operations is not { Length: > 0 and <= 6 } operations || operations.Any(operation => operation.Operation is not ("remove" or "set" or "decrease")))
+                throw new ValidationException("Send supported independent meal edits.");
+            var updated = current;
+            foreach (var operation in operations)
+            {
+                updated = await UpdateAsync(operation, updated, token);
+                if (updated?.EditFeedback is not null) return (current ?? new([], [], 0m)) with { EditFeedback = updated.EditFeedback };
+            }
+            return updated;
+        }
         // A provider's generic create is not permission to erase a conversation's existing meal.
         if (op == "create" && current is null) return await BuildAsync(search.Foods, token);
         if (op == "create") op = "add";
@@ -173,6 +219,11 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
         var bestScore = items.Select(item => score(item.FoodName)).DefaultIfEmpty(0).Max();
         var matches = items.Where(item => string.IsNullOrWhiteSpace(target) ||
             bestScore > 0 && score(item.FoodName) == bestScore).ToArray();
+        if (quantityEdit && portion?.Unit is { } requestedUnit && matches.Length > 1)
+            matches = matches.Where(item => item.MeasurementType == requestedUnit).ToArray();
+        var requestedSource = portion?.DeliveryMealItemId ?? portion?.DeliveryMealId ?? portion?.FoodItemId;
+        if (quantityEdit && requestedSource.HasValue)
+            matches = matches.Where(item => item.SourceItemId == requestedSource).ToArray();
         if (op is "add" or "replace" or "clarify")
         {
             if (op == "clarify" && current?.Unresolved?.Count > 0)
@@ -185,10 +236,8 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                     food.DeliveryMealItemId.HasValue ? "DeliveryMealItem" : food.DeliveryMealId.HasValue ? "DeliveryMeal" : "Food",
                     food.Quantity, food.Unit, SearchName: id.HasValue ? null : food.Name), token);
             }
-            if (op != "add" && current?.Issues.Count > 1)
+            if (op == "clarify" && current?.Issues.Count > 1)
                 return Feedback("Several foods still need clarification. Resend the complete meal with the intended foods and quantities.");
-            if (op == "replace" && current?.Issues.Count > 0)
-                return Feedback("Clarify the unresolved food before replacing another item.");
             if (op == "replace" && matches.Length != 1) return Feedback("Which item should I replace?", search);
             if (op == "clarify" && current?.Pending is null) return current;
             var queries = op == "clarify" ? search.Foods.Select(food => food with
@@ -204,13 +253,27 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
             if (op == "replace") items.Remove(matches[0]);
             items.AddRange(addition.Items);
             sources.AddRange(addition.Sources ?? []);
-            return Finish(op == "add" ? (current?.Issues ?? []).Concat(addition.Issues).ToArray() : addition.Issues,
-                op == "add" && current?.Pending is not null ? current.Pending : addition.Pending);
+            return Finish(op is "add" or "replace" ? (current?.Issues ?? []).Concat(addition.Issues).ToArray() : addition.Issues,
+                (op is "add" or "replace") && current?.Pending is not null ? current.Pending : addition.Pending);
         }
 
-        if (matches.Length == 0) return Feedback("That food is not in your draft. Ask to add it first.");
+        if (op == "remove" && current?.Unresolved is { Count: > 0 } pendingItems)
+        {
+            var pendingScore = pendingItems.Select(item => score(item.Query.Name)).DefaultIfEmpty(0).Max();
+            var pendingMatches = pendingItems.Where(item => pendingScore > 0 && score(item.Query.Name) == pendingScore).ToArray();
+            if (pendingMatches.Length == 1 && (matches.Length == 0 || pendingScore > bestScore))
+                return await ResolveAsync(current, new(pendingMatches[0].Id, "remove"), token);
+            if (pendingMatches.Length > 0) return Feedback("Choose the exact pending or resolved entry to remove.");
+        }
+        if (matches.Length == 0) return op == "remove" ? current : Feedback("That food is not in your draft. Ask to add it first.");
+        if (matches.Length > 1 && (op is "set" or "remove") && matches.Skip(1).All(item => SameReference(matches[0], item)))
+        {
+            // An explicit final quantity reconciles this logical source; never sum old duplicates.
+            foreach (var duplicate in matches.Skip(1)) items.Remove(duplicate);
+            matches = [matches[0]];
+        }
         if (matches.Length > 1)
-            return Feedback("Which item should I change: " + string.Join(", ", matches.Select(item => item.FoodName)) + "?",
+            return Feedback("Which item should I change: " + await DescribeMatchesAsync(matches, token) + "?",
                 quantityEdit ? search : null);
         var selected = matches[0];
         if (op == "remove")
@@ -231,13 +294,12 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
         else
         {
             if (quantity is < 0.1m or > 10000m ||
-                (selected.MeasurementType == FoodMeasurementType.Piece && decimal.Truncate(quantity) != quantity) ||
-                (selected.FoodItemId == Guid.Empty && !selected.SourceDeliveryMealItemId.HasValue && quantity != 1m))
+                (selected.MeasurementType == FoodMeasurementType.Piece && decimal.Truncate(quantity) != quantity))
                 return Feedback("That quantity is incompatible with the saved item.");
-            var updated = (await calculation.CalculateItemsAsync(
-                [ToInput(selected) with { Quantity = quantity }], null, null, token))[0];
+            await PrepareAsync([selected], token, current?.Sources);
+            var updated = await SetQuantityAsync(selected, quantity, token);
             if (selected.SourceDeliveryMealItemId.HasValue && (updated.FoodName != selected.FoodName || updated.MeasurementType != selected.MeasurementType
-                || updated.CarbsPer100g != selected.CarbsPer100g || updated.CarbsPerUnit != selected.CarbsPerUnit || updated.CarbOverride != selected.CarbOverride))
+                || updated.CarbsPer100g != selected.CarbsPer100g || updated.CarbsPerUnit != selected.CarbsPerUnit))
                 return Feedback("The saved order item changed. Choose it again before changing quantities.");
             // A quantity operation transforms the trusted, persisted reference; it does not change its origin.
             if (!selected.SourceMealItemId.HasValue && !selected.SourceDeliveryMealId.HasValue && !selected.SourceDeliveryMealItemId.HasValue)
@@ -254,6 +316,17 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                 sources.Where(source => items.Any(item => item.FoodName == source.Name)).Distinct().ToArray(),
                 issues.Count == 1 ? pending : null, Unresolved: op is "add" or "replace" or "clarify"
                     ? (current?.Unresolved ?? []).Concat(additionUnresolved).ToArray() : current?.Unresolved);
+    }
+
+    private async Task<string> DescribeMatchesAsync(CalculatedMealItemDto[] items, CancellationToken token)
+    {
+        var ids = items.Where(item => item.SourceDeliveryMealItemId.HasValue).Select(item => item.SourceDeliveryMealItemId!.Value).ToArray();
+        var owner = currentUser.UserId;
+        var places = ids.Length == 0 ? new Dictionary<Guid, string>() : await db.DeliveryMealItems.AsNoTracking()
+            .Where(item => ids.Contains(item.Id) && item.DeliveryMeal!.UserId == owner)
+            .ToDictionaryAsync(item => item.Id, item => item.DeliveryMeal!.PlaceName + " · " + item.DeliveryMeal.DishName, token);
+        return string.Join(", ", items.Select(item => $"{item.FoodName} · {item.Quantity} {item.MeasurementType} · {item.EffectiveCarbs} g carbs · source " +
+            (item.SourceDeliveryMealItemId is Guid id && places.TryGetValue(id, out var place) ? place : item.SourceItemId?.ToString()) + $" · entry {item.DraftItemId}"));
     }
 
     private static MealItemInputDto ToInput(CalculatedMealItemDto item) =>
@@ -401,7 +474,7 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
 
         var items = await calculation
             .CalculateItemsAsync(inputs, null, null, cancellationToken);
-        return new AssistantDraft(items, issues, Math.Round(items.Sum(item => item.EffectiveCarbs), 2), sources,
+        return new AssistantDraft(items.Select(item => item with { DraftItemId = Guid.NewGuid() }).ToArray(), issues, Math.Round(items.Sum(item => item.EffectiveCarbs), 2), sources,
             issues.Count == 1 ? pending : null, Unresolved: unresolved);
 
         void AddOrder(InsulinAndCoffee.Domain.Entities.DeliveryMeal order)

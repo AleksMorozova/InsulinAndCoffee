@@ -7,7 +7,7 @@ import { finalize, firstValueFrom, map, switchMap, TimeoutError } from 'rxjs';
 import { getApiErrorMessage, isApiError } from '../core/api-error';
 import { ApiService } from '../core/api.service';
 import { CarbProvenanceComponent } from '../shared/carb-provenance.component';
-import { AssistantConversation, AssistantDraft, AssistantFoodSelection, AssistantSavedFood, AssistantOrder, AssistantOrderItem, AssistantTurn, assistantFoodName, AssistantResolution, AssistantUnresolvedItem } from '../core/meal-assistant.models';
+import { AssistantConversation, AssistantDraft, AssistantFoodSelection, AssistantSavedFood, AssistantOrder, AssistantOrderItem, AssistantTurn, assistantFoodName, AssistantResolution, AssistantUnresolvedItem, AssistantDraftEdit } from '../core/meal-assistant.models';
 import { FoodMeasurementType } from '../core/models';
 
 @Component({
@@ -159,7 +159,7 @@ import { FoodMeasurementType } from '../core/models';
           </div>
         </article>
       }
-        @if (sending || failedSend) {
+        @if ((sending && !pendingItemId) || failedSend) {
           <article class="turn pending-turn">
             <h2>{{ sending || failedSend?.question }}</h2>
             @if (sending) { <p role="status">Searching your meal history…</p> }
@@ -169,28 +169,36 @@ import { FoodMeasurementType } from '../core/models';
             }
           </article>
         }
-        </div>
       @if (activeDraft; as draft) {
         @if (draft.items.length || draft.issues.length) {
           <details class="live-meal" [open]="mealSummaryOpen" (toggle)="mealSummaryOpen = mealDetails.open" #mealDetails>
             <summary>
-              <span>{{ draftLabel(activeDraftTurn?.question ?? '', 'title') }}</span>
-              <strong>{{ draft.totalCarbs | number }} {{ draftUnit(activeDraftTurn?.question ?? '', 'Grams', draft.totalCarbs) }} ·
-                {{ draftLabel(activeDraftTurn?.question ?? '', draft.issues.length ? 'subtotal' : 'total') }}</strong>
+              <span class="meal-heading"><strong>{{ draftLabel(activeDraftTurn?.question ?? '', 'title') }}</strong><small>{{ mealItemCount(draft.items.length + (draft.unresolved?.length ?? 0)) }}</small></span>
+              <span class="meal-total"><strong>{{ mealTotal(draft) }}</strong>
+                @if (draft.issues.length || draft.unresolved?.length) { <small>{{ draft.unresolved?.length ? mealItemCount(draft.unresolved?.length ?? 0) + ' · ' : '' }}{{ ui('clarify') }}</small> }</span>
             </summary>
             <div class="live-meal-items">
-              @for (item of draft.items; track $index) {
-                <div class="food-line">
-                  <span><strong>{{ displayFoodName(item.foodName) }}</strong><small>{{ item.quantity | number }}
-                    {{ draftUnit(activeDraftTurn?.question ?? '', item.measurementType, item.quantity) }}
-                    @if (isOrderItem(draft, item.foodName)) { · Ask Past Me }</small>
+              @for (item of draft.items; track draftItemKey($index, item)) {
+                <div class="food-line" [attr.aria-busy]="loading && pendingItemId !== null && pendingItemId === item.draftItemId">
+                  <div class="meal-food"><strong>{{ displayFoodName(item.foodName) }}</strong>
+                    @if (editingItem !== $index) { <small>{{ item.quantity | number }} {{ draftUnit(activeDraftTurn?.question ?? '', item.measurementType, item.quantity) }}</small> }
+                    @else {
+                      <div class="quantity-editor" (keydown.escape)="$event.preventDefault(); cancelQuantity()">
+                        <input #quantityInput type="number" min="0.01" [step]="item.measurementType === 'Piece' ? 1 : 0.01" [attr.aria-label]="ui('quantity') + ': ' + item.foodName" [attr.aria-invalid]="!validQuantity($index)"
+                          [ngModel]="draftQuantities[$index]" (ngModelChange)="draftQuantities[$index] = $event" [disabled]="loading || draftConflict" (keydown.enter)="$event.preventDefault(); saveQuantity($index)">
+                        <span>{{ draftUnit(activeDraftTurn?.question ?? '', item.measurementType, draftQuantities[$index] ?? item.quantity) }}</span>
+                        <button type="button" class="subtle" [disabled]="loading || draftConflict || !validQuantity($index)" (click)="saveQuantity($index)">{{ mealControl('save') }}</button>
+                        <button type="button" class="subtle" [disabled]="loading" (click)="cancelQuantity()">{{ mealControl('cancel') }}</button>
+                      </div>
+                    }
                     @if (unitWasInferred(draft, item.foodName)) { <small>{{ clarifyLabel('inferred') }}</small> }
-                    <app-carb-provenance [compact]="true" [provenance]="item.provenance" [overridden]="item.carbOverride !== null" /></span>
-                  <strong>{{ item.effectiveCarbs | number }} {{ draftUnit(activeDraftTurn?.question ?? '', 'Grams', item.effectiveCarbs) }}</strong>
-                  <label class="draft-quantity">{{ ui('quantity') }}<input type="number" [attr.aria-label]="ui('quantity') + ': ' + item.foodName" min="0.01" [step]="item.measurementType === 'Piece' ? 1 : 0.01"
-                    [ngModel]="draftQuantities[$index] ?? item.quantity" (ngModelChange)="draftQuantities[$index] = $event"></label>
-                  <button type="button" class="subtle" [disabled]="loading || draftConflict" (click)="editCurrentItem($index, 'set')">{{ ui('apply') }}</button>
-                  <button type="button" class="subtle" [attr.aria-label]="ui('remove') + ': ' + item.foodName" [disabled]="loading || draftConflict" (click)="editCurrentItem($index, 'remove')">×</button>
+                    <details class="meal-source"><summary>{{ mealSource(item) }}</summary><app-carb-provenance [provenance]="item.provenance" [overridden]="item.carbOverride !== null" /></details>
+                  </div>
+                  <div class="meal-item-actions"><strong class="item-carbs">{{ item.effectiveCarbs | number }} {{ ui('carbs') }}</strong>
+                    @if (loading && pendingItemId !== null && pendingItemId === item.draftItemId) { <small role="status">{{ mealControl('saving') }}</small> }
+                    @if (editingItem !== $index) { <button type="button" class="subtle meal-icon" [attr.data-item-edit]="$index" [attr.aria-label]="mealControl('edit') + ': ' + item.foodName" [title]="mealControl('edit')" [disabled]="loading || draftConflict" (click)="startQuantityEdit($index)">✎</button> }
+                    <button type="button" class="subtle meal-icon" [attr.aria-label]="ui('remove') + ': ' + item.foodName" [title]="ui('remove')" [disabled]="loading || draftConflict" (click)="editCurrentItem($index, 'remove')">×</button>
+                  </div>
                 </div>
               }
               @if (!draft.unresolved?.length) { @for (issue of draft.issues; track $index) { <p class="draft-warning">{{ issue }}</p> } }
@@ -221,6 +229,7 @@ import { FoodMeasurementType } from '../core/models';
           </details>
         }
       }
+        </div>
       <form (ngSubmit)="send()" [attr.aria-busy]="loading">
         <div class="composer">
         <textarea id="assistant-message" name="message" [(ngModel)]="message"
@@ -283,23 +292,30 @@ import { FoodMeasurementType } from '../core/models';
     .assistant-avatar { display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; color: var(--coffee-dark); background: #ebdbcb; }
     .meal { margin-block: .5rem; padding: .65rem; box-shadow: none; }
     .meal h3, .meal p { margin-block: .35rem; }
-    .food-line { display: flex; align-items:center; justify-content: space-between; flex-wrap:wrap; gap: .4rem; padding-block: .35rem; }
-    .food-line > span { flex:1; min-width:120px; }
-    .draft-quantity { font-size:.7rem; max-width:90px; }
-    .draft-quantity input { width:100%; min-width:0; padding:.3rem; }
-    .food-line button { padding:.35rem .5rem; }
+    .food-line { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.65rem; padding:.45rem 0; }
+    .meal-food { min-width:0; } .meal-food > strong { font-size:.94rem; }
+    .meal-item-actions { display:flex; align-items:center; gap:.25rem; }
+    .item-carbs { font-size:.9rem; max-width:12rem; text-align:end; }
+    .food-line button { padding:.3rem .5rem; min-height:36px; }
+    .food-line .meal-icon { width:44px; min-height:44px; flex-shrink:0; font-size:1.15rem; }
+    .quantity-editor { display:flex; align-items:center; flex-wrap:wrap; gap:.3rem; margin-block:.2rem; font-size:.8rem; }
+    .quantity-editor input { width:5rem; min-width:0; padding:.35rem; }
+    .meal-source { font-size:.74rem; color:var(--muted); }
+    .meal-source summary { cursor:pointer; width:fit-content; } .meal-source app-carb-provenance { margin-top:.2rem; }
     .result-actions { display:flex; align-items:end; gap:.5rem; flex-wrap:wrap; }
     .result-actions label { max-width:150px; font-size:.8rem; }
     .food-line small { display: block; color: var(--muted); }
-    .food-line > strong { flex-shrink: 0; }
-    .live-meal { flex-shrink: 0; border-top: 1px solid var(--line); background: #fffaf4; }
-    .live-meal summary { cursor: pointer; min-height: 48px; padding: .7rem 1rem; }
-    .live-meal summary strong { float: inline-end; margin-inline-start: .5rem; }
-    .live-meal-items { clear:both; max-height: min(30dvh, 16rem); overflow: auto; padding: 0 1rem .65rem; }
+    .live-meal { max-width:52rem; margin-top:.6rem; border:1px solid var(--line); border-radius:.75rem; background:#fffaf4; }
+    .live-meal > summary { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:.4rem 1rem; cursor:pointer; padding:.6rem .75rem; list-style:none; }
+    .live-meal > summary::-webkit-details-marker { display:none; }
+    .meal-heading,.meal-total { display:grid; gap:.1rem; } .meal-total { font-size:.95rem; }
+    .meal-heading > strong::before { content:'⌄'; margin-inline-end:.4rem; }
+    .live-meal > summary small { color:var(--muted); font-size:.76rem; font-weight:400; }
+    .live-meal-items { padding:0 .75rem .6rem; }
     .live-meal-items .food-line { overflow-wrap: anywhere; }
     .food-line + .food-line { border-top: 1px solid var(--line); }
 
-    .draft-cta { width: 100%; min-height: 44px; margin-top: .5rem; }
+    .draft-cta { display:block; width:auto; min-height:44px; margin:.4rem 0 0 auto; padding:.5rem .8rem; }
     .source-choices { margin-block: .55rem; }
     .draft-warning { border-radius: .5rem; background: #f3e7da; padding: .55rem; }
     .unresolved-item { display:grid; min-width:0; overflow-wrap:anywhere; gap:.4rem; padding:.6rem; border:1px solid var(--line); border-radius:.5rem; margin:.4rem 0; font-size:.82rem; }
@@ -308,7 +324,7 @@ import { FoodMeasurementType } from '../core/models';
     .clarification-fields input,.clarification-fields select { width:100%; min-width:0; padding:.4rem; }
     .clarification-actions { display:flex; flex-wrap:wrap; align-items:end; gap:.4rem; }
     .clarification-actions label { max-width:150px; } .clarification-choice { text-align:start; overflow-wrap:anywhere; }
-    .draft-cta.partial-cta { width:auto; min-height:0; padding:.5rem .75rem; }
+    @media(max-width:540px) { .food-line { grid-template-columns:minmax(0,1fr); gap:.15rem; } .meal-item-actions { justify-content:flex-end; } .food-line button { min-height:44px; } .food-line .meal-icon { width:44px; } .draft-cta { width:100%; } .live-meal > summary { align-items:start; flex-direction:column; } }
     .acknowledgment { display: flex; align-items: center; gap: .5rem; margin-block: .55rem; }
     .acknowledgment input { width: auto; }
     .actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
@@ -328,6 +344,9 @@ import { FoodMeasurementType } from '../core/models';
   `]
 })
 export class MealAssistantComponent {
+  private readonly hostElement = inject<ElementRef<HTMLElement>>(ElementRef);
+  @ViewChild('quantityInput') quantityInput?: ElementRef<HTMLInputElement>;
+  editingItem: number | null = null;
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
@@ -341,13 +360,14 @@ export class MealAssistantComponent {
   turns: AssistantTurn[] = [];
   conversationId: string | null = null;
   message = '';
-  failedSend?: { question: string; conversationId: string | null; requestId: string; selection?: AssistantFoodSelection; expectedDraftVersion: number; edit?: { itemIndex: number; action: 'set' | 'remove'; quantity?: number }; resolution?: AssistantResolution };
+  failedSend?: { question: string; conversationId: string | null; requestId: string; selection?: AssistantFoodSelection; expectedDraftVersion: number; edit?: AssistantDraftEdit; resolution?: AssistantResolution };
   draftVersion = 0;
   draftConflict = false;
   private currentDraft?: AssistantDraft | null;
   candidateQuantities: Record<string, number | undefined> = {};
   private selectedFood?: AssistantFoodSelection;
-  private selectedEdit?: { itemIndex: number; action: 'set' | 'remove'; quantity?: number };
+  private selectedEdit?: AssistantDraftEdit;
+  pendingItemId: string | null = null;
   private selectedResolution?: AssistantResolution;
   missingNames: Partial<Record<string, string>> = {};
   missingQuantities: Partial<Record<string, number>> = {};
@@ -439,13 +459,78 @@ export class MealAssistantComponent {
   isOrderItem(draft: AssistantDraft, name: string) {
     return draft.sources?.some(source => ['AskPastMe', 'AskPastMeItem'].includes(source.kind) && source.name === name) ?? false;
   }
+  draftItemKey(index: number, item: AssistantDraft['items'][number]) { return item.draftItemId ?? index; }
 
   editCurrentItem(index: number, action: 'set' | 'remove') {
     const item = this.activeDraft?.items[index];
-    if (!item || this.loading || this.draftConflict || !this.conversationId) return;
-    this.selectedEdit = { itemIndex: index, action, ...(action === 'set' ? { quantity: this.draftQuantities[index] ?? item.quantity } : {}) };
+    if (!item || this.loading || this.draftConflict || this.sessionExpired || !this.conversationId || (action === 'set' && !this.validQuantity(index))) return;
+    this.selectedEdit = { itemIndex: index, action, ...(item.draftItemId ? { draftItemId: item.draftItemId } : {}), ...(action === 'set' ? { quantity: this.draftQuantities[index] ?? item.quantity } : {}) };
     this.message = this.ui(action === 'remove' ? 'remove' : 'apply') + ': ' + item.foodName;
     this.send();
+  }
+
+  startQuantityEdit(index: number) {
+    const item = this.activeDraft?.items[index];
+    if (!item || this.loading || this.draftConflict || this.sessionExpired) return;
+    this.cancelQuantity();
+    this.editingItem = index;
+    this.draftQuantities[index] = item.quantity;
+    afterNextRender(() => { if (this.editingItem === index) { this.quantityInput?.nativeElement.focus(); this.quantityInput?.nativeElement.select(); } }, { injector: this.injector });
+  }
+
+  validQuantity(index: number) {
+    const quantity = this.draftQuantities[index];
+    const item = this.activeDraft?.items[index];
+    return !!item && typeof quantity === 'number' && Number.isFinite(quantity) && quantity >= 0.01 &&
+      (item.measurementType !== 'Piece' || Number.isInteger(quantity));
+  }
+
+  saveQuantity(index: number) {
+    if (this.editingItem !== index || !this.validQuantity(index) || this.loading || this.draftConflict) return;
+    if (this.draftQuantities[index] === this.activeDraft?.items[index]?.quantity) this.cancelQuantity();
+    else this.editCurrentItem(index, 'set');
+  }
+
+  cancelQuantity() {
+    if (this.loading) return;
+    const index = this.editingItem;
+    if (index !== null) {
+      delete this.draftQuantities[index];
+      afterNextRender(() => this.hostElement.nativeElement.querySelector<HTMLButtonElement>(`[data-item-edit="${index}"]`)?.focus(), { injector: this.injector });
+    }
+    this.editingItem = null;
+  }
+
+  mealControl(key: 'edit' | 'save' | 'cancel' | 'saving') {
+    return { en: { edit: 'Edit quantity', save: 'Save', cancel: 'Cancel', saving: 'Saving…' },
+      ru: { edit: 'Изменить количество', save: 'Сохранить', cancel: 'Отмена', saving: 'Сохранение…' },
+      uk: { edit: 'Змінити кількість', save: 'Зберегти', cancel: 'Скасувати', saving: 'Збереження…' } }[this.draftLocale(this.activeDraftTurn?.question ?? '')][key];
+  }
+
+  mealItemCount(count: number) {
+    const locale = this.draftLocale(this.activeDraftTurn?.question ?? '');
+    const plural = new Intl.PluralRules(locale).select(count);
+    const labels = locale === 'ru' ? ['позиция', 'позиции', 'позиций'] : locale === 'uk' ? ['позиція', 'позиції', 'позицій'] : ['item', 'items', 'items'];
+    return count + ' ' + labels[plural === 'one' ? 0 : plural === 'many' ? 2 : 1];
+  }
+
+  mealTotal(draft: AssistantDraft) {
+    const locale = this.draftLocale(this.activeDraftTurn?.question ?? '');
+    const partial = !!(draft.issues.length || draft.unresolved?.length);
+    const label = { en: partial ? 'Known carbs' : 'Total', ru: partial ? 'Известные углеводы' : 'Всего', uk: partial ? 'Відомі вуглеводи' : 'Усього' }[locale];
+    const unit = partial ? (locale === 'en' ? 'g' : 'г') : { en: 'g carbs', ru: 'г углеводов', uk: 'г вуглеводів' }[locale];
+    return `${label}: ${new Intl.NumberFormat(locale).format(draft.totalCarbs)} ${unit}`;
+  }
+
+  mealSource(item: AssistantDraft['items'][number]) {
+    const locale = this.draftLocale(this.activeDraftTurn?.question ?? '');
+    const source = item.provenance?.referenceSource ?? 'Unknown';
+    const history = item.provenance?.transformation.includes('HistoricalReuse') || (this.activeDraft && this.isOrderItem(this.activeDraft, item.foodName));
+    const key = item.carbOverride !== null ? 'manual' : source === 'AiEstimate' ? 'ai' : source === 'Mixed' ? 'mixed'
+      : source === 'Unknown' ? 'unknown' : history ? 'history' : item.foodItemId ? 'food' : 'manual';
+    return { en: { manual: 'Entered manually', ai: 'AI estimate', mixed: 'Mixed sources', unknown: 'Source unknown', history: 'From history', food: 'Saved food' },
+      ru: { manual: 'Введено вручную', ai: 'Оценка AI', mixed: 'Смешанные источники', unknown: 'Источник неизвестен', history: 'Из истории', food: 'Сохранённый продукт' },
+      uk: { manual: 'Введено вручну', ai: 'Оцінка AI', mixed: 'Змішані джерела', unknown: 'Джерело невідоме', history: 'З історії', food: 'Збережений продукт' } }[locale][key];
   }
 
   unitWasInferred(draft: AssistantDraft, name: string) { return draft.sources?.some(source => source.name === name && source.unitInferred) ?? false; }
@@ -523,16 +608,18 @@ export class MealAssistantComponent {
     const request = pending.resolution ? this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId, undefined, pending.expectedDraftVersion, undefined, pending.resolution)
       : pending.edit ? this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId, pending.selection, pending.expectedDraftVersion, pending.edit)
       : this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId, pending.selection, pending.expectedDraftVersion);
+    this.pendingItemId = pending.edit?.draftItemId ?? null;
     this.selectedFood = undefined;
     this.selectedEdit = undefined;
     this.selectedResolution = undefined;
     request.pipe(
       takeUntilDestroyed(this.destroyRef),
-      finalize(() => { this.loading = false; this.sending = ''; })
+      finalize(() => { this.loading = false; this.sending = ''; this.pendingItemId = null; })
     ).subscribe({
       next: answer => {
         const followReply = this.nearBottom();
-        if (answer.replayed && this.currentDraft === undefined) this.currentDraft = this.activeDraft ?? null;
+        const stale = (answer.draftVersion ?? 0) < this.draftVersion;
+        if ((answer.replayed || stale) && this.currentDraft === undefined) this.currentDraft = this.activeDraft ?? null;
         this.failedSend = undefined;
         this.conversationId = answer.conversationId;
         if (answer.draft && !this.activeDraft) this.mealSummaryOpen = true;
@@ -540,16 +627,17 @@ export class MealAssistantComponent {
         if (!this.turns.some(turn => turn.answer.requestId === responseId))
           this.turns = [...this.turns, { question, answer: { ...answer, requestId: responseId } }];
         if (!answer.replayed && (answer.draftVersion ?? 0) >= this.draftVersion) {
-          if (answer.draft) { this.currentDraft = answer.draft; this.draftQuantities = {}; }
+          if (answer.draft) { this.currentDraft = answer.draft; this.draftQuantities = {}; this.editingItem = null; }
           else if ((answer.draftVersion ?? 0) !== this.draftVersion) {
             this.draftConflict = true;
             this.error = 'Your draft changed elsewhere. Refresh the latest draft before editing.';
           }
           this.draftVersion = answer.draftVersion ?? this.draftVersion;
         }
-        if (answer.replayed) {
+        if (answer.replayed || stale) {
           this.draftConflict = true;
-          this.error = 'This request already completed. Refresh the latest draft before editing.';
+          this.error = stale ? 'A newer meal exists. Loading the latest draft before editing.' : 'This request already completed. Refresh the latest draft before editing.';
+          this.loadAuthoritativeDraft();
         }
         if (this.message.trim() === question) this.message = '';
         if (followReply) this.scrollToLatest();
@@ -560,6 +648,28 @@ export class MealAssistantComponent {
         this.sessionExpired = isApiError(response) && response.status === 401;
         this.draftConflict = isApiError(response) && response.status === 409;
         this.error = this.localizedSendError(response, question);
+        if (this.draftConflict) this.loadAuthoritativeDraft();
+      }
+    });
+  }
+
+  private loadAuthoritativeDraft() {
+    const id = this.conversationId;
+    if (!id) return;
+    this.api.getMealAssistantDraftState(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: state => {
+        if (this.conversationId !== id || state.draftVersion < this.draftVersion) return;
+        this.currentDraft = state.draft;
+        this.draftVersion = state.draftVersion;
+        this.draftQuantities = {}; this.editingItem = null;
+        this.failedSend = undefined;
+        this.draftConflict = false;
+        this.error = { en: 'Latest meal loaded. Your message is kept. Review the meal before sending another change.',
+          ru: 'Загружен актуальный приём пищи. Сообщение сохранено. Проверь состав перед новой отправкой.',
+          uk: 'Завантажено актуальний прийом їжі. Повідомлення збережено. Перевір склад перед новим надсиланням.' }[this.draftLocale(this.message || this.activeDraftTurn?.question || '')];
+      },
+      error: () => {
+        if (this.conversationId === id) this.error += ' Could not load the latest meal. Use Refresh latest draft to try again.';
       }
     });
   }
@@ -627,6 +737,7 @@ export class MealAssistantComponent {
     this.selectedFood = undefined;
     this.selectedEdit = undefined;
     this.draftQuantities = {};
+    this.editingItem = null;
     this.selectedResolution = undefined;
     this.missingNames = {}; this.missingQuantities = {}; this.missingUnits = {}; this.missingCarbs = {};
     this.turns = [];
@@ -658,6 +769,8 @@ export class MealAssistantComponent {
           this.selectedFood = this.failedSend.selection;
         this.turns = turns;
         this.currentDraft = state.draft;
+        this.editingItem = null;
+        this.draftQuantities = {};
         this.draftVersion = state.draftVersion;
         this.failedSend = undefined;
         this.draftConflict = false;
@@ -730,6 +843,7 @@ export class MealAssistantComponent {
   }
 
   responseText(turn: AssistantTurn, index: number): string {
+    if (turn.answer.operationSummary) return turn.answer.operationSummary;
     const locale = this.draftLocale(turn.question);
     const draft = turn.answer.draft;
     if (!draft || draft.editFeedback) return turn.answer.message;

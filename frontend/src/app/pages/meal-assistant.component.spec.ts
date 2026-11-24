@@ -22,6 +22,7 @@ describe('MealAssistantComponent', () => {
 
   beforeEach(async () => {
     api = jasmine.createSpyObj<ApiService>('ApiService', ['sendMealAssistantMessage', 'getMeal', 'getMealAssistantConversations', 'getMealAssistantConversation', 'getMealAssistantCalculatorDraft', 'getMealAssistantDraftState', 'renameMealAssistantConversation']);
+    api.getMealAssistantDraftState.and.returnValue(throwError(() => new Error('No refresh response configured')));
     api.getMealAssistantConversations.and.returnValue(of([]));
     await TestBed.configureTestingModule({
       imports: [MealAssistantComponent],
@@ -149,6 +150,76 @@ describe('MealAssistantComponent', () => {
     expect(api.renameMealAssistantConversation).toHaveBeenCalledOnceWith('conversation', 'Lunch plans');
   });
 
+  it('removes the exact entry ID with row status and replaces state from the response and reload', () => {
+    const component = fixture.componentInstance;
+    const first = { ...california, draftItemId: 'entry-a', sourceItemId: 'source-a' };
+    const second = { ...california, draftItemId: 'entry-b', sourceItemId: 'source-b' };
+    const initial = { ...response, draftVersion: 1, meals: [], draft: { items: [first, second], issues: [], totalCarbs: 120 } };
+    component.conversationId = 'conversation'; component.draftVersion = 1;
+    component.turns = [{ question: 'Добавь Калифорнию', answer: initial }]; component.mealSummaryOpen = true;
+    const pending = new Subject<MealAssistantResponse>(); api.sendMealAssistantMessage.and.returnValue(pending);
+    fixture.detectChanges();
+    const host: HTMLElement = fixture.nativeElement;
+    host.querySelectorAll<HTMLButtonElement>('.meal-item-actions button:last-child')[1].click(); fixture.detectChanges();
+    expect(api.sendMealAssistantMessage.calls.mostRecent().args[5]).toEqual({ itemIndex: 1, draftItemId: 'entry-b', action: 'remove' });
+    expect(host.querySelectorAll('.food-line').length).toBe(2);
+    expect(host.querySelectorAll('.food-line')[1].getAttribute('aria-busy')).toBe('true');
+    expect(host.querySelectorAll('.food-line')[0].getAttribute('aria-busy')).toBe('false');
+    expect(host.querySelector('.food-line [role=status]')?.textContent).toContain('Сохранение');
+    const updated = { ...initial, draftVersion: 2, draft: { ...initial.draft, items: [first], totalCarbs: 60 } };
+    pending.next(updated); pending.complete(); fixture.detectChanges();
+    expect(component.activeDraft?.items.map(item => item.draftItemId)).toEqual(['entry-a']);
+    expect(host.querySelectorAll('.food-line').length).toBe(1);
+    expect(component.activeDraft?.totalCarbs).toBe(60);
+    api.getMealAssistantConversation.and.returnValue(of([{ question: 'Remove', answer: updated }]));
+    component.openChat('conversation'); fixture.detectChanges();
+    expect(component.activeDraft?.items.map(item => item.draftItemId)).toEqual(['entry-a']);
+    expect(api.sendMealAssistantMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains a failed removal and retries the exact ID and operation without optimistic deletion', () => {
+    const component = fixture.componentInstance;
+    component.conversationId = 'conversation'; component.draftVersion = 1;
+    component.turns = [{ question: 'Add California', answer: { ...response, meals: [], draft: { items: [{ ...california, draftItemId: 'entry' }], issues: [], totalCarbs: 60 } } }];
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => new Error('Network disconnected')));
+    component.editCurrentItem(0, 'remove');
+    const envelope = api.sendMealAssistantMessage.calls.mostRecent().args;
+    expect(component.activeDraft?.items.length).toBe(1); expect(component.error).toBeTruthy();
+    component.retryFailed();
+    expect(api.sendMealAssistantMessage.calls.mostRecent().args).toEqual(envelope);
+    expect(component.activeDraft?.items[0].draftItemId).toBe('entry');
+  });
+
+  it('shows the backend compound-operation summary without reinterpreting it or appending items', () => {
+    const answer: MealAssistantResponse = { ...response, operationSummary: 'Убрала жареную картошку. Калифорнию оставила одну порцию. Всего: 78 г углеводов.',
+      draft: { items: [california], issues: [], totalCarbs: 78 } };
+    expect(fixture.componentInstance.responseText({ question: 'убери картошку и калифорнию оставь одну порцию', answer }, 0)).toBe(answer.operationSummary ?? '');
+  });
+
+  it('automatically loads authoritative state after a version conflict without retrying the mutation', () => {
+    const component = fixture.componentInstance;
+    component.conversationId = 'conversation'; component.draftVersion = 1; component.message = 'Remove California';
+    component.turns = [{ question: 'Add California', answer: { ...response, draft: { items: [california], issues: [], totalCarbs: 60 } } }];
+    api.getMealAssistantDraftState.and.returnValue(of({ draftVersion: 2, draft: { items: [], issues: [], totalCarbs: 0 } }));
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => ({ status: 409, code: 'draft_version_conflict', message: 'Draft changed', isApiError: true })));
+    component.send();
+    expect(api.getMealAssistantDraftState).toHaveBeenCalledOnceWith('conversation');
+    expect(component.activeDraft?.items.length).toBe(0); expect(component.draftVersion).toBe(2);
+    expect(component.message).toBe('Remove California'); expect(component.error).toContain('Latest meal loaded');
+    expect(api.sendMealAssistantMessage).toHaveBeenCalledTimes(1); expect(component.draftConflict).toBeFalse();
+  });
+
+  it('never lets a late older response replace a newer meal hydrated from history', () => {
+    const component = fixture.componentInstance;
+    const latest = { items: [{ ...california, draftItemId: 'latest-entry' }], issues: [], totalCarbs: 60 };
+    component.conversationId = 'conversation'; component.draftVersion = 3;
+    component.turns = [{ question: 'Latest meal', answer: { ...response, draft: latest, draftVersion: 3 } }];
+    api.sendMealAssistantMessage.and.returnValue(of({ ...response, draft: { items: [], issues: [], totalCarbs: 0 }, draftVersion: 2 }));
+    component.message = 'Edit meal'; component.send();
+    expect(component.activeDraft).toEqual(latest); expect(component.draftVersion).toBe(3);
+    expect(component.draftConflict).toBeTrue();
+  });
+
   it('keeps Russian timeout errors in Russian and preserves the failed question', () => {
     api.sendMealAssistantMessage.and.returnValue(throwError(() => new TimeoutError()));
     fixture.componentInstance.message = 'Сколько брала на калифорнию'; fixture.componentInstance.send();
@@ -183,8 +254,10 @@ describe('MealAssistantComponent', () => {
       expect(transcript.scrollHeight).toBeGreaterThan(transcript.clientHeight);
       expect(viewport.getComputedStyle(transcript).overflowY).toBe('auto');
       expect(composer.getBoundingClientRect().bottom).toBeLessThanOrEqual(viewport.innerHeight);
+      transcript.scrollTop = transcript.scrollHeight;
       expect(summary.getBoundingClientRect().bottom).toBeLessThanOrEqual(composer.getBoundingClientRect().top);
-      expect(summary.querySelector('input')?.value).toBe('1');
+      expect(summary.querySelector('input')).toBeNull();
+      expect(summary.querySelector('.meal-food > small')?.textContent).toContain('1 serving');
     });
   });
 
@@ -407,8 +480,124 @@ describe('MealAssistantComponent', () => {
       expect(transcript?.textContent).toContain('Total carbohydrates: ' + total + ' g');
     }
     expect(transcript?.textContent).toContain('Which item?');
-    expect(transcript?.querySelector('.food-line')).toBeNull();
-    expect(page.querySelector('.live-meal')?.nextElementSibling?.tagName).toBe('FORM');
+    expect(transcript?.querySelectorAll('.live-meal .food-line').length).toBe(1);
+    expect(page.querySelector('.transcript')?.nextElementSibling?.tagName).toBe('FORM');
+  });
+
+  function showCurrentMeal() {
+    const component = fixture.componentInstance;
+    component.conversationId = 'conversation'; component.draftVersion = 1; component.mealSummaryOpen = true;
+    component.turns = [{ question: 'Добавь шаурму и гречку', answer: { ...response, meals: [], draft: {
+      items: [{ ...california, foodName: 'Huli Huli · Шаурма', effectiveCarbs: 90, calculatedCarbs: 90, carbOverride: null,
+        provenance: { referenceSource: 'Manual', transformation: 'HistoricalReuse' } },
+        { ...california, foodName: 'Гречка', quantity: 120, measurementType: 'Grams', effectiveCarbs: 24, calculatedCarbs: 24,
+          carbOverride: null, provenance: { referenceSource: 'Manual', transformation: 'Calculated' } }], issues: [], totalCarbs: 114
+    } } }];
+    fixture.detectChanges();
+    return component;
+  }
+
+  it('separates quantity from explicitly labelled carbs and shows a compact complete summary', () => {
+    showCurrentMeal();
+    const page: HTMLElement = fixture.nativeElement;
+    const panel = page.querySelector('.live-meal');
+    expect(panel?.querySelector('summary')?.textContent).toContain('2 позиции');
+    expect(panel?.querySelector('.meal-total')?.textContent).toContain('Всего: 114 г углеводов');
+    const rows = page.querySelectorAll('.food-line');
+    expect(rows[0].querySelector('.meal-food > small')?.textContent).toContain('1 порция');
+    expect(rows[0].querySelector('.item-carbs')?.textContent).toContain('90 г углеводов');
+    expect(rows[1].querySelector('.meal-food > small')?.textContent).toContain('120 г');
+    expect(rows[1].querySelector('.item-carbs')?.textContent).toContain('24 г углеводов');
+    expect(panel?.querySelectorAll('input').length).toBe(0);
+    expect(rows[0].querySelector('.meal-source summary')?.textContent).toBe('Из истории');
+    expect(panel?.querySelectorAll('button').length).toBe(5); // two icon actions per item + Calculator
+  });
+
+  it('uses a known-carb subtotal and clarification count for an incomplete meal', () => {
+    showCurrentMeal();
+    fixture.componentInstance.turns[0].answer.draft = { ...partial.draft, items: [california], issues: [potato.detail], unresolved: [potato], totalCarbs: 60 };
+    fixture.detectChanges();
+    const summary: HTMLElement | null = fixture.nativeElement.querySelector('.meal-total');
+    expect(summary?.textContent).toContain('Известные углеводы: 60 г');
+    expect(summary?.textContent).toContain('1 позиция');
+    expect(summary?.textContent).not.toContain('Всего:');
+  });
+
+  it('opens a local quantity editor, cancels with Escape and saves with Enter through one deterministic edit', async () => {
+    const component = showCurrentMeal();
+    const host: HTMLElement = fixture.nativeElement;
+    host.querySelector<HTMLButtonElement>('.meal-icon')?.click(); fixture.detectChanges(); await fixture.whenStable();
+    let input = host.querySelector<HTMLInputElement>('.quantity-editor input');
+    if (!input) throw new Error('Expected quantity editor');
+    input.value = '2'; input.dispatchEvent(new Event('input')); fixture.detectChanges();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); fixture.detectChanges();
+    expect(host.querySelector('.quantity-editor')).toBeNull();
+    expect(api.sendMealAssistantMessage).not.toHaveBeenCalled();
+    component.startQuantityEdit(0); component.draftQuantities[0] = 2;
+    fixture.detectChanges(); await fixture.whenStable();
+    const cancel = host.querySelector<HTMLButtonElement>('.quantity-editor button:last-child');
+    if (!cancel) throw new Error('Expected Cancel action');
+    cancel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(api.sendMealAssistantMessage).not.toHaveBeenCalled();
+    cancel.click(); fixture.detectChanges();
+    expect(component.editingItem).toBeNull();
+    expect(component.activeDraft?.items[0].quantity).toBe(1);
+    component.startQuantityEdit(0); fixture.detectChanges(); await fixture.whenStable();
+    input = host.querySelector<HTMLInputElement>('.quantity-editor input');
+    if (!input) throw new Error('Expected quantity editor');
+    input.value = '2'; input.dispatchEvent(new Event('input')); fixture.detectChanges();
+    const updated = { ...response, draftVersion: 2, draft: { items: [{ ...california, quantity: 2 }], issues: [], totalCarbs: 120 } };
+    api.sendMealAssistantMessage.and.returnValue(of(updated));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); fixture.detectChanges();
+    expect(api.sendMealAssistantMessage).toHaveBeenCalledTimes(1);
+    expect(api.sendMealAssistantMessage.calls.mostRecent().args[5]).toEqual({ itemIndex: 0, action: 'set', quantity: 2 });
+    expect(component.editingItem).toBeNull();
+    expect(host.querySelector('.quantity-editor')).toBeNull();
+  });
+
+  it('does not send unchanged, empty, zero, negative or fractional-piece quantity edits', () => {
+    const component = showCurrentMeal();
+    component.startQuantityEdit(0); component.saveQuantity(0);
+    expect(component.editingItem).toBeNull();
+    for (const quantity of [undefined, 0, -1, NaN, Infinity]) {
+      component.startQuantityEdit(0); component.draftQuantities[0] = quantity; component.saveQuantity(0);
+    }
+    const draft = component.activeDraft;
+    if (!draft) throw new Error('Expected meal draft');
+    draft.items[0].measurementType = 'Piece';
+    component.draftQuantities[0] = 1.5; component.saveQuantity(0);
+    expect(api.sendMealAssistantMessage).not.toHaveBeenCalled();
+    component.newChat(); expect(component.editingItem).toBeNull();
+  });
+
+  it('retains visible AI and unknown provenance without labelling it user-confirmed', () => {
+    const component = showCurrentMeal();
+    const item = component.activeDraft?.items[0];
+    if (!item) throw new Error('Expected meal item');
+    expect(component.mealSource({ ...item, provenance: { referenceSource: 'AiEstimate', transformation: 'HistoricalReuse' } })).toBe('Оценка AI');
+    expect(component.mealSource({ ...item, provenance: null })).toBe('Источник неизвестен');
+    expect(component.mealSource({ ...item, carbOverride: 0 })).toBe('Введено вручную');
+  });
+
+  it('keeps rows, editor and composer usable at 320, 390, 768, 1024, 1440 and 1920px without nested meal scrolling', async () => {
+    const component = showCurrentMeal();
+    component.startQuantityEdit(1); fixture.detectChanges(); await fixture.whenStable();
+    const host: HTMLElement = fixture.nativeElement; host.style.height = 'calc(100dvh - 24px)';
+    await inResponsiveFrame(host, viewport => {
+      const panel = host.querySelector<HTMLDetailsElement>('.live-meal');
+      if (!panel) throw new Error('Expected meal panel');
+      panel.open = true;
+      for (const element of Array.from(host.querySelectorAll<HTMLElement>('.food-line,.quantity-editor,.live-meal-items'))) {
+        expect(element.scrollWidth).withContext('Overflow at ' + viewport.innerWidth).toBeLessThanOrEqual(element.clientWidth + 1);
+      }
+      const items = host.querySelector<HTMLElement>('.live-meal-items');
+      if (!items) throw new Error('Expected meal content');
+      expect(viewport.getComputedStyle(items).overflowY).toBe('visible');
+      const composer = host.querySelector<HTMLElement>('.composer');
+      expect(composer?.getBoundingClientRect().bottom).toBeLessThanOrEqual(viewport.innerHeight);
+      expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
+      expect(panel.getBoundingClientRect().width).toBeLessThanOrEqual(834);
+    }, [[320, 740], [390, 844], [768, 900], [1024, 900], [1440, 1000], [1920, 1080]]);
   });
 
   it('keeps failed questions available for retry', () => {
