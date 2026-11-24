@@ -2,11 +2,91 @@ using InsulinAndCoffee.Application.Abstractions;
 using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace InsulinAndCoffee.Application.Services;
 
-public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, MealCalculationService calculation)
+public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, MealCalculationService calculation,
+    ILogger<AssistantDraftBuilder>? logger = null, AiRequestContext? tracking = null)
 {
+    private static string? FoodContext(InsulinAndCoffee.Domain.Entities.FoodItem food) =>
+        (food.MeasurementType == FoodMeasurementType.Grams ? food.CarbsPer100g : food.CarbsPerUnit) is not decimal carbs ? null
+            : food.MeasurementType == FoodMeasurementType.Grams ? $"{carbs} g / 100 g" : $"{carbs} g / 1 {food.MeasurementType}";
+    public static AssistantDraft HydrateLegacy(AssistantDraft draft, string question = "")
+    {
+        if (draft.Unresolved is not null || draft.Issues.Count == 0) return draft;
+        var parsed = AssistantIntentText.Interpret(question, false)?.Foods ?? [];
+        var entries = draft.Issues.Select((detail, index) =>
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(detail,
+                @"^(?:No saved food matched |Не найден сохранённый продукт: |Не знайдено збережений продукт: |Choose one complete saved order for |Выбери сохранённый заказ |Обери збережене замовлення )(.+?)(?: from | из | із |\.$)");
+            var name = match.Success ? match.Groups[1].Value : draft.Pending?.Name ?? "";
+            var extracted = parsed.FirstOrDefault(query => name.Length > 0 && AssistantFoodMatching.Score(name, true).Compile()(query.Name) > 0);
+            var query = extracted ?? draft.Pending ?? new(name, null, null);
+            var hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{index}/{detail}"));
+            return new AssistantUnresolvedItem(new Guid(hash[..16]), extracted?.OriginalText ?? (name.Length > 0 ? name : detail), query,
+                AssistantResolutionReason.NoMatches, detail, []);
+        }).ToArray();
+        return draft with { Unresolved = entries, Pending = entries.Length == 1 ? entries[0].Query : null };
+    }
+    private void Trace(AssistantFoodQuery query, string status, AssistantCandidateKind? kind, Guid? selected, int count, int score, long started) =>
+        logger?.LogInformation("Assistant match: operation {OperationId}, conversation {ConversationId}, correlation {CorrelationId}, sources {Sources}, candidates {CandidateCount}, score {Score}, selected {SelectedId}, type {CandidateType}, resolution {Resolution}, elapsed {ElapsedMs}",
+            tracking?.OperationId, tracking?.ConversationId, tracking?.CorrelationId,
+            query.DeliveryMealId.HasValue ? "DeliveryMeal" : query.DeliveryMealItemId.HasValue ? "DeliveryMealItem" : query.FoodItemId.HasValue ? "Food"
+                : string.IsNullOrWhiteSpace(query.Restaurant) ? "DeliveryMealItem,Food" : "DeliveryMealItem,DeliveryMeal",
+            count, score, selected, kind, status, Stopwatch.GetElapsedTime(started).TotalMilliseconds);
+
+    public async Task<AssistantDraft> ResolveAsync(AssistantDraft? current, AssistantResolution resolution, CancellationToken token)
+    {
+        if (resolution.Quantity is <= 0 or > 10000 || resolution.Unit is { } unit && !Enum.IsDefined(unit))
+            throw new ValidationException("Specify a positive quantity and a valid unit.");
+        var unresolved = current?.Unresolved?.SingleOrDefault(item => item.Id == resolution.UnresolvedId)
+            ?? throw new ValidationException("Choose an unresolved item from the current draft.");
+        if (resolution.Action is not ("search" or "select" or "manual" or "remove" or "update")) throw new ValidationException("Unknown clarification action.");
+        var remaining = current!.Unresolved!.Where(item => item.Id != unresolved.Id).ToList();
+        var items = current.Items.ToList(); var sources = current.Sources?.ToList() ?? [];
+        if (resolution.Action != "remove")
+        {
+            var query = unresolved.Query with { Quantity = resolution.Quantity ?? unresolved.Query.Quantity,
+                Unit = resolution.Unit ?? unresolved.Query.Unit, UnitInferred = resolution.Unit.HasValue ? false : unresolved.Query.UnitInferred };
+            if (resolution.SearchName is not null)
+            {
+                if (string.IsNullOrWhiteSpace(resolution.SearchName) || resolution.SearchName.Trim().Length > 80) throw new ValidationException("Enter a food name of 1–80 characters.");
+                var name = resolution.SearchName.Trim();
+                query = query with { Name = name, Restaurant = string.Equals(name, query.Name, StringComparison.OrdinalIgnoreCase) ? query.Restaurant : null };
+            }
+            if (resolution.Action == "manual")
+            {
+                if (query.Quantity is null or <= 0 or > 10000 || query.Unit is null || !Enum.IsDefined(query.Unit.Value)
+                    || resolution.Carbs is null or < 0 or > 999999.99m || decimal.Round(resolution.Carbs.Value, 2) != resolution.Carbs.Value)
+                    throw new ValidationException("Enter quantity, unit and non-negative total carbohydrates (up to two decimals).");
+                MealCalculationService.ValidateQuantity(query.Unit.Value, query.Quantity.Value);
+                var basis = InsulinAndCoffee.Domain.Calculations.FoodCarbCalculator.ReferenceFromTotal(query.Unit.Value, query.Quantity.Value, resolution.Carbs.Value);
+                if (basis > (query.Unit == FoodMeasurementType.Grams ? 99999.99m : 999999.99m)) throw new ValidationException("The manual reference exceeds the supported storage range.");
+                var manual = (await calculation.CalculateItemsAsync([new(Guid.Empty, query.Quantity, MeasurementType: query.Unit,
+                    FoodNameSnapshot: query.Name, CarbsPer100gSnapshot: query.Unit == FoodMeasurementType.Grams ? basis : null,
+                    CarbsPerUnitSnapshot: query.Unit != FoodMeasurementType.Grams ? basis : null, CarbOverride: resolution.Carbs)], null, null, token))[0]
+                    with { Provenance = new(CarbReferenceSource.Manual, CarbTransformation.Calculated) };
+                items.Add(manual); sources.Add(new(unresolved.Id, "Manual", manual.FoodName));
+            }
+            else
+            {
+                if (resolution.Action == "select")
+                {
+                    if (resolution.SourceId is null || resolution.SourceKind is not ("Food" or "DeliveryMealItem" or "DeliveryMeal")) throw new ValidationException("Choose a saved source.");
+                    query = query with { FoodItemId = resolution.SourceKind == "Food" ? resolution.SourceId : null,
+                        DeliveryMealItemId = resolution.SourceKind == "DeliveryMealItem" ? resolution.SourceId : null,
+                        DeliveryMealId = resolution.SourceKind == "DeliveryMeal" ? resolution.SourceId : null, Restaurant = null };
+                }
+                var result = await BuildAsync([query], token) ?? throw new ValidationException("Enter a food to resolve.");
+                items.AddRange(result.Items); sources.AddRange(result.Sources ?? []);
+                remaining.AddRange((result.Unresolved ?? []).Select(item => item with { Id = unresolved.Id, OriginalText = unresolved.OriginalText }));
+            }
+        }
+        return current with { Items = items, Sources = sources, Unresolved = remaining, Issues = remaining.Select(item => item.Detail).ToArray(),
+            Pending = remaining.Count == 1 ? remaining[0].Query : null, EditFeedback = null, TotalCarbs = Math.Round(items.Sum(item => item.EffectiveCarbs), 2) };
+    }
     public async Task<AssistantDraft> EditItemAsync(AssistantDraft? current, AssistantDraftEdit edit, CancellationToken token)
     {
         if (current is null || edit.ItemIndex < 0 || edit.ItemIndex >= current.Items.Count || edit.Action is not ("set" or "remove"))
@@ -42,6 +122,8 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                 inputs.Add(new MealItemInputDto(item.FoodItemId, item.Quantity, CarbOverride: item.CarbOverride));
                 continue;
             }
+            if (item.CarbOverride.HasValue && sources?.Any(source => source.Kind == "Manual" && source.Name == item.FoodName) == true)
+            { inputs.Add(ToInput(item)); continue; }
             var source = sources?.SingleOrDefault(source => source.Name == item.FoodName && source.Kind == "AskPastMe")
                 ?? throw new ValidationException("The saved order reference is unavailable.");
             var owner = currentUser.UserId;
@@ -52,7 +134,10 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                 throw new ValidationException("The saved order changed or was deleted. Refresh your draft.");
             inputs.Add(ToInput(item) with { SourceDeliveryMealId = order.Id });
         }
-        var current = await calculation.CalculateItemsAsync(inputs, null, null, cancellationToken);
+        var current = (await calculation.CalculateItemsAsync(inputs, null, null, cancellationToken)).Select(item =>
+            item.FoodItemId == Guid.Empty && item.SourceMealItemId is null && item.SourceDeliveryMealId is null && item.SourceDeliveryMealItemId is null
+                && item.CarbOverride.HasValue && sources?.Any(source => source.Kind == "Manual" && source.Name == item.FoodName) == true
+                ? item with { Provenance = new(CarbReferenceSource.Manual, CarbTransformation.Calculated) } : item).ToArray();
         if (current.Where((item, index) => (item with { Provenance = null, SourceMealItemId = null, SourceDeliveryMealId = null, SourceDeliveryMealItemId = null })
             != (items[index] with { Provenance = null, SourceMealItemId = null, SourceDeliveryMealId = null, SourceDeliveryMealItemId = null })).Any())
             throw new ValidationException("Saved food values changed. Ask for an updated meal draft.");
@@ -62,12 +147,16 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
     public async Task<AssistantDraft?> UpdateAsync(AssistantSearch search, AssistantDraft? current, CancellationToken token)
     {
         var op = search.Operation ?? "create";
-        if (op == "create") return await BuildAsync(search.Foods, token);
+        // A provider's generic create is not permission to erase a conversation's existing meal.
+        if (op == "create" && current is null) return await BuildAsync(search.Foods, token);
+        if (op == "create") op = "add";
+        if (op == "replaceMeal") return await BuildAsync(search.Foods, token);
         if (op == "clear") return new AssistantDraft([], [], 0m);
         if (op == "show") return current;
 
         var items = current?.Items.ToList() ?? [];
         var sources = current?.Sources?.ToList() ?? [];
+        IReadOnlyList<AssistantUnresolvedItem> additionUnresolved = [];
         if (op == "clarify" && current?.PendingEdit is { } edit)
         {
             if (search.Foods.Length != 1) return current;
@@ -86,7 +175,17 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
             bestScore > 0 && score(item.FoodName) == bestScore).ToArray();
         if (op is "add" or "replace" or "clarify")
         {
-            if (current?.Issues.Count > 1)
+            if (op == "clarify" && current?.Unresolved?.Count > 0)
+            {
+                if (current.Unresolved.Count != 1) return Feedback("Choose the unresolved item to clarify.");
+                var food = search.Foods.SingleOrDefault();
+                if (food is null) return current;
+                var id = food.FoodItemId ?? food.DeliveryMealItemId ?? food.DeliveryMealId;
+                return await ResolveAsync(current, new(current.Unresolved[0].Id, id.HasValue ? "select" : "search", id,
+                    food.DeliveryMealItemId.HasValue ? "DeliveryMealItem" : food.DeliveryMealId.HasValue ? "DeliveryMeal" : "Food",
+                    food.Quantity, food.Unit, SearchName: id.HasValue ? null : food.Name), token);
+            }
+            if (op != "add" && current?.Issues.Count > 1)
                 return Feedback("Several foods still need clarification. Resend the complete meal with the intended foods and quantities.");
             if (op == "replace" && current?.Issues.Count > 0)
                 return Feedback("Clarify the unresolved food before replacing another item.");
@@ -100,6 +199,7 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
             }).ToArray() : search.Foods;
             var addition = await BuildAsync(queries, token);
             if (addition is null) return current;
+            additionUnresolved = addition.Unresolved ?? [];
             if (op == "replace" && addition.Issues.Count > 0) return Feedback(string.Join(" ", addition.Issues));
             if (op == "replace") items.Remove(matches[0]);
             items.AddRange(addition.Items);
@@ -152,7 +252,8 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
         AssistantDraft Finish(IReadOnlyList<string> issues, AssistantFoodQuery? pending = null) =>
             new(items, issues, Math.Round(items.Sum(item => item.EffectiveCarbs), 2),
                 sources.Where(source => items.Any(item => item.FoodName == source.Name)).Distinct().ToArray(),
-                issues.Count == 1 ? pending : null);
+                issues.Count == 1 ? pending : null, Unresolved: op is "add" or "replace" or "clarify"
+                    ? (current?.Unresolved ?? []).Concat(additionUnresolved).ToArray() : current?.Unresolved);
     }
 
     private static MealItemInputDto ToInput(CalculatedMealItemDto item) =>
@@ -167,11 +268,16 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
         var inputs = new List<MealItemInputDto>();
         var issues = new List<string>();
         var sources = new List<AssistantDraftSource>();
+        var unresolved = new List<AssistantUnresolvedItem>();
         AssistantFoodQuery? pending = null;
         foreach (var original in queries)
         {
+            var started = Stopwatch.GetTimestamp();
             var query = AssistantFoodMatching.Query(original);
-            var ownedItems = db.DeliveryMealItems.AsNoTracking().Where(item => item.DeliveryMeal!.UserId == userId);
+            static string Short(string value) => value[..Math.Min(value.Length, 80)];
+            logger?.LogDebug("Assistant extraction {Name}, quantity {Quantity}, unit {Unit}, normalized {Normalized}, aliases {Aliases}, place {Place}",
+                Short(original.Name), original.Quantity, original.Unit, Short(AssistantFoodMatching.Normalize(query.Name)), AssistantFoodMatching.Terms(query.Name).Take(12).Select(Short).ToArray(), query.Restaurant is null ? null : Short(query.Restaurant));
+            var ownedItems = db.DeliveryMealItems.AsNoTracking().Include(item => item.DeliveryMeal).Where(item => item.DeliveryMeal!.UserId == userId);
             var candidates = query.DeliveryMealItemId is Guid itemId
                 ? await ownedItems.Where(item => item.Id == itemId).ToListAsync(cancellationToken)
                 : query.FoodItemId.HasValue || query.DeliveryMealId.HasValue ? []
@@ -180,17 +286,20 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                 throw new ValidationException("The selected order item is unavailable.");
             if (candidates.Count > 0)
             {
-                var scoreItem = AssistantFoodMatching.Score(query.Name).Compile();
+                var scoreItem = AssistantFoodMatching.Score(query.Name, itemName: true).Compile();
                 if (!query.DeliveryMealItemId.HasValue) candidates = candidates.Where(item => scoreItem(item.Name) == scoreItem(candidates[0].Name)).ToList();
-                var hasSavedFood = !query.DeliveryMealItemId.HasValue && string.IsNullOrWhiteSpace(query.Restaurant)
-                    && await FoodKnowledgeSearchService.FindFoods(db.FoodItems.AsNoTracking().Where(food => food.UserId == userId), query.Name, false).AnyAsync(cancellationToken);
-                if (candidates.Count != 1 || hasSavedFood)
-                { pending = query; issues.Add($"More than one saved item matched {query.Name}. Choose a specific saved food or order item."); continue; }
+                var competingFoods = !query.DeliveryMealItemId.HasValue && string.IsNullOrWhiteSpace(query.Restaurant)
+                    ? await FoodKnowledgeSearchService.FindFoods(db.FoodItems.AsNoTracking().Where(food => food.UserId == userId), query.Name, false).Take(2).ToListAsync(cancellationToken) : [];
+                if (candidates.Count != 1 || competingFoods.Count > 0)
+                { Reject(query, AssistantResolutionReason.Ambiguous, $"More than one saved item matched {query.Name}. Choose a specific saved food or order item.",
+                    candidates.Select(item => new AssistantCandidate(item.Id, AssistantCandidateKind.DeliveryMealItem, item.Name, scoreItem(item.Name), item.DeliveryMeal!.PlaceName + " · " + item.DeliveryMeal.DishName))
+                        .Concat(competingFoods.Select(food => new AssistantCandidate(food.Id, AssistantCandidateKind.Food, food.Name, AssistantFoodMatching.Score(query.Name).Compile()(food.Name), FoodContext(food)))).ToArray()); continue; }
                 var candidate = candidates[0];
                 if (query.Unit.HasValue && query.Unit != candidate.MeasurementType)
-                { pending = query; issues.Add($"Specify a quantity in {candidate.MeasurementType} for {candidate.Name}."); continue; }
+                { Reject(query, AssistantResolutionReason.UnitMismatch, $"Specify a quantity in {candidate.MeasurementType} for {candidate.Name}.", [new(candidate.Id, AssistantCandidateKind.DeliveryMealItem, candidate.Name, scoreItem(candidate.Name))]); continue; }
                 inputs.Add(new(Guid.Empty, query.Quantity ?? candidate.Quantity, SourceDeliveryMealItemId: candidate.Id));
-                sources.Add(new(candidate.Id, "AskPastMeItem", candidate.Name));
+                sources.Add(new(candidate.Id, "AskPastMeItem", candidate.Name, query.Unit is null && query.Quantity.HasValue || query.UnitInferred));
+                Trace(query, "Resolved", AssistantCandidateKind.DeliveryMealItem, candidate.Id, candidates.Count, scoreItem(candidate.Name), started);
                 continue;
             }
             if (query.DeliveryMealId is Guid wholeId)
@@ -199,7 +308,7 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                     throw new ValidationException("Select a complete saved order once, then edit its individual item quantities.");
                 var whole = await db.DeliveryMeals.AsNoTracking().Include(order => order.Items).SingleOrDefaultAsync(order => order.Id == wholeId && order.UserId == userId, cancellationToken)
                     ?? throw new ValidationException("The saved order is unavailable.");
-                AddOrder(whole); continue;
+                AddOrder(whole); Trace(query, "Resolved", AssistantCandidateKind.DeliveryMeal, whole.Id, 1, 4, started); continue;
             }
             if (!string.IsNullOrWhiteSpace(query.Restaurant))
             {
@@ -212,15 +321,21 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
                     orders = orders.Where(order => placeScore(order.PlaceName) == placeScore(orders[0].PlaceName)
                         && (query.Name.Length == 0 || dishScore(order.DishName) == dishScore(orders[0].DishName))).ToList();
                 }
+                if (orders.Count == 0 && query.Name.Length > 0)
+                {
+                    Reject(query, AssistantResolutionReason.NoMatches, $"No saved item matched {query.Name} from {query.Restaurant}.", []);
+                    continue;
+                }
                 if (orders.Count != 1 || query.Quantity is not (null or 1m) ||
                     query.Unit is not (null or FoodMeasurementType.Piece or FoodMeasurementType.Portion) || orders[0].Carbs < 0)
                 {
-                    pending = query;
-                    issues.Add($"Choose one complete saved order for {query.Name} from {query.Restaurant}.");
+                    Reject(query, AssistantResolutionReason.OrderUnavailable, $"Choose one complete saved order for {query.Name} from {query.Restaurant}.",
+                        orders.Select(order => new AssistantCandidate(order.Id, AssistantCandidateKind.DeliveryMeal, order.DishName, 3)).ToArray());
                     continue;
                 }
                 var order = orders[0];
                 AddOrder(order);
+                Trace(query, "Resolved", AssistantCandidateKind.DeliveryMeal, order.Id, orders.Count, 3, started);
                 continue;
             }
             var owned = db.FoodItems.AsNoTracking().Where(food => food.UserId == userId);
@@ -236,8 +351,18 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
             }
             if (foods.Count != 1)
             {
-                pending = query;
-                issues.Add(foods.Count == 0 ? $"No saved food matched {query.Name}." : $"More than one saved food matched {query.Name}.");
+                var choices = foods.Select(food => new AssistantCandidate(food.Id, AssistantCandidateKind.Food, food.Name, AssistantFoodMatching.Score(query.Name).Compile()(food.Name), FoodContext(food))).ToList();
+                if (foods.Count == 0)
+                {
+                    var nearFoods = await FoodKnowledgeSearchService.FindFoods(owned, query.Name, true).Take(4).ToListAsync(cancellationToken);
+                    var nearItems = await FoodKnowledgeSearchService.FindItems(ownedItems, query, true).Take(4).ToListAsync(cancellationToken);
+                    var rank = AssistantFoodMatching.Score(query.Name, true).Compile();
+                    choices.AddRange(nearFoods.Select(food => new AssistantCandidate(food.Id, AssistantCandidateKind.Food, food.Name, rank(food.Name), FoodContext(food))));
+                    var itemRank = AssistantFoodMatching.Score(query.Name, true, itemName: true).Compile();
+                    choices.AddRange(nearItems.Select(item => new AssistantCandidate(item.Id, AssistantCandidateKind.DeliveryMealItem, item.Name, itemRank(item.Name), item.DeliveryMeal!.PlaceName + " · " + item.DeliveryMeal.DishName)));
+                }
+                Reject(query, choices.Count == 0 ? AssistantResolutionReason.NoMatches : AssistantResolutionReason.Ambiguous,
+                    choices.Count == 0 ? $"No saved food matched {query.Name}." : $"Choose a saved source for {query.Name}.", choices);
                 continue;
             }
 
@@ -246,24 +371,38 @@ public class AssistantDraftBuilder(IAppDbContext db, ICurrentUser currentUser, M
             if ((query.Unit.HasValue && query.Unit != food.MeasurementType) || quantity is null or < 0.1m
                 || (food.MeasurementType == FoodMeasurementType.Piece && decimal.Truncate(quantity.Value) != quantity.Value))
             {
-                pending = query;
-                issues.Add($"Specify a compatible quantity for {query.Name} ({food.MeasurementType}).");
+                Reject(query, quantity is null ? AssistantResolutionReason.QuantityRequired : AssistantResolutionReason.UnitMismatch,
+                    $"Specify a compatible quantity for {query.Name} ({food.MeasurementType}).", [new(food.Id, AssistantCandidateKind.Food, food.Name, 3)]);
                 continue;
             }
 
             if ((food.MeasurementType == FoodMeasurementType.Grams ? food.CarbsPer100g : food.CarbsPerUnit) is null)
             {
-                issues.Add($"Saved carbohydrate values are unavailable for {query.Name}.");
+                Reject(query, AssistantResolutionReason.MissingCarbs, $"Saved carbohydrate values are unavailable for {query.Name}.", [new(food.Id, AssistantCandidateKind.Food, food.Name, 3)]);
                 continue;
             }
 
             inputs.Add(new MealItemInputDto(food.Id, quantity, null, null));
+            if (query.Quantity.HasValue && query.Unit is null || query.UnitInferred) sources.Add(new(food.Id, "Food", food.Name, true));
+            Trace(query, "Resolved", AssistantCandidateKind.Food, food.Id, foods.Count, AssistantFoodMatching.Score(query.Name).Compile()(food.Name), started);
+
+            void Reject(AssistantFoodQuery failed, AssistantResolutionReason reason, string detail, IReadOnlyList<AssistantCandidate> choices)
+            {
+                // No nutrient estimate is made for an unresolved item. A unitless large amount is
+                // only a clearly labeled suggestion, editable before resolving it.
+                if (failed.Quantity >= 10m && failed.Unit is null) failed = failed with { Unit = FoodMeasurementType.Grams, UnitInferred = true };
+                pending = failed; issues.Add(detail);
+                unresolved.Add(new(Guid.NewGuid(), original.OriginalText ?? original.Name, failed, reason, detail, choices));
+                logger?.LogInformation("Assistant alternatives: reason {AmbiguityReason}, IDs {CandidateIds}, kinds {CandidateKinds}, scores {CandidateScores}",
+                    reason, choices.Select(choice => choice.Id).ToArray(), choices.Select(choice => choice.Kind).ToArray(), choices.Select(choice => choice.Score).ToArray());
+                Trace(failed, reason.ToString(), null, null, choices.Count, choices.Select(choice => choice.Score).DefaultIfEmpty(0).Max(), started);
+            }
         }
 
         var items = await calculation
             .CalculateItemsAsync(inputs, null, null, cancellationToken);
         return new AssistantDraft(items, issues, Math.Round(items.Sum(item => item.EffectiveCarbs), 2), sources,
-            issues.Count == 1 ? pending : null);
+            issues.Count == 1 ? pending : null, Unresolved: unresolved);
 
         void AddOrder(InsulinAndCoffee.Domain.Entities.DeliveryMeal order)
         {

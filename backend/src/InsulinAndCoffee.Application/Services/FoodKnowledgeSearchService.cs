@@ -49,7 +49,7 @@ public class FoodKnowledgeSearchService(IAppDbContext db, ICurrentUser currentUs
             items = items.Where(AssistantFoodMatching.Positive(AssistantFoodMatching.On<DeliveryMealItem>(item => item.DeliveryMeal!.PlaceName,
                 AssistantFoodMatching.Score(food.Restaurant)), 3));
         if (string.IsNullOrWhiteSpace(food.Name)) return items.OrderBy(item => item.DeliveryMealId).ThenBy(item => item.DisplayOrder);
-        var score = AssistantFoodMatching.On<DeliveryMealItem>(item => item.Name, AssistantFoodMatching.Score(food.Name, discovery));
+        var score = AssistantFoodMatching.On<DeliveryMealItem>(item => item.Name, AssistantFoodMatching.Score(food.Name, discovery, itemName: true));
         return items.Where(AssistantFoodMatching.Positive(score, discovery ? 1 : 3)).OrderByDescending(score).ThenBy(item => item.Id);
     }
 

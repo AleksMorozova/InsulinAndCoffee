@@ -5,6 +5,13 @@ namespace InsulinAndCoffee.Domain.Calculations;
 
 public static class FoodCarbCalculator
 {
+    // A reference derived from an explicitly entered total, never a generic nutrition estimate.
+    // The explicit override remains authoritative, including any reference rounding difference.
+    public static decimal ReferenceFromTotal(FoodMeasurementType unit, decimal quantity, decimal total)
+    {
+        if (!Enum.IsDefined(unit) || quantity <= 0 || total < 0) throw new CarbCalculationException("Enter a valid quantity, unit and total carbohydrates.");
+        return Math.Round(total * (unit == FoodMeasurementType.Grams ? 100m : 1m) / quantity, 2);
+    }
     public static decimal Calculate(
         FoodMeasurementType measurementType,
         decimal quantity,

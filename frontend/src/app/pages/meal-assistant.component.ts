@@ -7,7 +7,8 @@ import { finalize, firstValueFrom, map, switchMap, TimeoutError } from 'rxjs';
 import { getApiErrorMessage, isApiError } from '../core/api-error';
 import { ApiService } from '../core/api.service';
 import { CarbProvenanceComponent } from '../shared/carb-provenance.component';
-import { AssistantConversation, AssistantDraft, AssistantFoodSelection, AssistantSavedFood, AssistantOrder, AssistantOrderItem, AssistantTurn, assistantFoodName } from '../core/meal-assistant.models';
+import { AssistantConversation, AssistantDraft, AssistantFoodSelection, AssistantSavedFood, AssistantOrder, AssistantOrderItem, AssistantTurn, assistantFoodName, AssistantResolution, AssistantUnresolvedItem } from '../core/meal-assistant.models';
+import { FoodMeasurementType } from '../core/models';
 
 @Component({
   standalone: true,
@@ -183,6 +184,7 @@ import { AssistantConversation, AssistantDraft, AssistantFoodSelection, Assistan
                   <span><strong>{{ displayFoodName(item.foodName) }}</strong><small>{{ item.quantity | number }}
                     {{ draftUnit(activeDraftTurn?.question ?? '', item.measurementType, item.quantity) }}
                     @if (isOrderItem(draft, item.foodName)) { · Ask Past Me }</small>
+                    @if (unitWasInferred(draft, item.foodName)) { <small>{{ clarifyLabel('inferred') }}</small> }
                     <app-carb-provenance [compact]="true" [provenance]="item.provenance" [overridden]="item.carbOverride !== null" /></span>
                   <strong>{{ item.effectiveCarbs | number }} {{ draftUnit(activeDraftTurn?.question ?? '', 'Grams', item.effectiveCarbs) }}</strong>
                   <label class="draft-quantity">{{ ui('quantity') }}<input type="number" [attr.aria-label]="ui('quantity') + ': ' + item.foodName" min="0.01" [step]="item.measurementType === 'Piece' ? 1 : 0.01"
@@ -191,11 +193,30 @@ import { AssistantConversation, AssistantDraft, AssistantFoodSelection, Assistan
                   <button type="button" class="subtle" [attr.aria-label]="ui('remove') + ': ' + item.foodName" [disabled]="loading || draftConflict" (click)="editCurrentItem($index, 'remove')">×</button>
                 </div>
               }
-              @for (issue of draft.issues; track $index) { <p class="draft-warning">{{ issue }}</p> }
+              @if (!draft.unresolved?.length) { @for (issue of draft.issues; track $index) { <p class="draft-warning">{{ issue }}</p> } }
+              @for (missing of draft.unresolved ?? []; track missing.id) {
+                <section class="unresolved-item" [attr.aria-label]="clarifyLabel('unresolved') + ': ' + missing.originalText">
+                  <strong>{{ clarifyLabel('unresolved') }} · {{ missing.originalText }}</strong>
+                  <p>{{ missing.detail }}</p>
+                  @if (missing.query.unitInferred) { <small>{{ clarifyLabel('inferred') }}</small> }
+                  <div class="clarification-fields">
+                    <label>{{ clarifyLabel('name') }}<input [ngModel]="missingNames[missing.id] ?? missing.query.name" (ngModelChange)="missingNames[missing.id] = $event" [attr.aria-label]="clarifyLabel('name') + ': ' + missing.originalText"></label>
+                    <label>{{ ui('quantity') }}<input type="number" min="0.01" step="0.01" [ngModel]="missingQuantities[missing.id] ?? missing.query.quantity" (ngModelChange)="missingQuantities[missing.id] = $event" [attr.aria-label]="ui('quantity') + ': ' + missing.originalText"></label>
+                    <label>{{ clarifyLabel('unit') }}<select [ngModel]="missingUnits[missing.id] ?? missing.query.unit ?? ''" (ngModelChange)="missingUnits[missing.id] = $event" [attr.aria-label]="clarifyLabel('unit') + ': ' + missing.originalText"><option value="">—</option><option value="Grams">{{ draftUnit(activeDraftTurn?.question ?? '', 'Grams', 1) }}</option><option value="Portion">{{ draftUnit(activeDraftTurn?.question ?? '', 'Portion', 2) }}</option><option value="Piece">{{ draftUnit(activeDraftTurn?.question ?? '', 'Piece', 2) }}</option></select></label>
+                  </div>
+                  <div class="clarification-actions"><button type="button" class="subtle" [disabled]="loading || draftConflict" (click)="resolveMissing(missing, 'search')">{{ clarifyLabel('search') }}</button>
+                  <button type="button" class="subtle" [disabled]="loading || draftConflict" (click)="resolveMissing(missing, 'remove')">{{ ui('remove') }}</button></div>
+                  @for (candidate of missing.candidates; track candidate.id) {
+                    <button type="button" class="subtle clarification-choice" [disabled]="loading || draftConflict" (click)="resolveMissing(missing, 'select', candidate)">{{ candidate.name }} @if (candidate.context) { · {{ candidate.context }} }</button>
+                  }
+                  <details><summary>{{ clarifyLabel('manual') }}</summary><div class="clarification-actions"><label>{{ clarifyLabel('total') }}<input type="number" min="0" step="0.01" [ngModel]="missingCarbs[missing.id]" (ngModelChange)="missingCarbs[missing.id] = $event" [attr.aria-label]="clarifyLabel('total') + ': ' + missing.originalText"></label>
+                    <button type="button" [disabled]="loading || draftConflict || missingCarbs[missing.id] === undefined || missingCarbs[missing.id] === null" (click)="resolveMissing(missing, 'manual')">{{ clarifyLabel('useManual') }}</button></div><small>{{ clarifyLabel('manualNote') }}</small></details>
+                </section>
+              }
               @if (draft.issues.length) { <p class="draft-status">{{ ui(draft.items.length ? 'partial' : 'clarify') }}</p> }
-              <button class="draft-cta" type="button" [disabled]="loading || !draft.items.length" (click)="useDraft(draft, !!draft.issues.length)">
+              @if (draft.items.length) { <button class="draft-cta" [class.partial-cta]="draft.issues.length" type="button" [disabled]="loading" (click)="useDraft(draft, !!draft.issues.length)">
                 {{ draftLabel(activeDraftTurn?.question ?? '', draft.issues.length ? 'partial' : 'action') }}
-              </button>
+              </button> }
             </div>
           </details>
         }
@@ -274,13 +295,20 @@ import { AssistantConversation, AssistantDraft, AssistantFoodSelection, Assistan
     .live-meal { flex-shrink: 0; border-top: 1px solid var(--line); background: #fffaf4; }
     .live-meal summary { cursor: pointer; min-height: 48px; padding: .7rem 1rem; }
     .live-meal summary strong { float: inline-end; margin-inline-start: .5rem; }
-    .live-meal-items { max-height: min(30dvh, 16rem); overflow: auto; padding: 0 1rem .65rem; }
+    .live-meal-items { clear:both; max-height: min(30dvh, 16rem); overflow: auto; padding: 0 1rem .65rem; }
     .live-meal-items .food-line { overflow-wrap: anywhere; }
     .food-line + .food-line { border-top: 1px solid var(--line); }
 
     .draft-cta { width: 100%; min-height: 44px; margin-top: .5rem; }
     .source-choices { margin-block: .55rem; }
     .draft-warning { border-radius: .5rem; background: #f3e7da; padding: .55rem; }
+    .unresolved-item { display:grid; min-width:0; overflow-wrap:anywhere; gap:.4rem; padding:.6rem; border:1px solid var(--line); border-radius:.5rem; margin:.4rem 0; font-size:.82rem; }
+    .unresolved-item p { margin:0; } .clarification-fields { display:grid; grid-template-columns:2fr 1fr 1fr; gap:.4rem; }
+    .clarification-fields label,.clarification-actions label { min-width:0; font-size:.75rem; }
+    .clarification-fields input,.clarification-fields select { width:100%; min-width:0; padding:.4rem; }
+    .clarification-actions { display:flex; flex-wrap:wrap; align-items:end; gap:.4rem; }
+    .clarification-actions label { max-width:150px; } .clarification-choice { text-align:start; overflow-wrap:anywhere; }
+    .draft-cta.partial-cta { width:auto; min-height:0; padding:.5rem .75rem; }
     .acknowledgment { display: flex; align-items: center; gap: .5rem; margin-block: .55rem; }
     .acknowledgment input { width: auto; }
     .actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
@@ -313,13 +341,18 @@ export class MealAssistantComponent {
   turns: AssistantTurn[] = [];
   conversationId: string | null = null;
   message = '';
-  failedSend?: { question: string; conversationId: string | null; requestId: string; selection?: AssistantFoodSelection; expectedDraftVersion: number; edit?: { itemIndex: number; action: 'set' | 'remove'; quantity?: number } };
+  failedSend?: { question: string; conversationId: string | null; requestId: string; selection?: AssistantFoodSelection; expectedDraftVersion: number; edit?: { itemIndex: number; action: 'set' | 'remove'; quantity?: number }; resolution?: AssistantResolution };
   draftVersion = 0;
   draftConflict = false;
   private currentDraft?: AssistantDraft | null;
   candidateQuantities: Record<string, number | undefined> = {};
   private selectedFood?: AssistantFoodSelection;
   private selectedEdit?: { itemIndex: number; action: 'set' | 'remove'; quantity?: number };
+  private selectedResolution?: AssistantResolution;
+  missingNames: Partial<Record<string, string>> = {};
+  missingQuantities: Partial<Record<string, number>> = {};
+  missingUnits: Partial<Record<string, FoodMeasurementType | ''>> = {};
+  missingCarbs: Partial<Record<string, number>> = {};
   draftQuantities: Partial<Record<number, number>> = {};
   loading = false;
   sending = '';
@@ -415,6 +448,20 @@ export class MealAssistantComponent {
     this.send();
   }
 
+  unitWasInferred(draft: AssistantDraft, name: string) { return draft.sources?.some(source => source.name === name && source.unitInferred) ?? false; }
+
+  resolveMissing(missing: AssistantUnresolvedItem, action: AssistantResolution['action'], candidate?: AssistantUnresolvedItem['candidates'][number]) {
+    if (this.loading || this.draftConflict || this.sessionExpired || !this.conversationId) return;
+    const unit = this.missingUnits[missing.id] ?? missing.query.unit ?? '';
+    this.selectedResolution = { unresolvedId: missing.id, action,
+      ...(action !== 'remove' ? { quantity: this.missingQuantities[missing.id] ?? missing.query.quantity ?? undefined,
+        ...(unit ? { unit } : {}), searchName: this.missingNames[missing.id] ?? missing.query.name } : {}),
+      ...(action === 'manual' ? { carbs: this.missingCarbs[missing.id] } : {}),
+      ...(candidate ? { sourceId: candidate.id, sourceKind: candidate.kind } : {}) };
+    this.message = this.clarifyLabel(action === 'remove' ? 'discard' : 'resolve') + ': ' + missing.originalText;
+    this.send();
+  }
+
 
   async useDraft(draft: AssistantDraft, allowPartial = false) {
     if (this.loading || !this.conversationId || draft !== this.activeDraft || !draft.items.length || (draft.issues.length && !allowPartial)) return;
@@ -471,11 +518,14 @@ export class MealAssistantComponent {
       && (this.failedSend.conversationId === this.conversationId || this.turns.some(turn => turn.answer.requestId === this.failedSend?.requestId))
       && (!this.selectedFood || JSON.stringify(this.selectedFood) === JSON.stringify(this.failedSend.selection))
       && (!this.selectedEdit || JSON.stringify(this.selectedEdit) === JSON.stringify(this.failedSend.edit))
-      ? this.failedSend : { question, conversationId: this.conversationId, requestId: crypto.randomUUID(), selection: this.selectedFood, expectedDraftVersion: this.draftVersion, edit: this.selectedEdit };
-    const request = pending.edit ? this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId, pending.selection, pending.expectedDraftVersion, pending.edit)
+      && (!this.selectedResolution || JSON.stringify(this.selectedResolution) === JSON.stringify(this.failedSend.resolution))
+      ? this.failedSend : { question, conversationId: this.conversationId, requestId: crypto.randomUUID(), selection: this.selectedFood, expectedDraftVersion: this.draftVersion, edit: this.selectedEdit, resolution: this.selectedResolution };
+    const request = pending.resolution ? this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId, undefined, pending.expectedDraftVersion, undefined, pending.resolution)
+      : pending.edit ? this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId, pending.selection, pending.expectedDraftVersion, pending.edit)
       : this.api.sendMealAssistantMessage(pending.conversationId, question, pending.requestId, pending.selection, pending.expectedDraftVersion);
     this.selectedFood = undefined;
     this.selectedEdit = undefined;
+    this.selectedResolution = undefined;
     request.pipe(
       takeUntilDestroyed(this.destroyRef),
       finalize(() => { this.loading = false; this.sending = ''; })
@@ -577,6 +627,8 @@ export class MealAssistantComponent {
     this.selectedFood = undefined;
     this.selectedEdit = undefined;
     this.draftQuantities = {};
+    this.selectedResolution = undefined;
+    this.missingNames = {}; this.missingQuantities = {}; this.missingUnits = {}; this.missingCarbs = {};
     this.turns = [];
     this.mealSummaryOpen = false;
     this.expandedTurns.clear();
@@ -711,6 +763,11 @@ export class MealAssistantComponent {
       return `${action} · ${label}: ${total} ${this.draftUnit(turn.question, 'Grams', draft.totalCarbs)}${issues}`;
     }
     if (!draft.issues.length) return turn.answer.message;
+    if (draft.unresolved?.length) return {
+      en: 'Choose a saved source or clarify the missing items below. Your current meal is kept.',
+      ru: 'Выбери сохранённую позицию или уточни недостающие продукты ниже. Текущий приём пищи сохранён.',
+      uk: 'Обери збережену позицію або уточни відсутні продукти нижче. Поточний прийом їжі збережено.'
+    }[locale];
     if (!draft.items.length) {
       const hasOptions = !!(turn.answer.knowledge?.foods.length || turn.answer.knowledge?.orders.length || turn.answer.knowledge?.items?.length);
       return hasOptions ? {
@@ -727,6 +784,12 @@ export class MealAssistantComponent {
   }
 
   readonly displayFoodName = assistantFoodName;
+  clarifyLabel(key: 'unresolved' | 'inferred' | 'name' | 'unit' | 'search' | 'manual' | 'total' | 'useManual' | 'manualNote' | 'resolve' | 'discard') {
+    const locale = this.draftLocale(this.message || this.turns[this.turns.length - 1]?.question || '');
+    return { en: { unresolved: 'Needs clarification', inferred: 'Unit inferred — check it', name: 'Search name', unit: 'Unit', search: 'Search saved foods again', manual: 'Enter carbs manually', total: 'Total carbs (g)', useManual: 'Use my carb total', manualNote: 'User-provided total for this item only. No Food will be created.', resolve: 'Resolve item', discard: 'Remove unresolved item' },
+      ru: { unresolved: 'Нужно уточнение', inferred: 'Единица определена автоматически — проверь', name: 'Название для поиска', unit: 'Единица', search: 'Поискать в сохранённых', manual: 'Ввести углеводы вручную', total: 'Всего углеводов (г)', useManual: 'Использовать мои углеводы', manualNote: 'Твоё значение только для этой позиции. Продукт в Foods не создаётся.', resolve: 'Уточнить позицию', discard: 'Убрать неуточнённую позицию' },
+      uk: { unresolved: 'Потрібне уточнення', inferred: 'Одиницю визначено автоматично — перевір', name: 'Назва для пошуку', unit: 'Одиниця', search: 'Пошукати серед збережених', manual: 'Ввести вуглеводи вручну', total: 'Усього вуглеводів (г)', useManual: 'Використати мої вуглеводи', manualNote: 'Твоє значення лише для цієї позиції. Продукт у Foods не створюється.', resolve: 'Уточнити позицію', discard: 'Вилучити неуточнену позицію' } }[locale][key];
+  }
   ui(key: 'quantity' | 'addItem' | 'addOrder' | 'apply' | 'remove' | 'partial' | 'clarify' | 'savedFood' | 'saved' | 'carbs') {
     const language = this.draftLocale(this.message || this.turns[this.turns.length - 1]?.question || '');
     return { en: { quantity: 'Quantity', addItem: 'Add item', addOrder: 'Add entire order', apply: 'Apply quantity', remove: 'Remove item', partial: 'Partially assembled', clarify: 'Needs clarification', savedFood: 'Saved food', saved: 'Saved', carbs: 'g carbs' },

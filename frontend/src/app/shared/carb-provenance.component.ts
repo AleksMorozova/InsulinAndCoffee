@@ -22,6 +22,7 @@ export class CarbProvenanceComponent {
       return { Unknown: 'Source unknown', Manual: 'Your carbs', AiEstimate: 'AI estimate', Mixed: 'Mixed sources' }[this.provenance?.referenceSource ?? 'Unknown'];
     }
     if (this.provenance?.transformation.includes('HistoricalReuse')) return 'From history';
+    if (this.overridden) return 'Your value';
     return { Unknown: 'Source unknown', Manual: 'Your value', AiEstimate: 'AI estimate', Mixed: 'Mixed sources' }[this.provenance?.referenceSource ?? 'Unknown'];
   }
   get description() {
