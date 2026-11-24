@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter, Router } from '@angular/router';
 import { of, Subject, throwError, TimeoutError } from 'rxjs';
 import { ApiService } from '../core/api.service';
-import { MealAssistantResponse } from '../core/meal-assistant.models';
+import { MealAssistantResponse, AssistantUnresolvedItem } from '../core/meal-assistant.models';
 import { MealAssistantComponent } from './meal-assistant.component';
 import { inResponsiveFrame } from '../testing/responsive-frame';
 
@@ -28,6 +28,78 @@ describe('MealAssistantComponent', () => {
       providers: [provideRouter([]), { provide: ApiService, useValue: api }]
     }).compileComponents();
     fixture = TestBed.createComponent(MealAssistantComponent);
+  });
+
+  const california = { foodItemId: '00000000-0000-0000-0000-000000000000', foodName: 'Калифорния', quantity: 1, measurementType: 'Portion' as const,
+    weightGrams: null, carbsPer100g: null, carbsPerUnit: 60, calculatedCarbs: 60, carbOverride: 60, effectiveCarbs: 60, sourceDeliveryMealItemId: 'california' };
+  const potato: AssistantUnresolvedItem = { id: 'potato', originalText: '120 жареной картошки', query: { name: 'жареной картошки', quantity: 120, unit: 'Grams', unitInferred: true },
+    reason: 'NoMatches', detail: 'Не найден сохранённый продукт: жареная картошка.', candidates: [] };
+  const partial: MealAssistantResponse = { conversationId: 'conversation', message: 'Приём пищи собран частично.', meals: [], draftVersion: 1, resultStatus: 'PartiallyCompleted',
+    draft: { items: [california], issues: [potato.detail], totalCarbs: 60, unresolved: [potato] } };
+
+  it('shows known carbs and the original unresolved quantity separately with contextual controls', async () => {
+    const component = fixture.componentInstance;
+    component.conversationId = 'conversation'; component.turns = [{ question: 'хочу съесть калифорнию и 120 жареной картошки', answer: partial }]; component.mealSummaryOpen = true;
+    fixture.detectChanges(); await fixture.whenStable();
+    const panel: HTMLElement = fixture.nativeElement.querySelector('.live-meal');
+    expect(panel.querySelectorAll('.food-line').length).toBe(1);
+    expect(panel.querySelector('.unresolved-item')?.textContent).toContain('120 жареной картошки');
+    expect(panel.querySelector('.unresolved-item')?.textContent).toContain('автоматически');
+    expect(panel.querySelector<HTMLInputElement>('.clarification-fields input[type=number]')?.value).toBe('120');
+    expect(panel.querySelector('.partial-cta')).not.toBeNull();
+    expect(component.responseText(component.turns[0], 0)).toContain('60');
+    expect(component.responseText(component.turns[0], 0)).not.toContain('Не удалось');
+  });
+
+  it('keeps a failed manual clarification envelope, retries it safely and transfers both items to Calculator', async () => {
+    const component = fixture.componentInstance;
+    component.conversationId = 'conversation'; component.draftVersion = 1;
+    component.turns = [{ question: 'хочу съесть калифорнию и 120 жареной картошки', answer: partial }];
+    component.missingCarbs[potato.id] = 25;
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => new TimeoutError()));
+    component.resolveMissing(potato, 'manual');
+    const envelope = api.sendMealAssistantMessage.calls.mostRecent().args;
+    expect(envelope[6]).toEqual(jasmine.objectContaining({ unresolvedId: 'potato', action: 'manual', quantity: 120, unit: 'Grams', carbs: 25 }));
+    expect(component.activeDraft?.totalCarbs).toBe(60);
+    const manual = { ...california, foodName: 'жареная картошка', quantity: 120, measurementType: 'Grams' as const, carbsPer100g: 20.83, carbsPerUnit: null,
+      weightGrams: 120, carbOverride: 25, calculatedCarbs: 25, effectiveCarbs: 25, sourceDeliveryMealItemId: undefined };
+    const complete: MealAssistantResponse = { ...partial, draftVersion: 2, resultStatus: 'Completed', draft: { items: [california, manual], issues: [], unresolved: [], totalCarbs: 85 } };
+    api.sendMealAssistantMessage.and.returnValue(of(complete)); component.retryFailed();
+    expect(api.sendMealAssistantMessage.calls.mostRecent().args).toEqual(envelope);
+    expect(component.activeDraft?.items.length).toBe(2); expect(component.activeDraft?.totalCarbs).toBe(85);
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+    api.getMealAssistantCalculatorDraft.and.returnValue(of([california, manual]));
+    const draft = component.activeDraft; if (!draft) throw new Error('Expected complete meal');
+    await component.useDraft(draft);
+    expect(navigate).toHaveBeenCalledWith(['/calculator'], jasmine.objectContaining({ state: jasmine.objectContaining({ assistantMealItems: [
+      jasmine.objectContaining({ sourceDeliveryMealItemId: 'california', carbOverride: 60 }),
+      jasmine.objectContaining({ quantity: 120, measurementType: 'Grams', carbOverride: 25 })] }) }));
+  });
+
+  it('targets one unresolved item when choosing a saved source or entering zero carbs', () => {
+    const component = fixture.componentInstance;
+    component.conversationId = 'conversation'; component.turns = [{ question: 'добавь картошку', answer: partial }];
+    api.sendMealAssistantMessage.and.returnValue(throwError(() => new Error('Offline')));
+    component.resolveMissing(potato, 'select', { id: 'saved-potato', kind: 'Food', name: 'Жареная картошка', score: 4 });
+    expect(api.sendMealAssistantMessage.calls.mostRecent().args[6]).toEqual(jasmine.objectContaining({ unresolvedId: 'potato', sourceId: 'saved-potato', sourceKind: 'Food' }));
+    component.missingCarbs[potato.id] = 0; component.resolveMissing(potato, 'manual');
+    expect(api.sendMealAssistantMessage.calls.mostRecent().args[6]?.carbs).toBe(0);
+  });
+
+  it('fits clarification fields within desktop, tablet and phone Current Meal panels', async () => {
+    fixture.componentInstance.turns = [{ question: 'хочу съесть калифорнию и 120 жареной картошки', answer: partial }];
+    fixture.componentInstance.mealSummaryOpen = true; fixture.detectChanges(); await fixture.whenStable();
+    const host: HTMLElement = fixture.nativeElement; host.style.height = 'calc(100dvh - 24px)';
+    await inResponsiveFrame(host, viewport => {
+      const panel = host.querySelector<HTMLDetailsElement>('.live-meal');
+      if (panel) panel.open = true;
+      const missing: HTMLElement | null = host.querySelector('.unresolved-item');
+      const composer: HTMLElement | null = host.querySelector('.composer');
+      if (!missing || !composer) throw new Error('Expected clarification controls and composer');
+      expect(missing.scrollWidth).withContext('Clarification width at ' + viewport.innerWidth).toBeLessThanOrEqual(missing.clientWidth + 1);
+      expect(host.scrollWidth).toBeLessThanOrEqual(host.clientWidth + 1);
+      expect(composer.getBoundingClientRect().bottom).toBeLessThanOrEqual(viewport.innerHeight);
+    });
   });
 
   it('supports a first conversation with no meals, saved foods or orders', () => {

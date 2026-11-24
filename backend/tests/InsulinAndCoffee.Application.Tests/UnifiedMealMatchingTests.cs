@@ -266,7 +266,7 @@ public class UnifiedMealMatchingTests
     }
 
     [Fact]
-    public async Task Update_MultipleUnknownItems_PreservesAllIssuesAndDoesNotPartiallyEdit()
+    public async Task Update_MultipleUnknownItems_PreservesPendingItemsWhileAddingResolvedFood()
     {
         await using var db = Db();
         db.FoodItems.AddRange(Food("Bread"), Food("Brown bread"));
@@ -276,9 +276,12 @@ public class UnifiedMealMatchingTests
         Assert.Equal(2, draft.Issues.Count);
         Assert.Null(draft.Pending);
         var edited = Assert.IsType<AssistantDraft>(await builder.UpdateAsync(new([new("Bread", 2m, null)], "draft", "add"), draft, CancellationToken.None));
-        Assert.Equal(draft.Items, edited.Items);
+        Assert.Equal(2, edited.Items.Count);
+        Assert.Equal(draft.Items[0], edited.Items[0]);
+        Assert.Equal(60m, edited.TotalCarbs);
         Assert.Equal(draft.Issues, edited.Issues);
-        Assert.Contains("Several", edited.EditFeedback);
+        Assert.Null(edited.EditFeedback);
+        Assert.Equal(draft.Unresolved, edited.Unresolved);
     }
 
     [Fact]

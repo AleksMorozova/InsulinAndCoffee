@@ -5,7 +5,7 @@ import { environment } from '../../environments/environment';
 import { SKIP_GLOBAL_ERROR_NOTIFICATION } from './http-error-context';
 import { CalculatedMealItem, Dashboard, DiabetesSettings, FoodItem, DeliveryMeal, DeliveryMealSections, FoodMeasurementType, LoginAttempt, LoginAttemptStats, MealCalculation, MealCarbPreview, MealDetail, MealItemInput, MealSummary, MealType, PaginatedResult, ResultRating, SupplyCheckResult, SupplyItem, UseDeliveryMeal } from './models';
 
-import { AssistantConversation, AssistantDraftState, AssistantFoodSelection, AssistantTurn, MealAssistantResponse } from './meal-assistant.models';
+import { AssistantConversation, AssistantDraftState, AssistantFoodSelection, AssistantTurn, MealAssistantResponse, AssistantResolution } from './meal-assistant.models';
 import { DeliveryMealItemInput, DeliveryMealPreview } from './models';
 import { AiUsageRecord, AiMonitoringOverview, AiUsageFilters, AiModelPricing, CreateAiPricing } from './ai-monitoring.models';
 
@@ -96,9 +96,9 @@ export class ApiService {
 
   constructor(private readonly http: HttpClient) {}
 
-  sendMealAssistantMessage(conversationId: string | null, message: string, requestId: string, selection?: AssistantFoodSelection, expectedDraftVersion?: number, edit?: { itemIndex: number; action: 'set' | 'remove'; quantity?: number }) {
+  sendMealAssistantMessage(conversationId: string | null, message: string, requestId: string, selection?: AssistantFoodSelection, expectedDraftVersion?: number, edit?: { itemIndex: number; action: 'set' | 'remove'; quantity?: number }, resolution?: AssistantResolution) {
     return this.http.post<MealAssistantResponse>(`${this.apiUrl}/meal-assistant/messages`, { conversationId, message, requestId,
-      ...(selection ? { selection } : {}), ...(expectedDraftVersion !== undefined ? { expectedDraftVersion } : {}), ...(edit ? { edit } : {})
+      ...(selection ? { selection } : {}), ...(expectedDraftVersion !== undefined ? { expectedDraftVersion } : {}), ...(edit ? { edit } : {}), ...(resolution ? { resolution } : {})
     }, { context: this.localErrorContext }).pipe(timeout(90000));
   }
 

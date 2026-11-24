@@ -21,7 +21,7 @@ public static class AssistantFoodMatching
         ["california", "калифорния", "каліфорнія", "california roll", "california sushi", "калифорнию", "каліфорнію", "калифорнии", "каліфорнії"],
         ["chicken", "курка", "курятина", "курица"],
         ["rice", "рис"],
-        ["fried potatoes", "смажена картопля", "жареная картошка"],
+        ["fried potatoes", "смажена картопля", "смаженої картоплі", "жареная картошка", "жареной картошки", "жареную картошку"],
         ["wheat porridge", "пшенична каша", "пшеничная каша"],
         ["potato pie", "пиріжок з картоплею", "пирожок с картошкой"]
     ];
@@ -40,7 +40,12 @@ public static class AssistantFoodMatching
     internal static string[] Terms(string name)
     {
         var normalized = Normalize(name);
-        return FoodAliases.Concat(RestaurantAliases).FirstOrDefault(group => group.Contains(normalized)) ?? [normalized];
+        var exact = FoodAliases.Concat(RestaurantAliases).FirstOrDefault(group => group.Contains(normalized));
+        if (exact is not null) return exact;
+        // A category prefix is not a restaurant: preserve exact ranking, also match a known dish alias.
+        var dish = Regex.Replace(normalized, @"^(?:rolls?|роллы?|суши|суші|sushi)\s+", "");
+        var family = FoodAliases.FirstOrDefault(group => group.Contains(dish));
+        return dish != normalized && family is not null ? new[] { normalized }.Concat(family).Distinct().ToArray() : [normalized];
     }
 
     internal static AssistantFoodQuery Query(AssistantFoodQuery query)
@@ -60,10 +65,15 @@ public static class AssistantFoodMatching
         return query;
     }
 
-    internal static Expression<Func<string, int>> Score(string query, bool discovery = false)
+    internal static Expression<Func<string, int>> Score(string query, bool discovery = false, bool itemName = false)
     {
         var name = Normalize(query);
         var aliases = Terms(name);
+        if (itemName)
+        {
+            var dish = Regex.Replace(name, @"^(?:rolls?|роллы?|суши|суші|sushi)\s+", "");
+            if (dish != name) aliases = aliases.Concat(Terms(dish)).Distinct().ToArray();
+        }
         var input = Normalizer.Parameters[0];
         var normalized = Normalizer.Body;
         Expression exact = Expression.Equal(normalized, Expression.Constant(name));

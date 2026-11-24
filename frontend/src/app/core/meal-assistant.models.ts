@@ -1,6 +1,10 @@
 import { CalculatedMealItem, CarbProvenance, FoodMeasurementType, MealType } from './models';
 
 export interface AssistantFoodSelection { foodId: string; quantity?: number; unit?: FoodMeasurementType; kind?: 'Food' | 'DeliveryMealItem' | 'DeliveryMeal'; }
+export interface AssistantResolution { unresolvedId: string; action: 'search' | 'select' | 'manual' | 'remove' | 'update'; sourceId?: string; sourceKind?: 'Food' | 'DeliveryMealItem' | 'DeliveryMeal'; quantity?: number; unit?: FoodMeasurementType; carbs?: number; searchName?: string; }
+export interface AssistantUnresolvedItem { id: string; originalText: string; query: { name: string; quantity: number | null; unit: FoodMeasurementType | null; unitInferred?: boolean; };
+  reason: 'NoMatches' | 'Ambiguous' | 'QuantityRequired' | 'UnitMismatch' | 'MissingCarbs' | 'OrderUnavailable'; detail: string;
+  candidates: { id: string; kind: 'Food' | 'DeliveryMealItem' | 'DeliveryMeal'; name: string; score: number; context?: string | null; }[]; }
 export interface AssistantOrderItem extends AssistantSavedFood { orderId: string; placeName: string; orderName: string; quantity: number; effectiveCarbs: number; }
 export interface AssistantSavedFood { id: string; name: string; unit: FoodMeasurementType; carbsPer100g: number | null; carbsPerUnit: number | null; provenance?: CarbProvenance | null; }
 
@@ -46,7 +50,8 @@ export interface AssistantDraftState { draftVersion: number; draft: AssistantDra
 
 export interface AssistantDraft {
   editFeedback?: string | null;
-  sources?: { recordId: string; kind: string; name: string }[] | null;
+  sources?: { recordId: string; kind: string; name: string; unitInferred?: boolean; }[] | null;
+  unresolved?: AssistantUnresolvedItem[] | null;
   items: CalculatedMealItem[];
   issues: string[];
   totalCarbs: number;

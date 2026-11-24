@@ -56,6 +56,8 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
                 turns[draftIndex] = turns[draftIndex] with { Answer = turns[draftIndex].Answer with
                 { Draft = JsonSerializer.Deserialize<AssistantDraft>(conversation.DraftJson, StoredJson), DraftVersion = conversation.DraftVersion } };
             turns[^1] = turns[^1] with { Answer = turns[^1].Answer with { DraftVersion = conversation.DraftVersion } };
+            if (draftIndex >= 0 && turns[draftIndex].Answer.Draft is { } current)
+                turns[draftIndex] = turns[draftIndex] with { Answer = turns[draftIndex].Answer with { Draft = AssistantDraftBuilder.HydrateLegacy(current, turns[draftIndex].Question) } };
         }
         return turns;
     }
@@ -67,6 +69,8 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             item => item.Id == id && item.UserId == owner, cancellationToken) ?? throw new NotFoundException("Conversation", id);
         var draft = conversation.DraftJson is not null ? JsonSerializer.Deserialize<AssistantDraft>(conversation.DraftJson, StoredJson)
             : (await ReadAsync(id, cancellationToken)).LastOrDefault(turn => turn.Answer.Draft is not null)?.Answer.Draft;
+        if (draft is { Unresolved: null, Issues.Count: > 0 })
+            draft = (await ReadAsync(id, cancellationToken)).LastOrDefault(turn => turn.Answer.Draft is not null)?.Answer.Draft ?? AssistantDraftBuilder.HydrateLegacy(draft);
         return new(conversation.DraftVersion, draft);
     }
 
@@ -125,7 +129,12 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             Selection = request.Selection is null ? null : request.Selection.Kind == "Food" ? (object)new
             { request.Selection.FoodId, Quantity = request.Selection.Quantity?.ToString("G29", CultureInfo.InvariantCulture), request.Selection.Unit }
                 : new { request.Selection.FoodId, Quantity = request.Selection.Quantity?.ToString("G29", CultureInfo.InvariantCulture), request.Selection.Unit, request.Selection.Kind }
-        }) + (request.Edit is null ? "" : JsonSerializer.Serialize(request.Edit)))));
+        }) + (request.Edit is null ? "" : JsonSerializer.Serialize(request.Edit)) + (request.Resolution is null ? "" : JsonSerializer.Serialize(new
+        {
+            request.Resolution.UnresolvedId, request.Resolution.Action, request.Resolution.SourceId, request.Resolution.SourceKind,
+            Quantity = request.Resolution.Quantity?.ToString("G29", CultureInfo.InvariantCulture), request.Resolution.Unit,
+            Carbs = request.Resolution.Carbs?.ToString("G29", CultureInfo.InvariantCulture), request.Resolution.SearchName
+        })))));
         var requestMessageId = request.RequestId is Guid requestId
             ? new Guid(SHA256.HashData(Encoding.UTF8.GetBytes($"{userId:D}/{requestId:D}"))[..16])
             : Guid.NewGuid();
@@ -151,6 +160,12 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             .FirstOrDefault(entry => entry.Draft is not null);
         var active = (legacy.Message, Draft: conversation.DraftJson is not null
             ? JsonSerializer.Deserialize<AssistantDraft>(conversation.DraftJson, StoredJson) : legacy.Draft);
+        if (active.Draft is not null)
+            active.Draft = AssistantDraftBuilder.HydrateLegacy(active.Draft, recent.Where(turn => turn.Role == "user" && turn.CreatedAt < active.Message?.CreatedAt)
+                .OrderByDescending(turn => turn.CreatedAt).Select(turn => turn.Content).FirstOrDefault() ?? "");
+        var operationId = request.RequestId ?? Guid.NewGuid();
+        using var matchScope = logger.BeginScope(new Dictionary<string, object?> { ["OperationId"] = operationId,
+            ["ConversationId"] = conversation.Id, ["CorrelationId"] = tracking?.CorrelationId });
         var includedDraft = false;
         var includedSources = false;
         var contextMessages = recent.Take(6).ToList();
@@ -177,15 +192,22 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         var recentMeals = message.Equals("What did I eat last time?", StringComparison.OrdinalIgnoreCase);
         var lookupName = FoodKnowledgeSearchService.LookupName(message);
         var standalone = active.Draft?.PendingEdit is null && active.Draft?.Pending is null;
+        var textSearch = AssistantIntentText.Interpret(message, active.Draft is not null);
         var lookup = AssistantFoodMatching.Query(new(lookupName, null, null));
-        var exactFood = standalone && knowledge is not null && !string.IsNullOrWhiteSpace(lookup.Name)
+        var knownTerm = FoodKnowledgeSearchService.IsKnownTerm(lookupName);
+        var discover = standalone && textSearch is null && !knownTerm && knowledge is not null && request.Selection is null && request.Edit is null && request.Resolution is null;
+        var exactFood = discover && !string.IsNullOrWhiteSpace(lookup.Name)
             && string.IsNullOrWhiteSpace(lookup.Restaurant)
             && await FoodKnowledgeSearchService.FindFoods(db.FoodItems.AsNoTracking().Where(food => food.UserId == userId), lookup.Name, false)
                 .AnyAsync(AssistantFoodMatching.Positive(AssistantFoodMatching.On<FoodItem>(food => food.Name,
                     AssistantFoodMatching.Score(lookup.Name)), 3), cancellationToken);
         var restaurantLookup = lookup.Restaurant is not null && (lookup.Name.Length == 0
             || FoodKnowledgeSearchService.IsKnownTerm(lookup.Name));
-        var namedLookup = standalone && (FoodKnowledgeSearchService.IsKnownTerm(lookupName) || exactFood || restaurantLookup);
+        var savedReference = discover && !exactFood
+            && (await FoodKnowledgeSearchService.FindItems(db.DeliveryMealItems.AsNoTracking().Where(item => item.DeliveryMeal!.UserId == userId), lookup, false).AnyAsync(cancellationToken)
+                || await db.DeliveryMeals.AsNoTracking().Where(order => order.UserId == userId).AnyAsync(AssistantFoodMatching.Positive(
+                    AssistantFoodMatching.On<DeliveryMeal>(order => order.PlaceName + " " + order.DishName, AssistantFoodMatching.Score(lookupName, true)), 2), cancellationToken));
+        var namedLookup = standalone && (knownTerm || exactFood || savedReference || restaurantLookup);
         AssistantSearch? selectedSearch = null;
         var ordinalUnresolved = false;
         var ordinal = Regex.Match(message, @"(?i)\b(first|second|third|1st|2nd|3rd)\s+item\b|\b(перв\w*|втор\w*|трет\w*)\s+(?:позици\w*|блюд\w*)");
@@ -232,7 +254,7 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             if (selection.Kind != "Food") throw new ValidationException("Unknown saved source kind.");
             if (selection.Quantity is <= 0 or > 10000 || selection.Unit is { } selectedUnit && !Enum.IsDefined(selectedUnit))
                 throw new ValidationException("Specify a valid quantity and measurement unit.");
-            if (active.Draft?.Issues.Count > 1)
+            if (active.Draft?.Issues.Count > 1 && active.Draft.Unresolved is not { Count: > 0 })
                 throw new ValidationException("Several foods need clarification. Resend the complete meal with the intended foods and quantities.");
             var selectedFood = await db.FoodItems.AsNoTracking().SingleOrDefaultAsync(
                 food => food.Id == selection.FoodId && food.UserId == userId, cancellationToken)
@@ -244,16 +266,47 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
                 selection.Unit ?? selectedFood.MeasurementType, FoodItemId: selectedFood.Id)], "draft",
                 active.Draft?.Pending is not null ? "clarify" : active.Draft is not null ? "add" : "create");
         }
-        if (tracking is not null) { tracking.UserId = userId; tracking.ConversationId = conversation.Id; tracking.OperationId = request.RequestId ?? Guid.NewGuid(); }
+        if (tracking is not null) { tracking.UserId = userId; tracking.ConversationId = conversation.Id; tracking.OperationId = operationId; }
         if (request.Edit is not null)
         {
             if (request.Selection is not null) throw new ValidationException("Send either a source selection or a draft edit.");
             selectedSearch = new([], "draft", "set");
         }
-        var textSearch = AssistantIntentText.Interpret(message, active.Draft is not null);
+        if (request.Resolution is not null)
+        {
+            if (request.Selection is not null || request.Edit is not null) throw new ValidationException("Send one draft action at a time.");
+            selectedSearch = new([], "draft", "clarify");
+        }
         var search = selectedSearch ?? textSearch ?? (recentMeals ? new AssistantSearch([], "recent")
             : namedLookup ? new AssistantSearch([new(lookupName, null, null)], "lookup")
             : await llm.InterpretAsync(context, cancellationToken));
+        if (selectedSearch is null && textSearch is null && search.Foods is not null)
+        {
+            // A provider-supplied restaurant is a search hypothesis, not an authenticated source.
+            // Retain explicit source constraints, but do not let a non-existent invented place hide an item.
+            var grounded = new List<AssistantFoodQuery>();
+            foreach (var food in search.Foods ?? [])
+            {
+                if (food is null || string.IsNullOrWhiteSpace(food.Name))
+                    throw new MealAssistantUnavailableException("The assistant could not interpret the search. Try rephrasing your question.");
+                if (!string.IsNullOrWhiteSpace(food.Restaurant))
+                {
+                    var known = await db.DeliveryMeals.AsNoTracking().Where(order => order.UserId == userId)
+                        .AnyAsync(AssistantFoodMatching.Positive(AssistantFoodMatching.On<DeliveryMeal>(order => order.PlaceName, AssistantFoodMatching.Score(food.Restaurant)), 3), cancellationToken);
+                    var explicitPlace = Regex.IsMatch(message, @"(?i)\b(from|из|от|ресторан\w*|restaurant|з)\s+")
+                        || context.Where(turn => turn.Role == "user").Any(turn => Regex.IsMatch(turn.Content,
+                        @"(?i)(?:\bfrom|\bиз|\bот|\bресторан\w*|\brestaurant|\bз)\s+" + Regex.Escape(food.Restaurant)));
+                    var foodAsPlace = AssistantFoodMatching.Score(food.Name, true, itemName: true).Compile()(food.Restaurant) >= 3;
+                    if ((!known || foodAsPlace) && !explicitPlace)
+                    {
+                        logger.LogInformation("Assistant grounding discarded unsupported restaurant constraint; reason {Reason}", foodAsPlace ? "FoodAsPlaceCollision" : "UnregisteredImplicitPlace");
+                        grounded.Add(food with { Restaurant = null }); continue;
+                    }
+                }
+                grounded.Add(food);
+            }
+            search = search with { Foods = grounded.ToArray() };
+        }
         if (recentMeals) logger.LogInformation("Meal assistant recent history handled with {LlmCalls} provider calls", 0);
         if (search.Intent is not ("history" or "recent" or "draft" or "lookup") || search.Foods is null || search.Foods.Length > 6 || search.Foods.Any(food =>
                 food is null || string.IsNullOrWhiteSpace(food.Name) || (food.FoodItemId is null && food.DeliveryMealId is null && food.DeliveryMealItemId is null && food.Name.Length > 80) ||
@@ -272,7 +325,13 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         };
         if (search.Foods.Any(food => food.Quantity is <= 0 or > 10000))
             throw new ValidationException("Specify a quantity between zero and 10,000.");
-        if (search.Operation is not (null or "create" or "add" or "clarify" or "remove" or "replace" or "set" or "increase" or "decrease" or "clear" or "show")
+        var replaceRequested = Regex.IsMatch(message, @"(?i)^(?:replace (?:my|the) meal|start a new meal|замени (?:весь )?при[её]м пищи|новый при[её]м пищи|новий прийом їжі)\b");
+        if (search.Operation == "replaceMeal" && !replaceRequested || search.Operation == "clear" &&
+            !Regex.IsMatch(message, @"(?i)^(?:(?:please|can you|could you|пожалуйста|можешь|будь ласка)\s+)?(?:clear|reset|start over|очисти\w*|сбрось|удали все|удали весь|почни заново|прибери все)\b"))
+            throw new ValidationException("Explicitly request clearing or replacing the whole meal before resetting it.");
+        if (search.Intent == "draft" && active.Draft is not null && (search.Operation is null or "create") && replaceRequested)
+            search = search with { Operation = "replaceMeal" };
+        if (search.Operation is not (null or "create" or "add" or "clarify" or "remove" or "replace" or "replaceMeal" or "set" or "increase" or "decrease" or "clear" or "show")
             || search.Target?.Length > 160 || search.Foods.Any(food => food.Restaurant?.Length > 180))
             throw new MealAssistantUnavailableException("The draft edit could not be interpreted.");
         var mutation = search.Intent == "draft" && search.Operation != "show";
@@ -284,7 +343,7 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             if ((request.ExpectedDraftVersion ?? 0) != conversation.DraftVersion)
                 throw new AssistantConflictException("draft_version_conflict", "The draft changed in another request. Refresh it before applying your edit.", conversation.DraftVersion);
         }
-        logger.LogInformation("Meal assistant routing {Intent}, {TermCount} terms, {Deterministic} deterministic", search.Intent, search.Foods.Length, recentMeals || namedLookup || selectedSearch is not null);
+        logger.LogInformation("Meal assistant routing {Intent}, operation {DraftOperation}, {TermCount} terms, {Deterministic} deterministic", search.Intent, search.Operation, search.Foods.Length, recentMeals || namedLookup || textSearch is not null || selectedSearch is not null);
         var searchStarted = Stopwatch.GetTimestamp();
         var meals = search.Intent == "draft" || (search.Foods.Length == 0 && search.Intent != "recent")
             ? [] : await history.SearchAsync(search, cancellationToken);
@@ -299,7 +358,8 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         if (ordinalUnresolved) reply = "Choose one saved order and an available structured item first. Legacy orders can only be reused as a whole.";
         var draftStarted = Stopwatch.GetTimestamp();
         var draft = search.Intent == "draft" && drafts is not null
-            ? request.Edit is not null ? await drafts.EditItemAsync(active.Draft, request.Edit, cancellationToken)
+            ? request.Resolution is not null ? await drafts.ResolveAsync(active.Draft, request.Resolution, cancellationToken)
+                : request.Edit is not null ? await drafts.EditItemAsync(active.Draft, request.Edit, cancellationToken)
                 : await drafts.UpdateAsync(search, active.Draft, cancellationToken) : null;
         if (search.Intent == "draft")
         {
@@ -321,8 +381,11 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         {
             reply = AssistantLanguage.Reply(language, resultStatus, draft is not null, found);
             if (draft is not null) draft = draft with { Issues = draft.Issues.Select(issue => AssistantLanguage.Detail(issue, language)).ToArray(),
+                Unresolved = draft.Unresolved?.Select(item => item with { Detail = AssistantLanguage.Detail(item.Detail, language) }).ToArray(),
                 EditFeedback = draft.EditFeedback is null ? null : AssistantLanguage.Detail(draft.EditFeedback, language) };
         }
+        if (draft is { Items.Count: 0, Issues.Count: 0 } && (search.Operation == "clear" || request.Edit?.Action == "remove" || request.Resolution?.Action == "remove"))
+            reply = language == "ru" ? "Текущий приём пищи очищен." : language == "uk" ? "Поточний прийом їжі очищено." : "Current meal cleared.";
         if (mutation && draft is not null)
         {
             conversation.DraftVersion = checked(conversation.DraftVersion + 1);
@@ -330,6 +393,8 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         }
         var response = new MealAssistantResponse(conversation.Id, draft?.EditFeedback ?? reply, meals, draft, sources,
             conversation.DraftVersion, request.RequestId, ResultStatus: resultStatus);
+        logger.LogInformation("Assistant assembly {AssemblyStatus}, resolved {ResolvedCount}, unresolved {UnresolvedCount}, draft version {DraftVersion}",
+            resultStatus, draft?.Items.Count ?? 0, draft?.Unresolved?.Count ?? draft?.Issues.Count ?? 0, conversation.DraftVersion);
         if (request.ConversationId is null) db.AssistantConversations.Add(conversation);
         conversation.UpdatedAt = now;
         conversation.Revision = checked(conversation.Revision + 1);

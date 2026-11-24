@@ -33,6 +33,8 @@ internal static class AssistantLanguage
         if (language == "en") return text;
         var uk = language == "uk";
         var patterns = new (string Pattern, string Ru, string Uk)[] {
+            (@"^No saved item matched (.+) from (.+)\.$", "Не найдена сохранённая позиция $1 из $2.", "Не знайдено збережену позицію $1 із $2."),
+            (@"^Choose a saved source for (.+)\.$", "Выбери сохранённую позицию для $1.", "Обери збережену позицію для $1."),
             (@"^No saved food matched (.+)\.$", "Не найден сохранённый продукт: $1.", "Не знайдено збережений продукт: $1."),
             (@"^More than one saved food matched (.+)\.$", "Найдено несколько продуктов: $1. Выбери нужный.", "Знайдено кілька продуктів: $1. Обери потрібний."),
             (@"^More than one saved item matched (.+)\. Choose a specific saved food or order item\.$", "Найдено несколько вариантов: $1. Выбери продукт или позицию заказа.", "Знайдено кілька варіантів: $1. Обери продукт або позицію замовлення."),
