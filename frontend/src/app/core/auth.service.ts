@@ -3,6 +3,7 @@ import { Injectable, computed, signal } from '@angular/core';
 import { Router } from '@angular/router';
 import { tap } from 'rxjs';
 import { environment } from '../../environments/environment';
+import { recordAuthTiming } from './auth-performance';
 
 export type UserRole = 'User' | 'Admin';
 export interface AuthUser { id: string; username: string; role: UserRole; createdAt: string; }
@@ -51,6 +52,7 @@ export class AuthService {
   }
 
   private storeSession(result: AuthToken) {
+    const start = performance.now();
     if (!result?.accessToken?.trim() || !(Date.parse(result.expiresAt) > Date.now()) ||
         !result.user?.id || !result.user.username || !['Admin', 'User'].includes(result.user.role)) {
       throw new Error('Invalid authentication response');
@@ -60,6 +62,7 @@ export class AuthService {
     localStorage.setItem(AuthService.expiryKey, result.expiresAt);
     localStorage.setItem(AuthService.userKey, JSON.stringify(result.user));
     this.userState.set(result.user);
+    recordAuthTiming('session-storage', start, 'Success');
   }
 
   private loadUser(): AuthUser | null {

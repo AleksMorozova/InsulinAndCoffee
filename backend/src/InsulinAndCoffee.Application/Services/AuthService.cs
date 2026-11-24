@@ -3,6 +3,8 @@ using InsulinAndCoffee.Application.Dtos;
 using InsulinAndCoffee.Domain.Entities;
 using InsulinAndCoffee.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using System.Diagnostics;
+using Microsoft.Extensions.Logging;
 
 namespace InsulinAndCoffee.Application.Services;
 
@@ -12,7 +14,8 @@ public sealed class AuthService(
     IAccessTokenService tokens,
     IGoogleIdentityValidator googleIdentity,
     ICurrentUser currentUser,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ILogger<AuthService>? logger = null)
 {
     public async Task<AuthUserDto> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken)
     {
@@ -42,21 +45,48 @@ public sealed class AuthService(
 
     public async Task<AuthTokenDto?> LoginAsync(LoginRequest request, LoginAttemptMetadata metadata, CancellationToken cancellationToken)
     {
-        var attemptedUsername = NormalizeAuditUsername(request.Username);
-        User? user = null;
-        if (!string.IsNullOrWhiteSpace(request.Username))
-            user = await db.Users.AsNoTracking()
-                .FirstOrDefaultAsync(user => user.NormalizedUsername == Normalize(request.Username), cancellationToken);
-
-        if (string.IsNullOrEmpty(request.Password) || user?.PasswordHash is null || !passwords.VerifyPassword(user.PasswordHash, request.Password))
+        var total = Stopwatch.StartNew();
+        var stage = Stopwatch.StartNew();
+        double lookupMs = 0, passwordMs = 0, auditMs = 0, jwtMs = 0;
+        var outcome = "Error";
+        var activeStage = "UserLookup";
+        try
         {
-            await RecordAttemptAsync(attemptedUsername, user?.Id, false, "InvalidCredentials", metadata, cancellationToken);
-            return null;
-        }
+            var attemptedUsername = NormalizeAuditUsername(request.Username);
+            User? user = null;
+            if (!string.IsNullOrWhiteSpace(request.Username))
+                user = await db.Users.AsNoTracking()
+                    .FirstOrDefaultAsync(user => user.NormalizedUsername == Normalize(request.Username), cancellationToken);
+            lookupMs = stage.Elapsed.TotalMilliseconds;
+            activeStage = "PasswordVerification";
+            stage.Restart();
 
-        await RecordAttemptAsync(user.Username, user.Id, true, null, metadata, cancellationToken);
-        var (token, expiresAt) = tokens.Create(user);
-        return new(token, expiresAt, ToDto(user));
+            var valid = !string.IsNullOrEmpty(request.Password) && user?.PasswordHash is not null && passwords.VerifyPassword(user.PasswordHash, request.Password);
+            passwordMs = stage.Elapsed.TotalMilliseconds;
+            activeStage = "AuditWrite";
+            stage.Restart();
+            if (!valid || user is null)
+            {
+                await RecordAttemptAsync(attemptedUsername, user?.Id, false, "InvalidCredentials", metadata, cancellationToken);
+                auditMs = stage.Elapsed.TotalMilliseconds;
+                outcome = "InvalidCredentials";
+                return null;
+            }
+
+            await RecordAttemptAsync(user.Username, user.Id, true, null, metadata, cancellationToken);
+            auditMs = stage.Elapsed.TotalMilliseconds;
+            activeStage = "JwtGeneration";
+            stage.Restart();
+            var (token, expiresAt) = tokens.Create(user);
+            jwtMs = stage.Elapsed.TotalMilliseconds;
+            outcome = "Success";
+            return new(token, expiresAt, ToDto(user));
+        }
+        finally
+        {
+            logger?.LogInformation("Password login timing Outcome={Outcome} TotalMs={TotalMs} UserLookupMs={UserLookupMs} PasswordVerificationMs={PasswordVerificationMs} AuditWriteMs={AuditWriteMs} JwtGenerationMs={JwtGenerationMs} ActiveStage={ActiveStage} ActiveStageMs={ActiveStageMs} TraceId={TraceId}",
+                outcome, total.Elapsed.TotalMilliseconds, lookupMs, passwordMs, auditMs, jwtMs, activeStage, stage.Elapsed.TotalMilliseconds, Activity.Current?.TraceId.ToString());
+        }
     }
 
     public async Task<AuthTokenDto?> LoginWithGoogleAsync(GoogleLoginRequest request, LoginAttemptMetadata metadata, CancellationToken cancellationToken)

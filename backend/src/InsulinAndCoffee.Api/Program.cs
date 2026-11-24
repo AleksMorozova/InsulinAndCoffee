@@ -12,6 +12,9 @@ using Microsoft.OpenApi.Models;
 using System.Text;
 using System.Threading.RateLimiting;
 using System.Text.Json.Serialization;
+using System.Diagnostics;
+
+var startupTimer = Stopwatch.StartNew();
 
 var seedMealAssistant = args is ["--seed-meal-assistant"];
 var repairTestSettings = args is ["--repair-local-test-settings"];
@@ -140,6 +143,7 @@ if (seedAskPastMe)
 }
 
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseMiddleware<AuthTimingMiddleware>();
 app.UseExceptionHandler();
 
 app.UseSwagger();
@@ -170,9 +174,13 @@ if (!app.Environment.IsEnvironment("Testing"))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var migrationTimer = Stopwatch.StartNew();
     db.Database.Migrate();
+    app.Logger.LogInformation("Startup migrations completed DurationMs={DurationMs}", migrationTimer.Elapsed.TotalMilliseconds);
 }
 
+app.Lifetime.ApplicationStarted.Register(() =>
+    app.Logger.LogInformation("Application ready StartupDurationMs={StartupDurationMs}", startupTimer.Elapsed.TotalMilliseconds));
 app.Run();
 
 public partial class Program;

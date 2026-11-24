@@ -6,11 +6,12 @@ import { AppComponent } from './app/app.component';
 import { routes } from './app/app.routes';
 import { apiErrorInterceptor } from './app/core/api-error.interceptor';
 import { authInterceptor } from './app/core/auth.interceptor';
+import { authTimingInterceptor } from './app/core/auth-timing.interceptor';
 import { GlobalErrorHandler } from './app/core/global-error-handler';
 
 bootstrapApplication(AppComponent, {
   providers: [
-    provideHttpClient(withInterceptors([authInterceptor, apiErrorInterceptor])),
+    provideHttpClient(withInterceptors([authTimingInterceptor, authInterceptor, apiErrorInterceptor])),
     provideRouter(routes, withComponentInputBinding()),
     { provide: ErrorHandler, useClass: GlobalErrorHandler }
   ]

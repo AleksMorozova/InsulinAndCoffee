@@ -16,8 +16,12 @@ public static class DependencyInjection
                 "Connection string 'DefaultConnection' was not found or is empty.");
         }
 
-        services.AddDbContext<AppDbContext>(options =>
-            options.UseNpgsql(connectionString));
+        services.AddSingleton<AuthenticationDatabaseTimingInterceptor>();
+        services.AddSingleton<AuthenticationConnectionTimingInterceptor>();
+        services.AddDbContext<AppDbContext>((provider, options) =>
+            options.UseNpgsql(connectionString).AddInterceptors(
+                provider.GetRequiredService<AuthenticationDatabaseTimingInterceptor>(),
+                provider.GetRequiredService<AuthenticationConnectionTimingInterceptor>()));
 
         services.AddScoped<IAppDbContext>(provider =>
             provider.GetRequiredService<AppDbContext>());

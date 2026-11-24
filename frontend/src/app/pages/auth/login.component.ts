@@ -1,7 +1,8 @@
 import { AfterViewInit, Component, ElementRef, NgZone, ViewChild } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { finalize } from 'rxjs';
+import { recordAuthTiming } from '../../core/auth-performance';
+import { ApiErrorMapper } from '../../core/api-error.mapper';
 import { loginDestination } from '../../core/login-destination';
 import { AuthService } from '../../core/auth.service';
 import { GoogleCredentialResponse, GoogleIdentityService } from '../../core/google-identity.service';
@@ -60,15 +61,35 @@ export class LoginComponent implements AfterViewInit {
     this.loading = true;
     this.error = '';
     const { username, password } = this.form.getRawValue();
-    this.auth.login(username, password).pipe(finalize(() => this.loading = false)).subscribe({
+    this.auth.login(username, password).subscribe({
       next: () => this.redirect(),
-      error: () => { this.form.controls.password.reset(); this.error = 'Could not sign in. Check your username and password and try again.'; }
+      error: error => {
+        this.loading = false;
+        this.form.controls.password.reset();
+        const status = ApiErrorMapper.map(error).status;
+        this.error = status === 401
+          ? 'Could not sign in. Check your username and password and try again.'
+          : status === 0
+            ? 'Could not connect to the server. Check your connection and try again.'
+            : 'Sign-in is temporarily unavailable. Please try again.';
+      }
     });
   }
 
-  private redirect() {
+  private async redirect(): Promise<void> {
+    const start = performance.now();
+    let outcome = 'Error';
     const destination = loginDestination(this.router, this.route.snapshot.queryParamMap.get('returnUrl'));
-    void this.router.navigateByUrl(destination, { replaceUrl: true });
+    try {
+      const navigated = await this.router.navigateByUrl(destination, { replaceUrl: true });
+      outcome = navigated ? 'Success' : 'Cancelled';
+      if (!navigated) this.error = 'You are signed in, but the page could not open. Please try opening it again.';
+    } catch {
+      this.error = 'You are signed in, but the page could not open. Please try opening it again.';
+    } finally {
+      recordAuthTiming('response-to-navigation', start, outcome);
+      this.loading = false;
+    }
   }
 
   private handleGoogle(response: GoogleCredentialResponse): void {
@@ -76,9 +97,9 @@ export class LoginComponent implements AfterViewInit {
       if (this.loading) return;
       this.loading = true;
       this.error = '';
-      this.auth.loginWithGoogle(response.credential).pipe(finalize(() => this.loading = false)).subscribe({
+      this.auth.loginWithGoogle(response.credential).subscribe({
         next: () => this.redirect(),
-        error: () => this.error = 'Google sign-in failed. Please try again.'
+        error: () => { this.loading = false; this.error = 'Google sign-in failed. Please try again.'; }
       });
     });
   }
