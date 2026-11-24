@@ -1,5 +1,6 @@
 // Use real browser viewport/media/container queries without depending on the host window's minimum width.
-export async function inResponsiveFrame(host: HTMLElement, check: (viewport: Window) => void): Promise<void> {
+export async function inResponsiveFrame(host: HTMLElement, check: (viewport: Window) => void,
+  sizes: readonly (readonly [number, number])[] = [[1440, 1000], [1024, 900], [390, 844]]): Promise<void> {
   const parent = host.parentNode;
   const next = host.nextSibling;
   const frame = document.createElement('iframe');
@@ -23,7 +24,7 @@ export async function inResponsiveFrame(host: HTMLElement, check: (viewport: Win
     }
     await Promise.all(styles);
     target.body.appendChild(host);
-    for (const [width, height] of [[1440, 1000], [1024, 900], [390, 844]]) {
+    for (const [width, height] of sizes) {
       frame.style.width = `${width}px`; frame.style.height = `${height}px`;
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
       expect(viewport.innerWidth).toBe(width);

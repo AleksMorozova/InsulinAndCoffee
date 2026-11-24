@@ -39,7 +39,10 @@ public record MealItemDto(Guid Id, Guid FoodItemId, string FoodNameSnapshot, dec
 
 public record MealCalculationDto(decimal FoodCarbs, decimal CarbAdjustment, decimal TotalCarbs, decimal MealBolus, decimal CorrectionBolus, decimal SuggestedBolus, IReadOnlyList<CalculatedMealItemDto> Items);
 
-public record CalculatedMealItemDto(Guid FoodItemId, string FoodName, decimal Quantity, FoodMeasurementType MeasurementType, decimal? WeightGrams, decimal? CarbsPer100g, decimal? CarbsPerUnit, decimal CalculatedCarbs, decimal? CarbOverride, decimal EffectiveCarbs, CarbProvenanceDto? Provenance = null, Guid? SourceMealItemId = null, Guid? SourceDeliveryMealId = null, Guid? SourceDeliveryMealItemId = null);
+public record CalculatedMealItemDto(Guid FoodItemId, string FoodName, decimal Quantity, FoodMeasurementType MeasurementType, decimal? WeightGrams, decimal? CarbsPer100g, decimal? CarbsPerUnit, decimal CalculatedCarbs, decimal? CarbOverride, decimal EffectiveCarbs, CarbProvenanceDto? Provenance = null, Guid? SourceMealItemId = null, Guid? SourceDeliveryMealId = null, Guid? SourceDeliveryMealItemId = null, Guid? DraftItemId = null)
+{
+    public Guid? SourceItemId => SourceDeliveryMealItemId ?? SourceMealItemId ?? SourceDeliveryMealId ?? (FoodItemId == Guid.Empty ? null : FoodItemId);
+}
 
 [System.Text.Json.Serialization.JsonUnmappedMemberHandling(System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow)]
 public record CalculateMealRequest(MealType MealType, decimal PreMealGlucose, IReadOnlyList<MealItemInputDto> Items, decimal? DirectCarbs = null, string? DirectFoodName = null, decimal CarbAdjustment = 0, Guid? SourceDeliveryMealId = null);

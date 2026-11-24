@@ -133,7 +133,7 @@ describe('Personal Food Memory routed browser acceptance', () => {
     expect(original.items[0].quantity).toBe(150); expect(original.items[0].carbOverride).toBe(25); expect(original.totalCarbs).toBe(52);
   });
 
-  it('retries the same failed envelope and requires refresh/new version after conflict', async () => {
+  it('retries the same failed envelope and loads the authoritative version before explicit resubmission after conflict', async () => {
     const { harness, assistant } = await login();
     assistant.candidateQuantities['rice'] = 150; assistant.selectFood({ id: 'rice', name: 'Rice', unit: 'Grams', carbsPer100g: 20, carbsPerUnit: null });
     const failed = http.expectOne(request => request.url.endsWith('/meal-assistant/messages'));
@@ -146,9 +146,10 @@ describe('Personal Food Memory routed browser acceptance', () => {
     const conflict = http.expectOne(request => request.url.endsWith('/meal-assistant/messages')); const oldId: unknown = conflict.request.body.requestId;
     conflict.flush({ status: 409, title: 'Draft changed', code: 'draft_version_conflict' }, { status: 409, statusText: 'Conflict' });
     expect(assistant.draftConflict).toBeTrue(); expect(assistant.message).toBe('Use 200g rice'); assistant.send(); http.expectNone(request => request.url.endsWith('/meal-assistant/messages'));
-    assistant.refreshDraft();
-    http.expectOne(request => request.url.endsWith('/meal-assistant/conversations/conversation')).flush([{ question: 'Rice', answer: answer([row], 30, 2) }]);
-    http.expectOne(request => request.url.endsWith('/draft-state')).flush({ draftVersion: 2, draft: { items: [row], issues: [], totalCarbs: 30 } }); assistant.send();
+    http.expectOne(request => request.url.endsWith('/draft-state')).flush({ draftVersion: 2, draft: { items: [row], issues: [], totalCarbs: 30 } });
+    expect(assistant.draftConflict).toBeFalse(); expect(assistant.message).toBe('Use 200g rice');
+    http.expectNone(request => request.url.endsWith('/meal-assistant/messages'));
+    assistant.send();
     const updated = http.expectOne(request => request.url.endsWith('/meal-assistant/messages'));
     expect(updated.request.body.expectedDraftVersion).toBe(2); expect(updated.request.body.requestId).not.toEqual(oldId); updated.flush(answer([row], 30, 3)); chats(); harness.detectChanges();
     expect(assistant.turns.length).toBe(2); expect(TestBed.inject(Router).url).toBe('/meal-assistant');

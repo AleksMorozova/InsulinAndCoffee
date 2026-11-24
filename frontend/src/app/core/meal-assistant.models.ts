@@ -2,6 +2,7 @@ import { CalculatedMealItem, CarbProvenance, FoodMeasurementType, MealType } fro
 
 export interface AssistantFoodSelection { foodId: string; quantity?: number; unit?: FoodMeasurementType; kind?: 'Food' | 'DeliveryMealItem' | 'DeliveryMeal'; }
 export interface AssistantResolution { unresolvedId: string; action: 'search' | 'select' | 'manual' | 'remove' | 'update'; sourceId?: string; sourceKind?: 'Food' | 'DeliveryMealItem' | 'DeliveryMeal'; quantity?: number; unit?: FoodMeasurementType; carbs?: number; searchName?: string; }
+export interface AssistantDraftEdit { itemIndex: number; action: 'set' | 'remove'; quantity?: number; draftItemId?: string; }
 export interface AssistantUnresolvedItem { id: string; originalText: string; query: { name: string; quantity: number | null; unit: FoodMeasurementType | null; unitInferred?: boolean; };
   reason: 'NoMatches' | 'Ambiguous' | 'QuantityRequired' | 'UnitMismatch' | 'MissingCarbs' | 'OrderUnavailable'; detail: string;
   candidates: { id: string; kind: 'Food' | 'DeliveryMealItem' | 'DeliveryMeal'; name: string; score: number; context?: string | null; }[]; }
@@ -9,6 +10,7 @@ export interface AssistantOrderItem extends AssistantSavedFood { orderId: string
 export interface AssistantSavedFood { id: string; name: string; unit: FoodMeasurementType; carbsPer100g: number | null; carbsPerUnit: number | null; provenance?: CarbProvenance | null; }
 
 export interface MealAssistantResponse {
+  operationSummary?: string | null;
   resultStatus?: 'Completed' | 'PartiallyCompleted' | 'NeedsClarification' | 'NoMatchesFound' | 'Failed' | null;
   draftVersion?: number;
   requestId?: string | null;

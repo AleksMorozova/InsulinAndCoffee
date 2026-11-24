@@ -5,6 +5,12 @@ namespace InsulinAndCoffee.Domain.Calculations;
 
 public static class FoodCarbCalculator
 {
+    public static decimal ScaleTotal(decimal total, decimal originalQuantity, decimal quantity)
+    {
+        if (total < 0 || originalQuantity <= 0 || quantity <= 0)
+            throw new CarbCalculationException("Enter a non-negative total and positive quantities.");
+        return Math.Round(total * quantity / originalQuantity, 2);
+    }
     // A reference derived from an explicitly entered total, never a generic nutrition estimate.
     // The explicit override remains authoritative, including any reference rounding difference.
     public static decimal ReferenceFromTotal(FoodMeasurementType unit, decimal quantity, decimal total)
