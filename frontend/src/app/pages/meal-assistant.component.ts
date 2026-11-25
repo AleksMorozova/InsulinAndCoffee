@@ -71,9 +71,9 @@ import { FoodMeasurementType } from '../core/models';
             @for (food of alternatives.foods; track food.id) {
               <p>{{ displayFoodName(food.name) }} · {{ unitLabel(food.unit) }}</p>
               <label>{{ ui('quantity') }} ({{ unitLabel(food.unit) }}) <input type="number" min="0.1" [step]="food.unit === 'Piece' ? 1 : 0.1" [ngModel]="candidateQuantities[food.id] ?? (food.unit === 'Grams' ? null : 1)" (ngModelChange)="candidateQuantities[food.id] = $event"></label>
-              <button type="button" [disabled]="loading" (click)="selectFood(food)">Choose this food</button>
+              <button type="button" [disabled]="loading" (click)="selectFood(food, $event)">Choose this food</button>
             }
-            @for (order of alternatives.orders; track order.id) { <p>{{ order.placeName }} · {{ order.dishName }}</p><button type="button" [disabled]="loading" (click)="selectOrder(order)">Add entire order</button> }
+            @for (order of alternatives.orders; track order.id) { <p>{{ order.placeName }} · {{ order.dishName }}</p><button type="button" [disabled]="loading" (click)="selectOrder(order, $event)">Add entire order</button> }
             </details>
           }
           @for (food of (!turn.answer.draft?.items?.length ? turn.answer.knowledge?.foods : null) ?? []; track food.id) {
@@ -87,7 +87,7 @@ import { FoodMeasurementType } from '../core/models';
                 <p>0 g carbs per {{ food.unit === 'Grams' ? '100 g' : unitLabel(food.unit) }}</p>
               } @else { <p>Carbohydrate value unavailable.</p> }
               <label>{{ ui('quantity') }} ({{ unitLabel(food.unit) }}) <input type="number" min="0.1" [step]="food.unit === 'Piece' ? 1 : 0.1" [ngModel]="candidateQuantities[food.id] ?? (food.unit === 'Grams' ? null : 1)" (ngModelChange)="candidateQuantities[food.id] = $event"></label>
-              <button type="button" [disabled]="loading" (click)="selectFood(food)">Choose this food</button>
+              <button type="button" [disabled]="loading" (click)="selectFood(food, $event)">Choose this food</button>
             </section>
           }
           @for (item of turn.answer.knowledge?.items ?? []; track item.id) {
@@ -97,7 +97,7 @@ import { FoodMeasurementType } from '../core/models';
               <p>{{ ui('saved') }}: {{ item.quantity }} {{ unitLabel(item.unit) }} · {{ item.effectiveCarbs | number }} {{ ui('carbs') }}</p>
               <app-carb-provenance [compact]="true" [provenance]="item.provenance" />
               <div class="result-actions"><label>{{ ui('quantity') }} ({{ unitLabel(item.unit) }}) <input type="number" min="0.01" [step]="item.unit === 'Piece' ? 1 : 0.01" [ngModel]="candidateQuantities[item.id] ?? item.quantity" (ngModelChange)="candidateQuantities[item.id] = $event"></label>
-              <button type="button" [disabled]="loading" (click)="selectOrderItem(item)">{{ ui('addItem') }}</button></div>
+              <button type="button" [disabled]="loading" (click)="selectOrderItem(item, $event)">{{ ui('addItem') }}</button></div>
             </section>
           }
           @for (order of (!turn.answer.draft?.items?.length ? turn.answer.knowledge?.orders : null) ?? []; track order.id) {
@@ -106,7 +106,7 @@ import { FoodMeasurementType } from '../core/models';
               <h3>{{ order.placeName }} · {{ order.dishName }}</h3>
               @if (order.portionDescription) { <p>{{ order.portionDescription }}</p> }
               <p><strong>{{ order.carbs | number }} g total carbs</strong></p>
-              <button type="button" [disabled]="loading" (click)="selectOrder(order)">{{ ui('addOrder') }}</button>
+              <button type="button" [disabled]="loading" (click)="selectOrder(order, $event)">{{ ui('addOrder') }}</button>
               <app-carb-provenance [compact]="true" [provenance]="order.provenance" />
               @if (order.lastUsedAt) { <p>Last reused {{ order.lastUsedAt | date:'mediumDate' }}</p> }
             </section>
@@ -178,6 +178,15 @@ import { FoodMeasurementType } from '../core/models';
                 @if (draft.issues.length || draft.unresolved?.length) { <small>{{ draft.unresolved?.length ? mealItemCount(draft.unresolved?.length ?? 0) + ' · ' : '' }}{{ ui('clarify') }}</small> }</span>
             </summary>
             <div class="live-meal-items">
+              @for (group of draft.duplicateGroups ?? []; track $index) {
+                <details class="source-choices"><summary>{{ duplicateLabel('similar') }}: {{ duplicateName(group.draftItemIds) }}</summary>
+                  <p class="result-meta">{{ duplicateLabel(group.canCombine ? 'safe' : 'different') }}</p>
+                  <div class="result-actions">
+                    <button type="button" class="subtle" [disabled]="loading || draftConflict" (click)="duplicateAction(group.draftItemIds, 'keepSeparate')">{{ duplicateLabel('separate') }}</button>
+                    @if (group.canCombine) { <button type="button" class="subtle" [disabled]="loading || draftConflict" (click)="duplicateAction(group.draftItemIds, 'combine')">{{ duplicateLabel('combine') }}</button> }
+                  </div>
+                </details>
+              }
               @for (item of draft.items; track draftItemKey($index, item)) {
                 <div class="food-line" [attr.aria-busy]="loading && pendingItemId !== null && pendingItemId === item.draftItemId">
                   <div class="meal-food"><strong>{{ displayFoodName(item.foodName) }}</strong>
@@ -203,8 +212,9 @@ import { FoodMeasurementType } from '../core/models';
               }
               @if (!draft.unresolved?.length) { @for (issue of draft.issues; track $index) { <p class="draft-warning">{{ issue }}</p> } }
               @for (missing of draft.unresolved ?? []; track missing.id) {
-                <section class="unresolved-item" [attr.aria-label]="clarifyLabel('unresolved') + ': ' + missing.originalText">
+                <section class="unresolved-item" role="group" [attr.aria-label]="clarifyLabel('unresolved') + ': ' + missing.originalText + ((draft.unresolved?.length ?? 0) > 1 ? ' · ' + duplicateLabel('request') + ' ' + ($index + 1) : '')">
                   <strong>{{ clarifyLabel('unresolved') }} · {{ missing.originalText }}</strong>
+                  @if ((draft.unresolved?.length ?? 0) > 1) { <small>{{ duplicateLabel('request') }} {{ $index + 1 }}</small> }
                   <p>{{ missing.detail }}</p>
                   @if (missing.query.unitInferred) { <small>{{ clarifyLabel('inferred') }}</small> }
                   <div class="clarification-fields">
@@ -461,12 +471,23 @@ export class MealAssistantComponent {
   }
   draftItemKey(index: number, item: AssistantDraft['items'][number]) { return item.draftItemId ?? index; }
 
-  editCurrentItem(index: number, action: 'set' | 'remove') {
+  editCurrentItem(index: number, action: AssistantDraftEdit['action']) {
     const item = this.activeDraft?.items[index];
     if (!item || this.loading || this.draftConflict || this.sessionExpired || !this.conversationId || (action === 'set' && !this.validQuantity(index))) return;
     this.selectedEdit = { itemIndex: index, action, ...(item.draftItemId ? { draftItemId: item.draftItemId } : {}), ...(action === 'set' ? { quantity: this.draftQuantities[index] ?? item.quantity } : {}) };
-    this.message = this.ui(action === 'remove' ? 'remove' : 'apply') + ': ' + item.foodName;
+    this.message = (action === 'combine' ? this.duplicateLabel('combine') : action === 'keepSeparate' ? this.duplicateLabel('separate') : this.ui(action === 'remove' ? 'remove' : 'apply')) + ': ' + item.foodName;
     this.send();
+  }
+
+  duplicateName(ids: string[]) { return this.activeDraft?.items.filter(item => !!item.draftItemId && ids.includes(item.draftItemId)).map(item => this.displayFoodName(item.foodName)).filter((name, index, names) => names.indexOf(name) === index).join(' · '); }
+  duplicateAction(ids: string[], action: 'combine' | 'keepSeparate') {
+    const index = this.activeDraft?.items.findIndex(item => !!item.draftItemId && ids.includes(item.draftItemId)) ?? -1;
+    if (index >= 0) this.editCurrentItem(index, action);
+  }
+  duplicateLabel(key: 'similar' | 'safe' | 'different' | 'separate' | 'combine' | 'request') {
+    return { en: { similar: 'Same saved source', safe: 'Combine only if you want one row. The total will stay the same.', different: 'Different quantities or carb values. Keep these entries separate or edit an exact row.', separate: 'Keep separate', combine: 'Combine quantities', request: 'Requested item' },
+      ru: { similar: 'Один сохранённый источник', safe: 'Можно объединить в одну строку. Сумма углеводов не изменится.', different: 'Количество или углеводы различаются. Оставь отдельно или измени нужную строку.', separate: 'Оставить отдельно', combine: 'Объединить количество', request: 'Позиция' },
+      uk: { similar: 'Одне збережене джерело', safe: 'Можна об’єднати в один рядок. Сума вуглеводів не зміниться.', different: 'Кількість або вуглеводи різняться. Залиш окремо або зміни потрібний рядок.', separate: 'Залишити окремо', combine: 'Об’єднати кількість', request: 'Позиція' } }[this.draftLocale(this.activeDraftTurn?.question ?? '')][key];
   }
 
   startQuantityEdit(index: number) {
@@ -571,21 +592,21 @@ export class MealAssistantComponent {
     }
   }
 
-  selectFood(food: AssistantSavedFood) {
-    if (this.loading || this.sessionExpired || this.draftConflict) return;
+  selectFood(food: AssistantSavedFood, event?: MouseEvent) {
+    if (this.loading || this.sessionExpired || this.draftConflict || (event?.detail ?? 0) > 1) return;
     this.selectedFood = { foodId: food.id, quantity: this.candidateQuantities[food.id], unit: food.unit };
     this.message = 'Use ' + this.displayFoodName(food.name);
     this.send();
   }
 
-  selectOrderItem(item: AssistantOrderItem) {
-    if (this.loading || this.sessionExpired || this.draftConflict) return;
+  selectOrderItem(item: AssistantOrderItem, event?: MouseEvent) {
+    if (this.loading || this.sessionExpired || this.draftConflict || (event?.detail ?? 0) > 1) return;
     this.selectedFood = { foodId: item.id, quantity: this.candidateQuantities[item.id] ?? item.quantity, unit: item.unit, kind: 'DeliveryMealItem' };
     this.message = `Add ${item.name} from ${item.placeName}`;
     this.send();
   }
-  selectOrder(order: AssistantOrder) {
-    if (this.loading || this.sessionExpired || this.draftConflict) return;
+  selectOrder(order: AssistantOrder, event?: MouseEvent) {
+    if (this.loading || this.sessionExpired || this.draftConflict || (event?.detail ?? 0) > 1) return;
     this.selectedFood = { foodId: order.id, kind: 'DeliveryMeal' };
     this.message = `Add ${order.dishName} from ${order.placeName}`;
     this.send();

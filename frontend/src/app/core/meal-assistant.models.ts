@@ -2,8 +2,8 @@ import { CalculatedMealItem, CarbProvenance, FoodMeasurementType, MealType } fro
 
 export interface AssistantFoodSelection { foodId: string; quantity?: number; unit?: FoodMeasurementType; kind?: 'Food' | 'DeliveryMealItem' | 'DeliveryMeal'; }
 export interface AssistantResolution { unresolvedId: string; action: 'search' | 'select' | 'manual' | 'remove' | 'update'; sourceId?: string; sourceKind?: 'Food' | 'DeliveryMealItem' | 'DeliveryMeal'; quantity?: number; unit?: FoodMeasurementType; carbs?: number; searchName?: string; }
-export interface AssistantDraftEdit { itemIndex: number; action: 'set' | 'remove'; quantity?: number; draftItemId?: string; }
-export interface AssistantUnresolvedItem { id: string; originalText: string; query: { name: string; quantity: number | null; unit: FoodMeasurementType | null; unitInferred?: boolean; };
+export interface AssistantDraftEdit { itemIndex: number; action: 'set' | 'remove' | 'combine' | 'keepSeparate'; quantity?: number; draftItemId?: string; }
+export interface AssistantUnresolvedItem { id: string; operationId?: string | null; requestedItemId?: string | null; originalText: string; query: { name: string; quantity: number | null; unit: FoodMeasurementType | null; unitInferred?: boolean; };
   reason: 'NoMatches' | 'Ambiguous' | 'QuantityRequired' | 'UnitMismatch' | 'MissingCarbs' | 'OrderUnavailable'; detail: string;
   candidates: { id: string; kind: 'Food' | 'DeliveryMealItem' | 'DeliveryMeal'; name: string; score: number; context?: string | null; }[]; }
 export interface AssistantOrderItem extends AssistantSavedFood { orderId: string; placeName: string; orderName: string; quantity: number; effectiveCarbs: number; }
@@ -51,6 +51,8 @@ export interface MealAssistantResponse {
 export interface AssistantDraftState { draftVersion: number; draft: AssistantDraft | null; }
 
 export interface AssistantDraft {
+  duplicateGroups?: { draftItemIds: string[]; canCombine: boolean }[] | null;
+  separateItemIds?: string[] | null;
   editFeedback?: string | null;
   sources?: { recordId: string; kind: string; name: string; unitInferred?: boolean; }[] | null;
   unresolved?: AssistantUnresolvedItem[] | null;

@@ -69,8 +69,9 @@ unrelated unresolved entries. These transitions are fixed.
    override and provenance agree. Overrides additionally require the same original
    quantity before reconciliation. The explicit requested quantity is used, not
    the sum of duplicate quantities. Different sources/overrides require clarification.
-3. Clarification includes quantities, units, carbs, source and exact entry IDs;
+3. Clarification includes numbered choices, quantities, units, carbs and source;
    restaurant/order labels are looked up by owned delivery-item IDs when applicable.
+   Exact entry IDs stay in the API/state and are not shown as user-facing labels.
    Removal does not search the global Foods catalog.
 4. “Убери жареную картошку” removes the matching resolved or pending entry. Exact
    manual removal needs no source revalidation. Repeated removal of an already

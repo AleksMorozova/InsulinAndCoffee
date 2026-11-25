@@ -9,7 +9,7 @@ public enum AssistantResolutionReason { NoMatches, Ambiguous, QuantityRequired, 
 public enum AssistantCandidateKind { Food, DeliveryMealItem, DeliveryMeal }
 public record AssistantCandidate(Guid Id, AssistantCandidateKind Kind, string Name, int Score, string? Context = null);
 public record AssistantUnresolvedItem(Guid Id, string OriginalText, AssistantFoodQuery Query, AssistantResolutionReason Reason,
-    string Detail, IReadOnlyList<AssistantCandidate> Candidates);
+    string Detail, IReadOnlyList<AssistantCandidate> Candidates, Guid? OperationId = null, Guid? RequestedItemId = null);
 public record AssistantDraftEdit(int ItemIndex, string Action, decimal? Quantity = null, Guid? DraftItemId = null);
 public record RenameAssistantConversation(string Title);
 public record AssistantFoodSelection(Guid FoodId, decimal? Quantity = null, FoodMeasurementType? Unit = null, string Kind = "Food");
@@ -22,7 +22,8 @@ public record AssistantMeal(Guid Id, DateTimeOffset MealTime, MealType MealType,
     IReadOnlyList<AssistantGlucoseReading> GlucoseReadings, bool CanUseInCalculator, DateTimeOffset? CarbsVerifiedAt = null);
 public record AssistantGlucoseReading(decimal Value, DateTimeOffset ReadingTime, ReadingType ReadingType);
 public record MealAssistantResponse(Guid ConversationId, string Message, IReadOnlyList<AssistantMeal> Meals, AssistantDraft? Draft = null, AssistantKnowledge? Knowledge = null, long DraftVersion = 0, Guid? RequestId = null, bool Replayed = false, string? ResultStatus = null, string? OperationSummary = null);
-public record AssistantDraft(IReadOnlyList<CalculatedMealItemDto> Items, IReadOnlyList<string> Issues, decimal TotalCarbs, IReadOnlyList<AssistantDraftSource>? Sources = null, AssistantFoodQuery? Pending = null, string? EditFeedback = null, AssistantSearch? PendingEdit = null, IReadOnlyList<AssistantUnresolvedItem>? Unresolved = null);
+public record AssistantDraft(IReadOnlyList<CalculatedMealItemDto> Items, IReadOnlyList<string> Issues, decimal TotalCarbs, IReadOnlyList<AssistantDraftSource>? Sources = null, AssistantFoodQuery? Pending = null, string? EditFeedback = null, AssistantSearch? PendingEdit = null, IReadOnlyList<AssistantUnresolvedItem>? Unresolved = null, IReadOnlyList<AssistantDuplicateGroup>? DuplicateGroups = null, IReadOnlyList<Guid>? SeparateItemIds = null);
+public record AssistantDuplicateGroup(IReadOnlyList<Guid> DraftItemIds, bool CanCombine);
 public record AssistantConversationSummary(Guid Id, string Title, DateTimeOffset UpdatedAt);
 public record AssistantTurn(string Question, MealAssistantResponse Answer);
 public record AssistantDraftState(long DraftVersion, AssistantDraft? Draft);

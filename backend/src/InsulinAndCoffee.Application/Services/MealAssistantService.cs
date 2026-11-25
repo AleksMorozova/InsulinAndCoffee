@@ -327,6 +327,8 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         };
         if (search.Foods.Any(food => food.Quantity is <= 0 or > 10000))
             throw new ValidationException("Specify a quantity between zero and 10,000.");
+        if (selectedSearch is null && textSearch is null)
+            search = AssistantIntentText.RemoveRepeatedExtraction(search, message);
         var replaceRequested = Regex.IsMatch(message, @"(?i)^(?:replace (?:my|the) meal|start a new meal|замени (?:весь )?при[её]м пищи|новый при[её]м пищи|новий прийом їжі)\b");
         if (search.Operation == "replaceMeal" && !replaceRequested || search.Operation == "clear" &&
             !Regex.IsMatch(message, @"(?i)^(?:(?:please|can you|could you|пожалуйста|можешь|будь ласка)\s+)?(?:clear|reset|start over|очисти\w*|сбрось|удали все|удали весь|почни заново|прибери все)\b"))
@@ -335,7 +337,9 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
             search = search with { Operation = "replaceMeal" };
         if (search.Operation == "batch" && textSearch?.Operation != "batch")
             throw new ValidationException("Use explicit independent meal edit commands.");
-        if (search.Operation is not (null or "create" or "add" or "clarify" or "remove" or "replace" or "replaceMeal" or "set" or "increase" or "decrease" or "clear" or "show" or "batch")
+        if (search.Operation == "removeAll" && textSearch?.Operation != "removeAll")
+            throw new ValidationException("Explicitly request which matching items to remove before removing all servings.");
+        if (search.Operation is not (null or "create" or "add" or "clarify" or "remove" or "removeAll" or "replace" or "replaceMeal" or "set" or "increase" or "decrease" or "clear" or "show" or "batch")
             || search.Target?.Length > 160 || search.Foods.Any(food => food.Restaurant?.Length > 180))
             throw new MealAssistantUnavailableException("The draft edit could not be interpreted.");
         var mutation = search.Intent == "draft" && search.Operation != "show";
@@ -362,9 +366,9 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         if (ordinalUnresolved) reply = "Choose one saved order and an available structured item first. Legacy orders can only be reused as a whole.";
         var draftStarted = Stopwatch.GetTimestamp();
         var draft = search.Intent == "draft" && drafts is not null
-            ? request.Resolution is not null ? await drafts.ResolveAsync(active.Draft, request.Resolution, cancellationToken)
+            ? request.Resolution is not null ? await drafts.ResolveAsync(active.Draft, request.Resolution, cancellationToken, operationId)
                 : request.Edit is not null ? await drafts.EditItemAsync(active.Draft, request.Edit, cancellationToken)
-                : await drafts.UpdateAsync(search, active.Draft, cancellationToken) : null;
+                : await drafts.UpdateAsync(search, active.Draft, cancellationToken, operationId) : null;
         if (search.Intent == "draft")
         {
             logger.LogInformation("Meal assistant draft took {ElapsedMs} ms", Stopwatch.GetElapsedTime(draftStarted).TotalMilliseconds);
@@ -462,7 +466,7 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         foreach (var operation in operations)
         {
             var name = operation.Target ?? "";
-            if (operation.Operation == "remove")
+            if (operation.Operation is "remove" or "removeAll")
             {
                 var score = AssistantFoodMatching.Score(name).Compile();
                 var existed = before.Items.Any(item => score(item.FoodName) > 0) || (before.Unresolved?.Any(item => score(item.Query.Name) > 0) ?? false);

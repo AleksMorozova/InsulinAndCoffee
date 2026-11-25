@@ -11,6 +11,15 @@ internal static class AssistantIntentText
     internal static AssistantSearch? Interpret(string message, bool hasDraft)
     {
         var text = message.Trim().TrimEnd('.', '?', '!');
+        var extra = Regex.Match(text, @"^(?:добавь\s+ещ[её]|додай\s+ще|add\s+(?:another|more))\s+(.+)$", RegexOptions.IgnoreCase);
+        if (hasDraft && extra.Success)
+        {
+            var food = Parse(extra.Groups[1].Value);
+            return new([food with { Quantity = food.Quantity ?? 1m }], "draft", "increase", food.Name);
+        }
+        var want = Regex.Match(text, @"^(?:хочу|I want)\s+(.+)$", RegexOptions.IgnoreCase);
+        if (want.Success && Parse(want.Groups[1].Value) is { Quantity: not null } requested)
+            return new([requested], "draft", hasDraft ? "add" : "create");
         if (hasDraft)
         {
             var clauses = Regex.Split(text, @"\s+(?:и|та|and)\s+|;\s*", RegexOptions.IgnoreCase);
@@ -48,8 +57,10 @@ internal static class AssistantIntentText
         if (remove.Success)
         {
             var target = remove.Groups[1].Value.Trim();
+            var all = Regex.Match(target, @"^(?:все|всю|усі|всі|all)\s+(.+)$", RegexOptions.IgnoreCase);
+            if (all.Success) return new([], "draft", "removeAll", all.Groups[1].Value.Trim());
             var amount = Parse(target);
-            return amount.Quantity.HasValue && amount.Unit.HasValue ? new([amount], "draft", "decrease", amount.Name)
+            return amount.Quantity.HasValue ? new([amount], "draft", "decrease", amount.Name)
                 : new([], "draft", "remove", target);
         }
         var set = Regex.Match(text, @"^(?<name>.+?)\s+(?:оставь|залиш|set\s+to)\s+(?<portion>.+)$", RegexOptions.IgnoreCase);
@@ -65,6 +76,15 @@ internal static class AssistantIntentText
 
     private static AssistantFoodQuery Parse(string text)
     {
+        var words = Regex.Match(text.Trim(), @"^(one|two|three|один|одна|одну|два|две|дві|три)\s+(.+)$", RegexOptions.IgnoreCase);
+        if (words.Success)
+        {
+            var normalized = AssistantPortionText.Normalize(new(text.Trim(), null, null));
+            if (normalized.Quantity.HasValue) return normalized;
+            var wordQuantity = words.Groups[1].Value.ToLowerInvariant() is "one" or "один" or "одна" or "одну" ? 1m
+                : words.Groups[1].Value.ToLowerInvariant() is "three" or "три" ? 3m : 2m;
+            return new(words.Groups[2].Value.Trim(), wordQuantity, null, OriginalText: text.Trim());
+        }
         var match = Regex.Match(text.Trim(), @"^(?<quantity>\d+(?:[.,]\d+)?)\s*(?:(?<unit>г|гр|g|grams?|грамм(?:а|ов)?|грамів|порции|порцій|servings?|pieces?)\s+)?(?<name>.+)$", RegexOptions.IgnoreCase);
         if (!match.Success) return AssistantPortionText.Normalize(new(text.Trim(), null, null, OriginalText: text.Trim()));
         var quantity = decimal.Parse(match.Groups["quantity"].Value.Replace(',', '.'), CultureInfo.InvariantCulture);
@@ -72,5 +92,25 @@ internal static class AssistantIntentText
         FoodMeasurementType? type = unit.Length == 0 ? null : unit.StartsWith('г') || unit.StartsWith('g') ? FoodMeasurementType.Grams
             : unit.StartsWith("piece") ? FoodMeasurementType.Piece : FoodMeasurementType.Portion;
         return new(match.Groups["name"].Value.Trim(), quantity, type, OriginalText: text.Trim());
+    }
+
+    internal static AssistantSearch RemoveRepeatedExtraction(AssistantSearch search, string message)
+    {
+        // Only a model extraction of a single explicit mention can be corrected here.
+        // Deterministic lists, selections, separate operations and explicit repeat/quantity cues remain intact.
+        if (search.Intent != "draft" || search.Operation is not (null or "create" or "add") ||
+            Regex.IsMatch(message, @"(?i)\b(?:и|та|and|ещ[её]|ще|another|more|two|three|два|две|дві|три|несколько)\b|[,;]|\d")) return search;
+        var seen = new HashSet<string>();
+        var foods = search.Foods.Where(food =>
+        {
+            var query = AssistantFoodMatching.Query(food);
+            var aliases = AssistantFoodMatching.Terms(query.Name).Select(AssistantFoodMatching.Normalize).Distinct().OrderByDescending(alias => alias.Length).ToArray();
+            var mentions = Regex.Matches(AssistantFoodMatching.Normalize(message), @"(?<!\p{L})(?:" + string.Join("|", aliases.Select(Regex.Escape)) + @")(?!\p{L})").Count;
+            if (mentions != 1) return true;
+            var key = System.Text.Json.JsonSerializer.Serialize(new { Names = aliases.Order().ToArray(), query.Quantity, query.Unit,
+                Restaurant = AssistantFoodMatching.Normalize(query.Restaurant ?? ""), query.FoodItemId, query.DeliveryMealId, query.DeliveryMealItemId });
+            return seen.Add(key);
+        }).ToArray();
+        return search with { Foods = foods };
     }
 }

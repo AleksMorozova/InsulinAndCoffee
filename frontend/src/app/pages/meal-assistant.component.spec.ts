@@ -497,6 +497,89 @@ describe('MealAssistantComponent', () => {
     return component;
   }
 
+  function showDuplicateMeal(canCombine = true) {
+    const component = showCurrentMeal();
+    const first = { ...california, draftItemId: 'entry-a', sourceItemId: 'saved-source' };
+    const second = { ...first, draftItemId: 'entry-b' };
+    component.turns[0].answer.draft = { items: [first, second], issues: [], totalCarbs: 120,
+      duplicateGroups: [{ draftItemIds: ['entry-a', 'entry-b'], canCombine }] };
+    fixture.detectChanges(); return component;
+  }
+
+  it('keeps potential duplicates visible and offers optional combine without exposing technical IDs', () => {
+    showDuplicateMeal(); const host: HTMLElement = fixture.nativeElement;
+    expect(host.querySelectorAll('.food-line').length).toBe(2);
+    const controls = host.querySelector('.live-meal .source-choices');
+    expect(controls?.textContent).toContain('Объединить количество'); expect(controls?.textContent).toContain('Оставить отдельно');
+    expect(host.textContent).not.toContain('entry-a'); expect(host.textContent).not.toContain('saved-source');
+    expect(api.sendMealAssistantMessage).not.toHaveBeenCalled();
+  });
+
+  it('does not offer Combine when carb values or units are incompatible', () => {
+    showDuplicateMeal(false);
+    const controls: HTMLElement | null = fixture.nativeElement.querySelector('.live-meal .source-choices');
+    expect(controls?.querySelectorAll('button').length).toBe(1);
+    expect(controls?.textContent).not.toContain('Объединить количество');
+    expect(api.sendMealAssistantMessage).not.toHaveBeenCalled();
+  });
+
+  it('combines only through a versioned entry-ID operation and renders the authoritative result', () => {
+    const component = showDuplicateMeal();
+    api.sendMealAssistantMessage.and.returnValue(of({ ...response, draftVersion: 2, draft: {
+      items: [{ ...california, draftItemId: 'entry-a', quantity: 2, calculatedCarbs: 120, carbOverride: 120, effectiveCarbs: 120 }], issues: [], totalCarbs: 120, duplicateGroups: []
+    } }));
+    component.duplicateAction(['entry-a', 'entry-b'], 'combine'); fixture.detectChanges();
+    expect(api.sendMealAssistantMessage.calls.mostRecent().args[5]).toEqual({ itemIndex: 0, draftItemId: 'entry-a', action: 'combine' });
+    expect(fixture.nativeElement.querySelectorAll('.food-line').length).toBe(1); expect(component.activeDraft?.totalCarbs).toBe(120);
+  });
+
+  it('keeps separate items and their saved values after acknowledging the source group and reloading', () => {
+    const component = showDuplicateMeal(); const before = component.activeDraft;
+    if (!before) throw new Error('Expected current meal');
+    const kept = { ...before, duplicateGroups: [], separateItemIds: ['entry-a', 'entry-b'] };
+    const answer = { ...response, draft: kept, draftVersion: 2 };
+    api.sendMealAssistantMessage.and.returnValue(of(answer)); component.duplicateAction(['entry-a', 'entry-b'], 'keepSeparate');
+    api.getMealAssistantConversation.and.returnValue(of([{ question: 'Оставить отдельно', answer }])); component.openChat('conversation'); fixture.detectChanges();
+    expect(component.activeDraft?.items).toEqual(before.items); expect(fixture.nativeElement.querySelectorAll('.food-line').length).toBe(2);
+    expect(fixture.nativeElement.querySelector('.live-meal .source-choices')).toBeNull();
+  });
+
+  it('preserves two independently requested pending Sushi entries with distinguishable accessible labels', () => {
+    const component = showCurrentMeal();
+    component.turns[0].answer.draft = { items: [], issues: ['Specify Sushi', 'Specify Sushi'], totalCarbs: 0,
+      unresolved: [{ ...potato, id: 'request-1', requestedItemId: 'request-1', operationId: 'operation-1', originalText: 'Суши' },
+        { ...potato, id: 'request-2', requestedItemId: 'request-2', operationId: 'operation-2', originalText: 'Суши' }] };
+    fixture.detectChanges();
+    const pending: NodeListOf<HTMLElement> = fixture.nativeElement.querySelectorAll('.unresolved-item');
+    expect(pending.length).toBe(2); expect(pending[0].getAttribute('aria-label')).toContain('Позиция 1');
+    expect(pending[1].getAttribute('aria-label')).toContain('Позиция 2');
+    expect(fixture.nativeElement.textContent).not.toContain('operation-1');
+  });
+
+  it('sends one operation for an in-flight double-click Add item, with no optimistic appends', () => {
+    const pending = new Subject<MealAssistantResponse>(); api.sendMealAssistantMessage.and.returnValue(pending);
+    const food = { id: 'california', name: 'Калифорния', unit: 'Portion' as const, carbsPer100g: null, carbsPerUnit: 60 };
+    const component = fixture.componentInstance;
+    component.selectFood(food); component.selectFood(food);
+    expect(api.sendMealAssistantMessage).toHaveBeenCalledTimes(1); expect(component.turns.length).toBe(0);
+    pending.next({ ...response, draftVersion: 1, draft: { items: [california], issues: [], totalCarbs: 60 } }); pending.complete();
+    expect(component.activeDraft?.items.length).toBe(1); expect(component.turns.length).toBe(1);
+  });
+
+  it('ignores the second click of a double-click even after a fast response, while preserving deliberate new clicks', () => {
+    const component = fixture.componentInstance;
+    const food = { id: 'california', name: 'Калифорния', unit: 'Portion' as const, carbsPer100g: null, carbsPerUnit: 60 };
+    api.sendMealAssistantMessage.and.returnValue(of({ ...response, draftVersion: 1, draft: { items: [california], issues: [], totalCarbs: 60 } }));
+    component.selectFood(food, new MouseEvent('click', { detail: 1 }));
+    const first = api.sendMealAssistantMessage.calls.mostRecent().args[2];
+    expect(component.loading).toBeFalse();
+    component.selectFood(food, new MouseEvent('click', { detail: 2 }));
+    expect(api.sendMealAssistantMessage).toHaveBeenCalledTimes(1);
+    component.selectFood(food, new MouseEvent('click', { detail: 1 }));
+    expect(api.sendMealAssistantMessage).toHaveBeenCalledTimes(2);
+    expect(api.sendMealAssistantMessage.calls.mostRecent().args[2]).not.toBe(first);
+  });
+
   it('separates quantity from explicitly labelled carbs and shows a compact complete summary', () => {
     showCurrentMeal();
     const page: HTMLElement = fixture.nativeElement;
