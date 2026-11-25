@@ -28,7 +28,7 @@ public partial class AssistantPostgreSqlSafetyTests
         Assert.Equal(food.Id, Assert.Single(lookup.Knowledge!.Foods).Id);
         var draft = await Post<MealAssistantResponse>(client, "/api/meal-assistant/messages", new MealAssistantRequest(null, "Use 150g porridge", Guid.NewGuid(), new(food.Id, 150m, FoodMeasurementType.Grams)));
         Assert.Equal(35.06m, draft.Draft?.TotalCarbs);
-        var prepared = await Get<List<CalculatedMealItemDto>>(client, $"/api/meal-assistant/conversations/{draft.ConversationId}/calculator-draft");
+        var prepared = await Get<List<CalculatedMealItemDto>>(client, $"/api/meal-assistant/conversations/{draft.ConversationId}/calculator-draft?expectedDraftVersion={draft.DraftVersion}");
         Assert.Equal(CarbReferenceSource.Manual, prepared[0].Provenance?.ReferenceSource);
         Assert.Equal(CarbTransformation.Calculated, prepared[0].Provenance?.Transformation);
         Assert.Equal(35.06m, (await Post<MealCalculationDto>(client, "/api/meals/calculate", new CalculateMealRequest(MealType.Lunch, 5.5m, Inputs(prepared)))).TotalCarbs);
@@ -98,7 +98,8 @@ public partial class AssistantPostgreSqlSafetyTests
         model.Plans.Enqueue(new([new("Sushi", 2m, FoodMeasurementType.Piece)], "draft", "set", "Sushi"));
         var scaled = await Post<MealAssistantResponse>(client, "/api/meal-assistant/messages", new MealAssistantRequest(mixed.ConversationId, "Use 2 sushi pieces instead of 3", Guid.NewGuid(), ExpectedDraftVersion: mixed.DraftVersion));
         Assert.Equal(60m, scaled.Draft?.TotalCarbs); Assert.Equal(1, model.Calls);
-        var prepared = await Get<List<CalculatedMealItemDto>>(client, $"/api/meal-assistant/conversations/{mixed.ConversationId}/calculator-draft");
+        Assert.Equal(HttpStatusCode.Conflict, (await client.GetAsync($"/api/meal-assistant/conversations/{mixed.ConversationId}/calculator-draft?expectedDraftVersion={mixed.DraftVersion}")).StatusCode);
+        var prepared = await Get<List<CalculatedMealItemDto>>(client, $"/api/meal-assistant/conversations/{scaled.ConversationId}/calculator-draft?expectedDraftVersion={scaled.DraftVersion}");
         Assert.Equal(order.Items[2].Id, prepared[0].SourceDeliveryMealItemId);
         Assert.True(prepared[0].Provenance?.Transformation.HasFlag(CarbTransformation.HistoricalReuse));
         var saved = await Post<MealDetailDto>(client, "/api/meals", MealRequest(Inputs(prepared)));
@@ -109,7 +110,7 @@ public partial class AssistantPostgreSqlSafetyTests
         Assert.Equal(legacy.Id, Assert.Single(found.Knowledge!.Orders).Id);
         var whole = await Post<MealAssistantResponse>(client, "/api/meal-assistant/messages", new MealAssistantRequest(null, "Reuse complete order", Guid.NewGuid(), new(legacy.Id, Kind: "DeliveryMeal")));
         Assert.Equal(135m, whole.Draft?.TotalCarbs); Assert.Single(whole.Draft!.Items);
-        var legacyPrepared = await Get<List<CalculatedMealItemDto>>(client, $"/api/meal-assistant/conversations/{whole.ConversationId}/calculator-draft");
+        var legacyPrepared = await Get<List<CalculatedMealItemDto>>(client, $"/api/meal-assistant/conversations/{whole.ConversationId}/calculator-draft?expectedDraftVersion={whole.DraftVersion}");
         Assert.Equal(legacy.Id, legacyPrepared[0].SourceDeliveryMealId); Assert.Equal(135m, legacyPrepared[0].EffectiveCarbs);
         Assert.Empty((await Get<DeliveryMealDto>(client, $"/api/delivery-meals/{legacy.Id}")).Items!);
         Assert.Equal(1, model.Calls);
@@ -134,7 +135,7 @@ public partial class AssistantPostgreSqlSafetyTests
         Assert.Equal(order.Items[0].Id, Assert.Single(selected.Draft!.Items).SourceDeliveryMealItemId); Assert.Equal(30m, selected.Draft.TotalCarbs); Assert.Equal(1, model.Calls);
         var meal = await Post<MealDetailDto>(owner, "/api/meals", MealRequest([new(food.Id, 150m)]));
         using var other = await AcceptanceLogin(factory);
-        foreach (var path in new[] { $"/api/meals/{meal.Id}", $"/api/delivery-meals/{order.Id}", $"/api/meal-assistant/conversations/{selected.ConversationId}/calculator-draft" })
+        foreach (var path in new[] { $"/api/meals/{meal.Id}", $"/api/delivery-meals/{order.Id}", $"/api/meal-assistant/conversations/{selected.ConversationId}/calculator-draft?expectedDraftVersion={selected.DraftVersion}" })
         {
             using var response = await other.GetAsync(path);
             Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);

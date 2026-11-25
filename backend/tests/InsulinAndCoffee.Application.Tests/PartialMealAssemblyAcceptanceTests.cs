@@ -36,7 +36,7 @@ public partial class AssistantPostgreSqlSafetyTests
         Assert.True(replay.Replayed); Assert.Equal(2, replay.Draft!.Items.Count);
         using var tampered = await client.PostAsJsonAsync("/api/meal-assistant/messages", resolve with { Resolution = resolve.Resolution! with { Carbs = 30m } }, AcceptanceJson);
         Assert.Equal(HttpStatusCode.Conflict, tampered.StatusCode);
-        var prepared = await Get<List<CalculatedMealItemDto>>(client, $"/api/meal-assistant/conversations/{lookup.ConversationId}/calculator-draft");
+        var prepared = await Get<List<CalculatedMealItemDto>>(client, $"/api/meal-assistant/conversations/{lookup.ConversationId}/calculator-draft?expectedDraftVersion={complete.DraftVersion}");
         Assert.Equal(order.Items![0].Id, prepared[0].SourceDeliveryMealItemId);
         Assert.Equal(120m, prepared[1].Quantity); Assert.Equal(25m, prepared[1].CarbOverride);
         Assert.Equal(CarbReferenceSource.Manual, prepared[1].Provenance!.ReferenceSource);

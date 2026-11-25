@@ -114,8 +114,8 @@ export class ApiService {
     return this.http.get<AssistantTurn[]>(`${this.apiUrl}/meal-assistant/conversations/${id}`, { context: this.localErrorContext });
   }
 
-  getMealAssistantCalculatorDraft(id: string) {
-    return this.http.get<CalculatedMealItem[]>(`${this.apiUrl}/meal-assistant/conversations/${id}/calculator-draft`, { context: this.localErrorContext });
+  getMealAssistantCalculatorDraft(id: string, expectedDraftVersion: number) {
+    return this.http.get<CalculatedMealItem[]>(`${this.apiUrl}/meal-assistant/conversations/${id}/calculator-draft`, { params: { expectedDraftVersion }, context: this.localErrorContext });
   }
 
   deleteMealAssistantConversation(id: string) {

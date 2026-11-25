@@ -31,6 +31,20 @@ describe('Structured Ask Past Me orders', () => {
     fixture = TestBed.createComponent(DeliveryMealsComponent); fixture.detectChanges();
   });
 
+  it('labels quantities by their saved unit and preserves confirmed carbs and historical values', () => {
+    const component = fixture.componentInstance;
+    component.openCreate(); fixture.detectChanges();
+    expect(component.form.controls.lastPreMealGlucose.value).toBeNull();
+    expect(fixture.nativeElement.textContent).toContain('Pre-meal glucose (mmol/L, optional)');
+    component.openEdit(order); fixture.detectChanges();
+    expect(fixture.nativeElement.textContent).toContain('Quantity (pieces)');
+    expect(fixture.nativeElement.textContent).toContain('Carbs (g) per piece');
+    component.save();
+    expect(api.updateDeliveryMeal).toHaveBeenCalledWith(order.id, jasmine.objectContaining({
+      carbs: 75, lastPreMealGlucose: 15, items: [jasmine.objectContaining({ quantity: 5, measurementType: 'Piece', carbsPerUnit: 15 })]
+    }));
+  });
+
   it('selects full rows, quotes saved totals and transfers only selected IDs with one primary action', () => {
     spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
     const multi: DeliveryMeal = { ...order, portionDescription: '', carbs: 135, items: [

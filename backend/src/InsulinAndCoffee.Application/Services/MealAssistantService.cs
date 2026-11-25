@@ -75,12 +75,23 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         return new(conversation.DraftVersion, draft is null ? null : AssistantDraftBuilder.WithIdentities(draft));
     }
 
-    public async Task<IReadOnlyList<CalculatedMealItemDto>> PrepareDraftAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<CalculatedMealItemDto>> PrepareDraftAsync(Guid id, long? expectedDraftVersion, CancellationToken cancellationToken)
     {
-        var draft = (await GetDraftStateAsync(id, cancellationToken)).Draft
+        if (expectedDraftVersion is null or < 0) throw new ValidationException("Send the displayed draft version before exporting to Calculator.");
+        var state = await GetDraftStateAsync(id, cancellationToken);
+        if (state.DraftVersion != expectedDraftVersion)
+            throw new AssistantConflictException("draft_version_conflict", "The meal changed. Refresh and review it before exporting to Calculator.", state.DraftVersion);
+        var draft = state.Draft
             ?? throw new ValidationException("This conversation has no meal draft.");
         if (drafts is null) throw new InvalidOperationException("The assistant draft builder is unavailable.");
-        return await drafts.PrepareAsync(draft.Items, cancellationToken, draft.Sources);
+        var items = await drafts.PrepareAsync(draft.Items, cancellationToken, draft.Sources);
+        var owner = currentUser.UserId;
+        var latest = await db.AssistantConversations.AsNoTracking().Where(chat => chat.Id == id && chat.UserId == owner)
+            .Select(chat => (long?)chat.DraftVersion).SingleOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException("Conversation", id);
+        if (latest != expectedDraftVersion)
+            throw new AssistantConflictException("draft_version_conflict", "The meal changed during preparation. Refresh and review it before exporting to Calculator.", latest);
+        return items;
     }
 
     public async Task DeleteAsync(Guid id, CancellationToken cancellationToken)
@@ -194,7 +205,17 @@ public class MealAssistantService(IAppDbContext db, ICurrentUser currentUser, IL
         var recentMeals = message.Equals("What did I eat last time?", StringComparison.OrdinalIgnoreCase);
         var lookupName = FoodKnowledgeSearchService.LookupName(message);
         var standalone = active.Draft?.PendingEdit is null && active.Draft?.Pending is null;
-        var textSearch = AssistantIntentText.Interpret(message, active.Draft is not null);
+        // Resolve conjunctions against owned names, without loading the user's catalog.
+        var savedNames = new List<string>();
+        if (Regex.IsMatch(message, @"\s(?:and|и|та)\s", RegexOptions.IgnoreCase))
+        {
+            var normalizedMessage = AssistantFoodMatching.Normalize(message);
+            savedNames = await db.FoodItems.AsNoTracking().Where(food => food.UserId == userId).Select(food => food.Name)
+                .Concat(db.DeliveryMealItems.AsNoTracking().Where(item => item.DeliveryMeal!.UserId == userId).Select(item => item.Name))
+                .Concat(db.DeliveryMeals.AsNoTracking().Where(order => order.UserId == userId).Select(order => order.DishName))
+                .Where(name => normalizedMessage.Contains(AssistantFoodMatching.Normalize(name))).ToListAsync(cancellationToken);
+        }
+        var textSearch = AssistantIntentText.Interpret(message, active.Draft is not null, savedNames);
         var lookup = AssistantFoodMatching.Query(new(lookupName, null, null));
         var knownTerm = FoodKnowledgeSearchService.IsKnownTerm(lookupName);
         var discover = standalone && textSearch is null && !knownTerm && knowledge is not null && request.Selection is null && request.Edit is null && request.Resolution is null;

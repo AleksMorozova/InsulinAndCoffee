@@ -22,8 +22,8 @@ public class MealAssistantController(MealAssistantService assistant, AiRequestCo
         Ok(await assistant.ReadAsync(id, cancellationToken));
 
     [HttpGet("conversations/{id:guid}/calculator-draft")]
-    public async Task<ActionResult<IReadOnlyList<CalculatedMealItemDto>>> PrepareDraft(Guid id, CancellationToken cancellationToken) =>
-        Ok(await assistant.PrepareDraftAsync(id, cancellationToken));
+    public async Task<ActionResult<IReadOnlyList<CalculatedMealItemDto>>> PrepareDraft(Guid id, [FromQuery] long? expectedDraftVersion, CancellationToken cancellationToken) =>
+        Ok(await assistant.PrepareDraftAsync(id, expectedDraftVersion, cancellationToken));
 
     [HttpGet("conversations/{id:guid}/draft-state")]
     public async Task<ActionResult<AssistantDraftState>> DraftState(Guid id, CancellationToken cancellationToken) =>

@@ -116,7 +116,7 @@ public partial class MealOperationTests
         Assert.True((await service.SendAsync(request, Token)).Replayed);
         db.ChangeTracker.Clear(); var loaded = await Service(db).GetDraftStateAsync(chat.Id, Token);
         Assert.Equal(3, loaded.Draft!.Items.Count); Assert.Empty(loaded.Draft.DuplicateGroups!);
-        var calculator = await Service(db).PrepareDraftAsync(chat.Id, Token); Assert.Equal(173m, calculator.Sum(item => item.EffectiveCarbs));
+        var calculator = await Service(db).PrepareDraftAsync(chat.Id, (await Service(db).GetDraftStateAsync(chat.Id, Token)).DraftVersion, Token); Assert.Equal(173m, calculator.Sum(item => item.EffectiveCarbs));
         Assert.Equal(60m, (await db.FoodItems.SingleAsync(food => food.Name == "Калифорния", Token)).CarbsPerUnit);
     }
 

@@ -64,7 +64,7 @@ public class AssistantUxReliabilityTests
         Assert.Equal(2, result.Draft!.Items.Count); Assert.Equal(84m, result.Draft.TotalCarbs);
         Assert.Equal("PartiallyCompleted", result.ResultStatus); Assert.Contains("частично", result.Message);
         Assert.Contains("драгонфрут", Assert.Single(result.Draft.Issues)); Assert.DoesNotContain("No saved", result.Draft.Issues[0]);
-        var prepared = await service.PrepareDraftAsync(result.ConversationId, Token); Assert.Equal(2, prepared.Count);
+        var prepared = await service.PrepareDraftAsync(result.ConversationId, (await service.GetDraftStateAsync(result.ConversationId, Token)).DraftVersion, Token); Assert.Equal(2, prepared.Count);
         Assert.Equal(1, await db.FoodItems.CountAsync(row => row.UserId == Owner, Token));
     }
 
@@ -133,7 +133,7 @@ public class AssistantUxReliabilityTests
         Assert.Equal(85m, resolved.Draft!.TotalCarbs); Assert.Equal(2, resolved.Draft.Items.Count); Assert.Empty(resolved.Draft.Unresolved!);
         var manual = resolved.Draft.Items[1]; Assert.Equal(120m, manual.Quantity); Assert.Equal(25m, manual.CarbOverride);
         Assert.Equal(CarbReferenceSource.Manual, manual.Provenance!.ReferenceSource);
-        Assert.Equal(25m, (await service.PrepareDraftAsync(response.ConversationId, Token))[1].EffectiveCarbs);
+        Assert.Equal(25m, (await service.PrepareDraftAsync(response.ConversationId, (await service.GetDraftStateAsync(response.ConversationId, Token)).DraftVersion, Token))[1].EffectiveCarbs);
         var replay = await service.SendAsync(request, Token); Assert.True(replay.Replayed); Assert.Equal(85m, replay.Draft!.TotalCarbs);
         Assert.True((await service.SendAsync(request with { Resolution = request.Resolution! with { Quantity = 120.00m, Carbs = 25.00m } }, Token)).Replayed);
         Assert.Equal(2, (await service.GetDraftStateAsync(response.ConversationId, Token)).Draft!.Items.Count);
@@ -283,7 +283,7 @@ public class AssistantUxReliabilityTests
         var pending = Assert.Single(first.Draft!.Unresolved!);
         var result = await service.SendAsync(new(first.ConversationId, "Мои углеводы", Guid.NewGuid(), ExpectedDraftVersion: first.DraftVersion,
             Resolution: new(pending.Id, "manual", Quantity: 1m, Unit: FoodMeasurementType.Portion, Carbs: 10m, SearchName: "Калифорния")), Token);
-        var prepared = await service.PrepareDraftAsync(result.ConversationId, Token);
+        var prepared = await service.PrepareDraftAsync(result.ConversationId, (await service.GetDraftStateAsync(result.ConversationId, Token)).DraftVersion, Token);
         Assert.Equal(verifiedAt, prepared[0].Provenance!.SourceMealVerifiedAt); Assert.NotNull(prepared[0].SourceDeliveryMealItemId);
         Assert.Null(prepared[1].Provenance!.SourceMealVerifiedAt); Assert.Null(prepared[1].SourceDeliveryMealItemId);
         Assert.Equal(70m, result.Draft!.TotalCarbs);
