@@ -10,7 +10,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace InsulinAndCoffee.Application.Tests;
 
-public class MealOperationTests
+public partial class MealOperationTests
 {
     private static readonly Guid Owner = Guid.Parse("10000000-0000-0000-0000-000000000001");
     private static readonly CancellationToken Token = CancellationToken.None;
@@ -101,7 +101,8 @@ public class MealOperationTests
         else { var other = Food("Калифорния", 60m); db.FoodItems.Add(other); await db.SaveChangesAsync(Token); items[1] = items[1] with { FoodItemId = other.Id }; }
         chat.DraftJson = JsonSerializer.Serialize(draft with { Items = items }); await db.SaveChangesAsync(Token);
         var answer = await service.SendAsync(new(chat.Id, "калифорнию оставь одну порцию", Guid.NewGuid(), ExpectedDraftVersion: 1), Token);
-        Assert.NotNull(answer.Draft?.EditFeedback); Assert.Contains("source", answer.Draft.EditFeedback); Assert.Contains("entry", answer.Draft.EditFeedback);
+        Assert.NotNull(answer.Draft?.EditFeedback); Assert.Contains("source", answer.Draft.EditFeedback); Assert.Contains("Option 1", answer.Draft.EditFeedback);
+        Assert.DoesNotContain(items[0].DraftItemId!.Value.ToString(), answer.Draft.EditFeedback);
         Assert.Equal(4, answer.Draft.Items.Count);
     }
 
