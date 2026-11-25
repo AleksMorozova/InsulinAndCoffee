@@ -24,7 +24,10 @@ describe('Food editor dialog', () => {
     expect(document.activeElement).toBe(cancel);
     cancel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
     expect(document.activeElement).toBe(close);
-    opener.focus(); expect(document.activeElement).toBe(name);
+    opener.focus();
+    // Exercise focus containment even when headless Chrome has no active window.
+    opener.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    expect(document.activeElement).toBe(name);
     name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     fixture.detectChanges(); await fixture.whenStable();
     expect(host.querySelector('[role="dialog"]')).toBeNull();
