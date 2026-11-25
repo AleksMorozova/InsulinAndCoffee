@@ -1,6 +1,7 @@
 ---
 name: insulin-and-coffee
-description: Work inside the Insulin & Coffee project: .NET backend, Angular frontend, meal history, carb estimation, known meals, delivery/lazy meals, local LLM Meal Memory Agent, safe diabetes-support UX, API contracts, EF Core, tests, and project conventions.
+description: >-
+  Work inside the Insulin & Coffee project: .NET backend, Angular frontend, meal history, carb estimation, known meals, delivery/lazy meals, local LLM Meal Memory Agent, safe diabetes-support UX, API contracts, EF Core, tests, and project conventions.
 ---
 
 # Insulin & Coffee Skill

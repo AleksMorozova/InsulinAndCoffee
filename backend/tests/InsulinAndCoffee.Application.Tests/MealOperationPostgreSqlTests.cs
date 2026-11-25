@@ -81,7 +81,7 @@ public partial class AssistantPostgreSqlSafetyTests
         Assert.True((await Post<MealAssistantResponse>(client, "/api/meal-assistant/messages", request)).Replayed);
         var refreshed = await Get<AssistantTurn[]>(client, route);
         Assert.Equal(78m, refreshed[^1].Answer.Draft!.TotalCarbs); Assert.Equal(2, refreshed[^1].Answer.Draft!.Items.Count);
-        var calculator = await Get<CalculatedMealItemDto[]>(client, route + "/calculator-draft");
+        var calculator = await Get<CalculatedMealItemDto[]>(client, route + $"/calculator-draft?expectedDraftVersion={answer.DraftVersion}");
         Assert.Equal(2, calculator.Length); Assert.Equal(78m, calculator.Sum(item => item.EffectiveCarbs));
         // Verify exact entry removal ignores an obsolete positional hint and survives another HTTP read.
         var removed = await Post<MealAssistantResponse>(client, "/api/meal-assistant/messages", new MealAssistantRequest(conversation, "Remove exact California", Guid.NewGuid(),

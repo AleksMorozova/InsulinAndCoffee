@@ -1,0 +1,63 @@
+{
+  "date": "2026-11-25",
+  "environment": "isolated localhost Angular and ASP.NET Core with synthetic fixtures",
+  "viewports": [{ "width": 375, "height": 812 }, { "width": 1440, "height": 900 }],
+  "contrast": {
+    "foreground": "#7d6e63",
+    "chatBackground": "#f0dfc8",
+    "chatRatio": 3.75808732611274,
+    "replyFontCssPx": 16,
+    "privacyFontCssPx": 12,
+    "fontWeight": 400,
+    "normalTextMinimum": 4.5,
+    "mealCardBackground": "#fffaf4",
+    "mealCardRatio": 4.7244359023551015
+  },
+  "workspace1440": {
+    "headerBottom": 60.400001525878906,
+    "expandedDraftWorkspaceTop": 218.52500915527344,
+    "emptyRouterOutletHeightExpandedDraft": 146.125,
+    "emptyRouterOutletHeightWelcome": 186.6999969482422
+  },
+  "assistant375": {
+    "documentScrollWidth": 375,
+    "bodyHeight": 812,
+    "composerTop": 692.9750366210938,
+    "composerBottom": 739.2000389099121,
+    "transcriptTop": 178.15000915527344,
+    "transcriptBottom": 680.1750030517578
+  },
+  "targets": {
+    "mealEditRemove": { "width": 44, "height": 44, "centerHitTestsPassed": true },
+    "desktopCalculatorTransfer": { "width": 151.90000915527344, "height": 44, "centerHitTestPassed": true },
+    "mobileNavHeight": 42,
+    "countedMealClose": { "width": 36, "height": 36 },
+    "countedMealTextInputHeight": 38
+  },
+  "registrationInvalidPassword": {
+    "enteredLength": 7,
+    "requiredMinimumFromCode": 8,
+    "submitDisabled": true,
+    "visibleErrorsAfterBlur": 0,
+    "ariaDescribedBy": null
+  },
+  "foodEditorFocus": {
+    "afterOpen": "+ Add food background button",
+    "afterTab": "Search foods background textbox",
+    "dialogElementsFound": 0
+  },
+  "countedMealKeyboard": {
+    "shiftTabFromFirstField": "Close counted meal editor",
+    "shiftTabFromClose": "Cancel",
+    "cancelRestoresOpener": true
+  },
+  "calculatorTransfer": {
+    "syntheticItemCount": 2,
+    "totalCarbs": 114,
+    "defaultGlucose": 5.5,
+    "unconfirmedDefaultHintVisible": true,
+    "calculationsVisible": true,
+    "mealSaved": false,
+    "doseConfirmed": false
+  }
+}

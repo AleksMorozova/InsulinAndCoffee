@@ -53,7 +53,7 @@ public partial class MealOperationTests
         var loaded = await Service(db).GetDraftStateAsync(chat.Id, Token);
         Assert.Equal(answer.Draft.Items, loaded.Draft?.Items); Assert.Equal(78m, loaded.Draft?.TotalCarbs);
         var turns = await Service(db).ReadAsync(chat.Id, Token); Assert.Equal(78m, turns[^1].Answer.Draft?.TotalCarbs);
-        var prepared = await Service(db).PrepareDraftAsync(chat.Id, Token);
+        var prepared = await Service(db).PrepareDraftAsync(chat.Id, (await Service(db).GetDraftStateAsync(chat.Id, Token)).DraftVersion, Token);
         Assert.Equal(2, prepared.Count); Assert.Equal(78m, prepared.Sum(item => item.EffectiveCarbs));
         var retry = await Service(db).SendAsync(request, Token); Assert.True(retry.Replayed); Assert.Equal(answer.DraftVersion, retry.DraftVersion);
         Assert.Single(await db.AssistantRequestReceipts.ToListAsync(Token));

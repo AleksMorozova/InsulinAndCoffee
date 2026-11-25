@@ -83,6 +83,9 @@ main {
   padding: 1.5rem 0 3rem;
 }
 
+/* Angular inserts the routed host beside this anchor; the anchor has no UI. */
+main > router-outlet { display: none; }
+
 app-root:has(> main > .meal-assistant-page) {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;

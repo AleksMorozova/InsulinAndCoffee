@@ -6,6 +6,7 @@ import { CarbProvenanceComponent } from '../../shared/carb-provenance.component'
 import { getApiErrorMessage } from '../../core/api-error';
 import { finalize } from 'rxjs';
 import { FoodItem, FoodMeasurementType } from '../../core/models';
+import { DialogFocusDirective } from '../../shared/dialog-focus.directive';
 
 type FoodFilter = 'all' | 'favorites';
 type FoodSort = 'newest' | 'alphabetical' | 'highestCarbs' | 'lowestCarbs' | 'favorites';
@@ -13,7 +14,7 @@ type FoodSort = 'newest' | 'alphabetical' | 'highestCarbs' | 'lowestCarbs' | 'fa
 @Component({
   selector: 'app-foods',
   standalone: true,
-  imports: [DecimalPipe, ReactiveFormsModule, CarbProvenanceComponent],
+  imports: [DecimalPipe, ReactiveFormsModule, CarbProvenanceComponent, DialogFocusDirective],
   template: `
     <section class="food-library-hero">
       <div class="food-library-copy">
@@ -99,17 +100,17 @@ type FoodSort = 'newest' | 'alphabetical' | 'highestCarbs' | 'lowestCarbs' | 'fa
 
     @if (isEditorOpen) {
       <div class="modal-backdrop" (click)="closeEditor()">
-        <article class="food-editor-modal" (click)="$event.stopPropagation()">
+        <article class="food-editor-modal" role="dialog" aria-modal="true" aria-labelledby="food-editor-title" tabindex="-1" appDialogFocus (dialogEscape)="closeEditor()" (click)="$event.stopPropagation()">
           <div class="modal-head">
             <div>
               @if (editingId) {
-                <h2>Edit food</h2>
+                <h2 id="food-editor-title">Edit food</h2>
               } @else {
                 <p>New food</p>
-                <h2>Add food to library</h2>
+                <h2 id="food-editor-title">Add food to library</h2>
               }
             </div>
-            <button type="button" class="subtle icon-button" (click)="closeEditor()" title="Close">x</button>
+            <button type="button" class="subtle icon-button" (click)="closeEditor()" aria-label="Close food editor">×</button>
           </div>
 
           <form [formGroup]="form" class="grid" (ngSubmit)="save()">
@@ -138,8 +139,9 @@ type FoodSort = 'newest' | 'alphabetical' | 'highestCarbs' | 'lowestCarbs' | 'fa
               <input type="checkbox" formControlName="isFavorite">
               Favorite
             </label>
+            @if (saveError) { <p class="form-error" role="alert">{{ saveError }}</p> }
             <div class="actions modal-actions">
-              <button type="submit" [disabled]="form.invalid">{{ editingId ? 'Update food' : 'Save food' }}</button>
+              <button type="submit" [disabled]="form.invalid || saving" [attr.aria-busy]="saving">{{ saving ? 'Saving…' : editingId ? 'Update food' : 'Save food' }}</button>
               <button type="button" class="subtle" (click)="closeEditor()">Cancel</button>
             </div>
           </form>
@@ -156,6 +158,8 @@ export class FoodsComponent implements OnInit {
   search = '';
   editingId = '';
   isEditorOpen = false;
+  saving = false;
+  saveError = '';
   filter: FoodFilter = 'all';
   sort: FoodSort = 'newest';
   openMenuFoodId = '';
@@ -233,12 +237,13 @@ export class FoodsComponent implements OnInit {
   }
 
   closeEditor() {
+    if (this.saving) return;
     this.isEditorOpen = false;
     this.reset();
   }
 
   save() {
-    if (this.form.invalid) return;
+    if (this.form.invalid || this.saving) return;
     const raw = this.form.getRawValue();
     const request: UpsertFoodRequest = {
       name: raw.name,
@@ -251,9 +256,15 @@ export class FoodsComponent implements OnInit {
       isFavorite: raw.isFavorite
     };
     const save$ = this.editingId ? this.api.updateFood(this.editingId, request) : this.api.createFood(request);
-    save$.subscribe(() => {
-      this.closeEditor();
-      this.loadFoods();
+    this.saving = true;
+    this.saveError = '';
+    save$.pipe(finalize(() => this.saving = false)).subscribe({
+      next: () => {
+        this.saving = false;
+        this.closeEditor();
+        this.loadFoods();
+      },
+      error: error => this.saveError = getApiErrorMessage(error, 'Could not save this food. Please try again.')
     });
   }
 
@@ -297,6 +308,7 @@ export class FoodsComponent implements OnInit {
   }
 
   reset() {
+    this.saveError = '';
     this.editingId = '';
     this.form.reset({ name: '', measurementType: 'Grams', carbsPer100g: 0, carbsPerUnit: 0, proteinPer100g: 0, fatPer100g: 0, caloriesPer100g: 0, isFavorite: false });
     this.applyMeasurementValidators('Grams');

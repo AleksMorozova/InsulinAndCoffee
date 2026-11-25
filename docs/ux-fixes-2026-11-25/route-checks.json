@@ -1,0 +1,162 @@
+[
+  {
+    "anchor": "none",
+    "heading": "Current Meal",
+    "main": "block",
+    "path": "/calculator",
+    "scrollWidth": 360,
+    "width": 375
+  },
+  {
+    "anchor": "none",
+    "heading": "Meal History",
+    "main": "block",
+    "path": "/history",
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "anchor": "none",
+    "heading": "Ask Past Me",
+    "main": "block",
+    "path": "/delivery-meals",
+    "scrollWidth": 360,
+    "width": 375
+  },
+  {
+    "anchor": "none",
+    "heading": "Food library",
+    "main": "block",
+    "path": "/foods",
+    "scrollWidth": 360,
+    "width": 375
+  },
+  {
+    "anchor": "none",
+    "heading": "Supplies",
+    "main": "block",
+    "path": "/supplies",
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "anchor": "none",
+    "heading": "Settings",
+    "main": "block",
+    "path": "/settings",
+    "scrollWidth": 360,
+    "width": 375
+  },
+  {
+    "anchor": "none",
+    "heading": "Today’s meals",
+    "main": "block",
+    "path": "/dashboard",
+    "scrollWidth": 360,
+    "width": 375
+  },
+  {
+    "anchor": "none",
+    "heading": "Current Meal",
+    "main": "block",
+    "path": "/calculator",
+    "scrollWidth": 1425,
+    "width": 1440
+  },
+  {
+    "anchor": "none",
+    "heading": "Meal History",
+    "main": "block",
+    "path": "/history",
+    "scrollWidth": 1440,
+    "width": 1440
+  },
+  {
+    "anchor": "none",
+    "heading": "Ask Past Me",
+    "main": "block",
+    "path": "/delivery-meals",
+    "scrollWidth": 1425,
+    "width": 1440
+  },
+  {
+    "anchor": "none",
+    "heading": "Food library",
+    "main": "block",
+    "path": "/foods",
+    "scrollWidth": 1440,
+    "width": 1440
+  },
+  {
+    "anchor": "none",
+    "heading": "Supplies",
+    "main": "block",
+    "path": "/supplies",
+    "scrollWidth": 1440,
+    "width": 1440
+  },
+  {
+    "anchor": "none",
+    "heading": "Settings",
+    "main": "block",
+    "path": "/settings",
+    "scrollWidth": 1440,
+    "width": 1440
+  },
+  {
+    "anchor": "none",
+    "heading": "Today’s meals",
+    "main": "block",
+    "path": "/dashboard",
+    "scrollWidth": 1440,
+    "width": 1440
+  },
+  {
+    "anchor": "none",
+    "heading": "Page not found",
+    "main": "block",
+    "path": "/not-found",
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "anchor": "none",
+    "heading": "Access denied",
+    "main": "block",
+    "path": "/access-denied",
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "anchor": "none",
+    "heading": "Something went wrong",
+    "main": "block",
+    "path": "/error",
+    "scrollWidth": 375,
+    "width": 375
+  },
+  {
+    "anchor": "none",
+    "heading": "Page not found",
+    "main": "block",
+    "path": "/not-found",
+    "scrollWidth": 1440,
+    "width": 1440
+  },
+  {
+    "anchor": "none",
+    "heading": "Access denied",
+    "main": "block",
+    "path": "/access-denied",
+    "scrollWidth": 1440,
+    "width": 1440
+  },
+  {
+    "anchor": "none",
+    "heading": "Something went wrong",
+    "main": "block",
+    "path": "/error",
+    "scrollWidth": 1440,
+    "width": 1440
+  }
+]

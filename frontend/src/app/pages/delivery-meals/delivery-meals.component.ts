@@ -121,12 +121,12 @@ import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPr
                       <button type="button" class="subtle item-delete" [attr.aria-label]="'Remove item ' + (i + 1)" title="Remove item" (click)="removeItem(i)">×</button>
                     </div>
                     <div class="order-item-fields">
-                    <label>Unit <select formControlName="measurementType"><option value="Grams">Grams</option><option value="Portion">Portion</option><option value="Piece">Piece</option></select></label>
-                    <label>Quantity <input type="number" min="0.01" [step]="item.controls.measurementType.value === 'Piece' ? 1 : 0.01" formControlName="quantity"></label>
+                    <label>Unit <select formControlName="measurementType"><option value="Grams">Grams (g)</option><option value="Portion">Servings</option><option value="Piece">Pieces</option></select></label>
+                    <label>Quantity ({{ item.controls.measurementType.value === 'Grams' ? 'g' : item.controls.measurementType.value === 'Piece' ? 'pieces' : 'servings' }}) <input type="number" min="0.01" [step]="item.controls.measurementType.value === 'Piece' ? 1 : 0.01" formControlName="quantity"></label>
                     @if (item.controls.measurementType.value === 'Grams') {
                       <label>Carbs per 100 g <input type="number" min="0" step="0.01" formControlName="carbsPer100g"></label>
                     } @else {
-                      <label>Carbs per unit <input type="number" min="0" step="0.01" formControlName="carbsPerUnit"></label>
+                      <label>Carbs (g) per {{ item.controls.measurementType.value === 'Piece' ? 'piece' : 'serving' }} <input type="number" min="0" step="0.01" formControlName="carbsPerUnit"></label>
                     }
                     <label><span>Override <span class="optional-label">(optional)</span></span><input type="number" min="0" step="0.01" formControlName="carbOverride" placeholder="Auto"></label>
                     </div>
@@ -155,9 +155,9 @@ import { CalculatedMealItem, DeliveryMeal, DeliveryMealItemInput, DeliveryMealPr
             }
             @if (editError) { <p role="alert">{{ editError }}</p> }
             <div class="order-history-fields" [class.structured-history]="structuredMode">
-              @if (!structuredMode) { <label>Carbs <input type="number" min="0" step="0.01" formControlName="carbs"></label> }
-              <label>Recorded insulin <input type="number" min="0" step="0.1" formControlName="usualInsulinUnits"></label>
-              <label>Pre-meal glucose <input type="number" min="0" step="0.1" formControlName="lastPreMealGlucose"></label>
+              @if (!structuredMode) { <label>Carbs (g) <input type="number" min="0" step="0.01" formControlName="carbs"></label> }
+              <label>Recorded insulin (U, optional) <input type="number" min="0" step="0.1" formControlName="usualInsulinUnits" placeholder="Unknown"></label>
+              <label>Pre-meal glucose (mmol/L, optional) <input type="number" min="0" step="0.1" formControlName="lastPreMealGlucose" placeholder="Unknown"></label>
             </div>
             <div class="grid two">
               <label>Result
@@ -293,7 +293,7 @@ export class DeliveryMealsComponent implements OnInit {
     portionDescription: [''],
     carbs: [0, [Validators.required, Validators.min(0)]],
     usualInsulinUnits: this.fb.control<number | null>(null, Validators.min(0)),
-    lastPreMealGlucose: [0],
+    lastPreMealGlucose: this.fb.control<number | null>(null),
     resultRating: ['Unknown' as ResultRating, Validators.required],
     tags: [''],
     notes: [''],
@@ -339,7 +339,7 @@ export class DeliveryMealsComponent implements OnInit {
       portionDescription: meal.portionDescription,
       carbs: meal.carbs,
       usualInsulinUnits: meal.usualInsulinUnits,
-      lastPreMealGlucose: meal.lastPreMealGlucose ?? 0,
+      lastPreMealGlucose: meal.lastPreMealGlucose ?? null,
       resultRating: meal.resultRating,
       tags: meal.tags,
       notes: meal.notes ?? '',
@@ -363,7 +363,7 @@ export class DeliveryMealsComponent implements OnInit {
       portionDescription: raw.portionDescription.trim() || null,
       ...(this.structuredMode ? { items: this.itemInputs(), acceptCalculatedTotal: this.acceptedTotal } : {}),
       ...(this.editingId ? { expectedRevision: this.expectedRevision } : {}),
-      lastPreMealGlucose: raw.lastPreMealGlucose > 0 ? raw.lastPreMealGlucose : undefined
+      lastPreMealGlucose: raw.lastPreMealGlucose !== null && raw.lastPreMealGlucose > 0 ? raw.lastPreMealGlucose : undefined
     };
     const save$ = this.editingId ? this.api.updateDeliveryMeal(this.editingId, request) : this.api.createDeliveryMeal(request);
     this.saving = true;
@@ -412,7 +412,7 @@ export class DeliveryMealsComponent implements OnInit {
       portionDescription: '',
       carbs: 0,
       usualInsulinUnits: null,
-      lastPreMealGlucose: 0,
+      lastPreMealGlucose: null,
       resultRating: 'Unknown',
       tags: '',
       notes: '',

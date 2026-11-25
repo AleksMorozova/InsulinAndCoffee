@@ -54,7 +54,11 @@ describe('Calculator item layout', () => {
   it('does not collapse an override input while the user is editing an equal value', () => {
     fixture.componentInstance.items.at(0).patchValue({ carbOverride: null }); fixture.detectChanges();
     const input: HTMLInputElement | null = fixture.nativeElement.querySelector('.meal-item-card input[formControlName="carbOverride"]');
-    input?.focus();
+    if (!input) throw new Error('Expected override editor');
+    input.focus();
+    // Background headless documents may update activeElement without emitting focus.
+    input.dispatchEvent(new FocusEvent('focus'));
+    expect(document.activeElement).toBe(input);
     fixture.componentInstance.items.at(0).patchValue({ carbOverride: 75 }); fixture.detectChanges();
     expect(fixture.nativeElement.querySelector('.saved-override-toggle')).toBeNull();
     expect(fixture.nativeElement.querySelector('.meal-item-card input[formControlName="carbOverride"]')).not.toBeNull();

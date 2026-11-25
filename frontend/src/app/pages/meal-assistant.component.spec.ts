@@ -38,6 +38,29 @@ describe('MealAssistantComponent', () => {
   const partial: MealAssistantResponse = { conversationId: 'conversation', message: 'Приём пищи собран частично.', meals: [], draftVersion: 1, resultStatus: 'PartiallyCompleted',
     draft: { items: [california], issues: [potato.detail], totalCarbs: 60, unresolved: [potato] } };
 
+  it('keeps reply and privacy text above AA contrast on cream at phone and desktop widths', async () => {
+    fixture.componentInstance.turns = [{ question: 'Saved meals?', answer: response }];
+    fixture.detectChanges(); await fixture.whenStable();
+    const host: HTMLElement = fixture.nativeElement;
+    await inResponsiveFrame(host, viewport => {
+      const cream = host.querySelector('.chat');
+      if (!cream) throw new Error('Missing chat');
+      const luminance = (color: string) => {
+        const rgb = color.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+        if (!rgb || rgb.length !== 3) throw new Error('Invalid computed color');
+        const linear = rgb.map(value => value / 255 <= .04045 ? value / 255 / 12.92 : ((value / 255 + .055) / 1.055) ** 2.4);
+        return linear[0] * .2126 + linear[1] * .7152 + linear[2] * .0722;
+      };
+      const background = luminance(viewport.getComputedStyle(cream).backgroundColor);
+      for (const selector of ['.reply-text p', '.privacy', '.privacy p']) {
+        const text = host.querySelector(selector);
+        if (!text) throw new Error('Missing contrast target');
+        const foreground = luminance(viewport.getComputedStyle(text).color);
+        expect((Math.max(background, foreground) + .05) / (Math.min(background, foreground) + .05)).toBeGreaterThanOrEqual(4.5);
+      }
+    }, [[375, 812], [1440, 900]]);
+  });
+
   it('shows known carbs and the original unresolved quantity separately with contextual controls', async () => {
     const component = fixture.componentInstance;
     component.conversationId = 'conversation'; component.turns = [{ question: 'хочу съесть калифорнию и 120 жареной картошки', answer: partial }]; component.mealSummaryOpen = true;
@@ -428,6 +451,45 @@ describe('MealAssistantComponent', () => {
     expect(api.sendMealAssistantMessage).toHaveBeenCalledWith('conversation', 'What about 180g?', jasmine.any(String), undefined, 0);
   });
 
+  it('refreshes a stale Calculator export and waits for explicit review and retry', async () => {
+    const component = fixture.componentInstance;
+    const original = { items: [california], issues: [], totalCarbs: 60 };
+    const updatedItem = { ...california, quantity: 2, calculatedCarbs: 120, carbOverride: 117, effectiveCarbs: 117 };
+    const updated = { items: [updatedItem], issues: [], totalCarbs: 117 };
+    component.conversationId = 'conversation'; component.draftVersion = 3;
+    component.turns = [{ question: 'California', answer: { ...response, draft: original, draftVersion: 3 } }];
+    const refresh = new Subject<{ draftVersion: number; draft: typeof updated }>();
+    api.getMealAssistantDraftState.and.returnValue(refresh);
+    api.getMealAssistantCalculatorDraft.and.returnValue(throwError(() => ({ status: 409, code: 'draft_version_conflict', message: 'Changed', isApiError: true })));
+    const navigate = spyOn(TestBed.inject(Router), 'navigate').and.resolveTo(true);
+    await component.useDraft(original);
+    expect(api.getMealAssistantCalculatorDraft).toHaveBeenCalledOnceWith('conversation', 3);
+    expect(api.getMealAssistantDraftState).toHaveBeenCalledOnceWith('conversation');
+    expect(component.draftConflict).toBeTrue(); expect(navigate).not.toHaveBeenCalled();
+    await component.useDraft(original); expect(api.getMealAssistantCalculatorDraft).toHaveBeenCalledTimes(1);
+    refresh.next({ draftVersion: 4, draft: updated }); refresh.complete();
+    expect(component.activeDraft).toBe(updated); expect(component.draftVersion).toBe(4);
+    expect(component.handoffError).toContain('Review'); expect(navigate).not.toHaveBeenCalled();
+    api.getMealAssistantCalculatorDraft.and.returnValue(of([updatedItem]));
+    await component.useDraft(original); expect(navigate).not.toHaveBeenCalled();
+    await component.useDraft(updated);
+    expect(api.getMealAssistantCalculatorDraft.calls.mostRecent().args).toEqual(['conversation', 4]);
+    expect(navigate).toHaveBeenCalledWith(['/calculator'], jasmine.objectContaining({ state: jasmine.objectContaining({ assistantMealItems: [
+      jasmine.objectContaining({ quantity: 2, carbOverride: 117, sourceDeliveryMealItemId: 'california' })] }) }));
+  });
+
+  it('keeps Calculator export blocked when refreshing a stale meal fails', async () => {
+    const component = fixture.componentInstance;
+    const draft = { items: [california], issues: [], totalCarbs: 60 };
+    component.conversationId = 'conversation'; component.draftVersion = 1;
+    component.turns = [{ question: 'California', answer: { ...response, draft } }];
+    api.getMealAssistantCalculatorDraft.and.returnValue(throwError(() => ({ status: 409, isApiError: true, message: 'Changed' })));
+    api.getMealAssistantDraftState.and.returnValue(throwError(() => new Error('Offline')));
+    await component.useDraft(draft); await component.useDraft(draft);
+    expect(component.draftConflict).toBeTrue();
+    expect(api.getMealAssistantCalculatorDraft).toHaveBeenCalledTimes(1);
+  });
+
   it('restores a draft, requires acknowledgment, and sends every matched item to the calculator', async () => {
     const items = ['Borscht', 'Pizza'].map((foodName, index) => ({
       foodItemId: foodName, foodName, quantity: index + 1, measurementType: 'Portion' as const,
@@ -446,6 +508,7 @@ describe('MealAssistantComponent', () => {
     await component.useDraft(draft);
     expect(navigate).not.toHaveBeenCalled();
     await component.useDraft(draft, true);
+    expect(api.getMealAssistantCalculatorDraft).toHaveBeenCalledOnceWith('conversation', 0);
     expect(navigate).toHaveBeenCalledWith(['/calculator'], { state: { assistantLocale: 'en', assistantMealItems: [
       { foodItemId: 'Borscht', quantity: 1, measurementType: 'Portion', foodNameSnapshot: 'Borscht', carbsPer100gSnapshot: null, carbsPerUnitSnapshot: 20, carbOverride: 10 },
       { foodItemId: 'Pizza', quantity: 2, measurementType: 'Portion', foodNameSnapshot: 'Pizza', carbsPer100gSnapshot: null, carbsPerUnitSnapshot: 20, carbOverride: null }

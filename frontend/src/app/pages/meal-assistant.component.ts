@@ -232,7 +232,7 @@ import { FoodMeasurementType } from '../core/models';
                 </section>
               }
               @if (draft.issues.length) { <p class="draft-status">{{ ui(draft.items.length ? 'partial' : 'clarify') }}</p> }
-              @if (draft.items.length) { <button class="draft-cta" [class.partial-cta]="draft.issues.length" type="button" [disabled]="loading" (click)="useDraft(draft, !!draft.issues.length)">
+              @if (draft.items.length) { <button class="draft-cta" [class.partial-cta]="draft.issues.length" type="button" [disabled]="loading || draftConflict || sessionExpired" (click)="useDraft(draft, !!draft.issues.length)">
                 {{ draftLabel(activeDraftTurn?.question ?? '', draft.issues.length ? 'partial' : 'action') }}
               </button> }
             </div>
@@ -280,8 +280,10 @@ import { FoodMeasurementType } from '../core/models';
     .chat-header p { font-size: .85rem; margin-top: .25rem; }
     .chat-header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.4rem; }
     .chat-header h1 { font-size:1.2rem; }
-    .privacy { font-size:.75rem; color:var(--muted); }
-    .privacy p { max-width:32rem; }
+    .privacy { font-size:.75rem; color:var(--coffee-dark); }
+    .privacy p { max-width:32rem; color:inherit; }
+    .welcome p, .conversation-panel > p, .chat-header > p { color:var(--coffee-dark); }
+    .assistant button:disabled { opacity:1; background:var(--line); color:var(--coffee-dark); }
     .transcript { flex: 1; min-height: 0; overflow: auto; scrollbar-width: thin; padding: .75rem 1rem; }
     .welcome { padding-block: 1.5rem; display: flex; flex-direction: column; justify-content: center; max-width: 38rem; margin-inline: auto; text-align: center; }
     .prompt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr)); gap: .55rem; }
@@ -293,9 +295,9 @@ import { FoodMeasurementType } from '../core/models';
     .assistant-reply { justify-self: start; max-width: min(100%, 34rem); padding: 0; min-width: 0; }
     .assistant-reply.has-results { width: min(100%, 52rem); max-width: 100%; }
     .reply-text { display: flex; gap: .5rem; align-items: flex-start; }
-    .reply-text p { margin: .15rem 0 .35rem; min-width: 0; }
+    .reply-text p { margin: .15rem 0 .35rem; min-width: 0; color:var(--coffee-dark); }
     .assistant-avatar { flex-shrink: 0; }
-    .history-heading { margin: 1rem 0 .3rem; font-size: .95rem; color: var(--muted); }
+    .history-heading { margin: 1rem 0 .3rem; font-size: .95rem; color: var(--coffee-dark); }
     .result-meta { font-size: .85rem; color: var(--muted); }
     .original-link { display: inline-flex; align-items: center; padding: .5rem .65rem; border: 1px solid var(--line); border-radius: .55rem; }
     .assistant :focus-visible { outline: 2px solid var(--coffee-dark); outline-offset: 2px; }
@@ -342,7 +344,7 @@ import { FoodMeasurementType } from '../core/models';
     .composer { display: flex; align-items: end; gap: .5rem; }
     .composer button { min-width: 4.5rem; }
     textarea { flex: 1; min-width: 0; max-height: 7rem; field-sizing: content; resize: none; }
-    .pending-turn p { margin: 0; color: var(--muted); }
+    .pending-turn p { margin: 0; color: var(--coffee-dark); }
     @media (max-width: 1100px) { .assistant { grid-template-columns: 220px minmax(0, 1fr); } }
     @media (max-width: 760px) {
       .assistant { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); gap: .5rem; }
@@ -570,11 +572,11 @@ export class MealAssistantComponent {
 
 
   async useDraft(draft: AssistantDraft, allowPartial = false) {
-    if (this.loading || !this.conversationId || draft !== this.activeDraft || !draft.items.length || (draft.issues.length && !allowPartial)) return;
+    if (this.loading || this.draftConflict || this.sessionExpired || !this.conversationId || draft !== this.activeDraft || !draft.items.length || (draft.issues.length && !allowPartial)) return;
     this.handoffError = '';
     this.loading = true;
     try {
-      const items = await firstValueFrom(this.api.getMealAssistantCalculatorDraft(this.conversationId).pipe(takeUntilDestroyed(this.destroyRef)));
+      const items = await firstValueFrom(this.api.getMealAssistantCalculatorDraft(this.conversationId, this.draftVersion).pipe(takeUntilDestroyed(this.destroyRef)));
       const opened = await this.router.navigate(['/calculator'], { state: { assistantLocale: this.draftLocale(this.turns.find(turn => turn.answer.draft === draft)?.question ?? ''), assistantMealItems: items.map(item => ({
         foodItemId: item.foodItemId, quantity: item.quantity, measurementType: item.measurementType,
         foodNameSnapshot: assistantFoodName(item.foodName), carbsPer100gSnapshot: item.carbsPer100g,
@@ -586,7 +588,11 @@ export class MealAssistantComponent {
       if (opened) return;
       this.handoffError = 'Could not open the calculator. Try again.';
     } catch (error) {
-      this.handoffError = getApiErrorMessage(error, 'Could not prepare the calculator draft. Try again.');
+      if (isApiError(error) && error.status === 409) {
+        this.draftConflict = true;
+        this.handoffError = 'The meal changed. Review the refreshed Current Meal, then choose Use in Calculator again.';
+        this.loadAuthoritativeDraft();
+      } else this.handoffError = getApiErrorMessage(error, 'Could not prepare the calculator draft. Try again.');
     } finally {
       this.loading = false;
     }

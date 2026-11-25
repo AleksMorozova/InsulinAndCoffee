@@ -8,7 +8,7 @@ namespace InsulinAndCoffee.Application.Services;
 internal static class AssistantIntentText
 {
     // Conservative fast paths. Quantity edits, follow-ups and ambiguous grammar still use the existing interpreter.
-    internal static AssistantSearch? Interpret(string message, bool hasDraft)
+    internal static AssistantSearch? Interpret(string message, bool hasDraft, IReadOnlyCollection<string>? savedNames = null)
     {
         var text = message.Trim().TrimEnd('.', '?', '!');
         var extra = Regex.Match(text, @"^(?:добавь\s+ещ[её]|додай\s+ще|add\s+(?:another|more))\s+(.+)$", RegexOptions.IgnoreCase);
@@ -17,12 +17,10 @@ internal static class AssistantIntentText
             var food = Parse(extra.Groups[1].Value);
             return new([food with { Quantity = food.Quantity ?? 1m }], "draft", "increase", food.Name);
         }
-        var want = Regex.Match(text, @"^(?:хочу|I want)\s+(.+)$", RegexOptions.IgnoreCase);
-        if (want.Success && Parse(want.Groups[1].Value) is { Quantity: not null } requested)
-            return new([requested], "draft", hasDraft ? "add" : "create");
         if (hasDraft)
         {
-            var clauses = Regex.Split(text, @"\s+(?:и|та|and)\s+|;\s*", RegexOptions.IgnoreCase);
+            var clauses = SplitFoods(text, savedNames);
+            if (clauses is null) return null;
             var operations = clauses.Select(Edit).ToArray();
             if (operations.FirstOrDefault()?.Operation == "remove")
                 for (var index = 1; index < operations.Length; index++)
@@ -33,11 +31,17 @@ internal static class AssistantIntentText
             var operation = Edit(text);
             if (operation is not null) return operation;
         }
-        var add = Regex.Match(text, @"^(?:добавь|додай|add|хочу\s+(?:съесть|поесть)|хочу\s+з['’]?їсти|I\s+(?:want\s+to\s+eat|would\s+like\s+to\s+eat))\s+(.+)$", RegexOptions.IgnoreCase);
+        var add = Regex.Match(text, @"^(?:добавь|додай|add|хочу\s+(?:съесть|поесть)|хочу\s+з['’]?їсти|I\s+(?:want\s+to\s+eat|would\s+like\s+to\s+eat)|хочу|I want)\s+(.+)$", RegexOptions.IgnoreCase);
         if (add.Success && !Regex.IsMatch(add.Groups[1].Value, @"\b(?:ещ[её]|ще|more|another)\b", RegexOptions.IgnoreCase))
         {
-            var parts = Regex.Split(add.Groups[1].Value, @"\s+(?:и|та|and)\s+|,(?!\d)\s*", RegexOptions.IgnoreCase);
-            if (parts.Length is < 1 or > 6) return null;
+            var parts = SplitFoods(add.Groups[1].Value, savedNames);
+            if (parts is null || parts.Length is < 1 or > 6) return null;
+            // Bare unquantified wants retain the structured interpreter fallback.
+            if (Regex.IsMatch(text, @"^(?:хочу|I want)\s+", RegexOptions.IgnoreCase)
+                && !Regex.IsMatch(text, @"^(?:хочу\s+(?:съесть|поесть|з['’]?їсти)|I want to eat)\s+", RegexOptions.IgnoreCase)
+                && parts.All(part => Parse(part).Quantity is null)) return null;
+            // A second verb is an action, not a food name; do not partially assemble it.
+            if (parts.Any(part => Edit(part) is not null)) return null;
             return new(parts.Select(Parse).ToArray(), "draft", hasDraft ? "add" : "create");
         }
         var portion = Parse(text);
@@ -47,6 +51,33 @@ internal static class AssistantIntentText
         if (lookup.Success && !Regex.IsMatch(text, @"\b(previous|last|eaten|ate|предыдущ\w*|ела|ел|їв|їла)\b", RegexOptions.IgnoreCase))
             return new([new(lookup.Groups[1].Value, null, null)], "lookup");
         return null;
+    }
+
+    private static string[]? SplitFoods(string text, IReadOnlyCollection<string>? savedNames)
+    {
+        var separators = Regex.Matches(text, @"\s+(?:и|та|and)\s+|[,;](?!\d)\s*", RegexOptions.IgnoreCase)
+            .Where(match => text[..match.Index].Count(character => character == '"') % 2 == 0).ToArray();
+        if (separators.Length > 32) return null;
+        var names = (savedNames ?? []).Select(AssistantFoodMatching.Normalize).ToHashSet();
+        var parts = new List<string>();
+        var start = 0;
+        for (var index = 0; index <= separators.Length;)
+        {
+            var endIndex = index;
+            // Prefer an entire saved name (e.g. a dish containing "and") over splitting it.
+            for (var last = separators.Length; last > index; last--)
+            {
+                var candidate = text[start..(last == separators.Length ? text.Length : separators[last].Index)].Trim();
+                var name = Edit(candidate)?.Target ?? Parse(candidate).Name;
+                if (names.Contains(AssistantFoodMatching.Normalize(name))) { endIndex = last; break; }
+            }
+            var end = endIndex == separators.Length ? text.Length : separators[endIndex].Index;
+            parts.Add(text[start..end].Trim());
+            if (endIndex == separators.Length) break;
+            start = separators[endIndex].Index + separators[endIndex].Length;
+            index = endIndex + 1;
+        }
+        return parts.Any(string.IsNullOrWhiteSpace) ? null : parts.ToArray();
     }
 
     private static AssistantSearch? Edit(string text)
@@ -64,6 +95,7 @@ internal static class AssistantIntentText
                 : new([], "draft", "remove", target);
         }
         var set = Regex.Match(text, @"^(?<name>.+?)\s+(?:оставь|залиш|set\s+to)\s+(?<portion>.+)$", RegexOptions.IgnoreCase);
+        if (!set.Success) set = Regex.Match(text, @"^set\s+(?<name>.+?)\s+to\s+(?<portion>.+)$", RegexOptions.IgnoreCase);
         if (!set.Success) set = Regex.Match(text, @"^(?:оставь|залиш)\s+(?<name>.+?)\s+(?<portion>(?:одну|одна|один|две|два|три|one|two|\d+(?:[.,]\d+)?)\s+\S+)$", RegexOptions.IgnoreCase);
         if (set.Success)
         {
@@ -76,6 +108,9 @@ internal static class AssistantIntentText
 
     private static AssistantFoodQuery Parse(string text)
     {
+        text = text.Trim().Trim('"');
+        var normalizedPortion = AssistantPortionText.Normalize(new(text.Trim(), null, null, OriginalText: text.Trim()));
+        if (normalizedPortion.Quantity.HasValue) return normalizedPortion with { Name = normalizedPortion.Name.Trim('"') };
         var words = Regex.Match(text.Trim(), @"^(one|two|three|один|одна|одну|два|две|дві|три)\s+(.+)$", RegexOptions.IgnoreCase);
         if (words.Success)
         {
@@ -91,7 +126,7 @@ internal static class AssistantIntentText
         var unit = match.Groups["unit"].Value.ToLowerInvariant();
         FoodMeasurementType? type = unit.Length == 0 ? null : unit.StartsWith('г') || unit.StartsWith('g') ? FoodMeasurementType.Grams
             : unit.StartsWith("piece") ? FoodMeasurementType.Piece : FoodMeasurementType.Portion;
-        return new(match.Groups["name"].Value.Trim(), quantity, type, OriginalText: text.Trim());
+        return new(match.Groups["name"].Value.Trim().Trim('"'), quantity, type, OriginalText: text.Trim());
     }
 
     internal static AssistantSearch RemoveRepeatedExtraction(AssistantSearch search, string message)

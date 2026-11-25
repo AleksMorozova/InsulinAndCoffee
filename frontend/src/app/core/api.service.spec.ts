@@ -6,6 +6,15 @@ import { ApiService } from './api.service';
 import { environment } from '../../environments/environment';
 
 describe('ApiService assistant candidate selection', () => {
+  it('sends the displayed draft version when preparing Calculator items', () => {
+    TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
+    const http = TestBed.inject(HttpTestingController);
+    TestBed.inject(ApiService).getMealAssistantCalculatorDraft('conversation', 7).subscribe();
+    const request = http.expectOne(request => request.url === environment.apiUrl + '/meal-assistant/conversations/conversation/calculator-draft');
+    expect(request.request.method).toBe('GET');
+    expect(request.request.params.get('expectedDraftVersion')).toBe('7');
+    request.flush([]); http.verify();
+  });
   it('sends structured order identities and expected revision without asserted provenance', () => {
     TestBed.configureTestingModule({ providers: [provideHttpClient(), provideHttpClientTesting()] });
     const http = TestBed.inject(HttpTestingController);

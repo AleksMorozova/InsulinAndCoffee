@@ -160,18 +160,18 @@ public class MealAssistantTests
         Assert.Equal(2, draft.Issues.Count);
         Assert.Equal(answer.ConversationId, Assert.Single(await service.ListAsync(CancellationToken.None)).Id);
         Assert.Equal(60m, Assert.Single(await service.ReadAsync(answer.ConversationId, CancellationToken.None)).Answer.Draft?.TotalCarbs);
-        Assert.Equal(2, (await service.PrepareDraftAsync(answer.ConversationId, CancellationToken.None)).Count);
+        Assert.Equal(2, (await service.PrepareDraftAsync(answer.ConversationId, (await service.GetDraftStateAsync(answer.ConversationId, CancellationToken.None)).DraftVersion, CancellationToken.None)).Count);
         Assert.Empty(db.Meals);
 
         var other = new MealAssistantService(db, new CurrentUser(Other), model, Search(db), TimeProvider.System,
             NullLogger<MealAssistantService>.Instance);
         Assert.Empty(await other.ListAsync(CancellationToken.None));
         await Assert.ThrowsAsync<NotFoundException>(() => other.ReadAsync(answer.ConversationId, CancellationToken.None));
-        await Assert.ThrowsAsync<NotFoundException>(() => other.PrepareDraftAsync(answer.ConversationId, CancellationToken.None));
+        await Assert.ThrowsAsync<NotFoundException>(() => other.PrepareDraftAsync(answer.ConversationId, answer.DraftVersion, CancellationToken.None));
 
         db.FoodItems.Remove(await db.FoodItems.SingleAsync(food => food.Name == "Pizza"));
         await db.SaveChangesAsync();
-        await Assert.ThrowsAsync<ValidationException>(() => service.PrepareDraftAsync(answer.ConversationId, CancellationToken.None));
+        await Assert.ThrowsAsync<ValidationException>(() => service.PrepareDraftAsync(answer.ConversationId, answer.DraftVersion, CancellationToken.None));
     }
 
     [Fact]
@@ -286,7 +286,7 @@ public class MealAssistantTests
         var reopened = await assistant.ReadAsync(first.ConversationId, CancellationToken.None);
         Assert.Equal(125m, reopened[^1].Answer.Draft?.TotalCarbs);
         Assert.Equal(125m, (await assistant.SendAsync(request, CancellationToken.None)).Draft?.TotalCarbs);
-        var prepared = await assistant.PrepareDraftAsync(first.ConversationId, CancellationToken.None);
+        var prepared = await assistant.PrepareDraftAsync(first.ConversationId, (await assistant.GetDraftStateAsync(first.ConversationId, CancellationToken.None)).DraftVersion, CancellationToken.None);
         Assert.Equal(2, prepared.Count);
         Assert.Equal(Guid.Empty, prepared[1].FoodItemId);
         Assert.Empty(db.Meals);
@@ -332,7 +332,7 @@ public class MealAssistantTests
         Assert.NotNull(conversation);
         var reopened = await service.ReadAsync(conversation.GetValueOrDefault(), CancellationToken.None);
         Assert.Equal(30m, reopened[^1].Answer.Draft?.TotalCarbs);
-        var item = Assert.Single(await service.PrepareDraftAsync(conversation.GetValueOrDefault(), CancellationToken.None));
+        var item = Assert.Single(await service.PrepareDraftAsync(conversation.GetValueOrDefault(), (await service.GetDraftStateAsync(conversation.GetValueOrDefault(), CancellationToken.None)).DraftVersion, CancellationToken.None));
         Assert.Equal(1m, item.Quantity);
         Assert.Equal(FoodMeasurementType.Piece, item.MeasurementType);
         Assert.Equal("Four cheese pizza", item.FoodName);

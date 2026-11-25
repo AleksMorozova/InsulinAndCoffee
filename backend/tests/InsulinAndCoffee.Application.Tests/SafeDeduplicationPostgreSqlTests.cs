@@ -32,7 +32,7 @@ public partial class AssistantPostgreSqlSafetyTests
         Assert.Contains("Le Gril", answer.Draft.EditFeedback); Assert.Contains("Another saved order", answer.Draft.EditFeedback);
         Assert.DoesNotContain(sushi.Id.ToString(), answer.Draft.EditFeedback); Assert.DoesNotContain(other.Id.ToString(), answer.Draft.EditFeedback);
         Assert.Equal(75m, (await db.DeliveryMealItems.AsNoTracking().SingleAsync(item => item.Id == sushi.Id)).CarbOverride);
-        var calculator = await Service(db, owner).PrepareDraftAsync(chat.Id, CancellationToken.None);
+        var calculator = await Service(db, owner).PrepareDraftAsync(chat.Id, (await Service(db, owner).GetDraftStateAsync(chat.Id, CancellationToken.None)).DraftVersion, CancellationToken.None);
         Assert.Equal(135m, calculator.Sum(item => item.EffectiveCarbs)); Assert.Equal(2, calculator.Count);
         db.ChangeTracker.Clear(); Assert.Equal(2, (await Service(db, owner).GetDraftStateAsync(chat.Id, CancellationToken.None)).Draft!.Items.Count);
     }
